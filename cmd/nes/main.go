@@ -59,7 +59,351 @@ func readCHR(header []byte) uint64 {
     }
 }
 
+type Instruction1 interface {
+    Dissassemble() string
+}
+
+type InstructionBRK struct {
+}
+
+func (instruction *InstructionBRK) String() string {
+    return instruction.Dissassemble()
+}
+
+func (instruction *InstructionBRK) Dissassemble() string {
+    return "brk"
+}
+
+type InstructionUnknown struct {
+    Value byte
+}
+
+func (instruction *InstructionUnknown) String() string {
+    return instruction.Dissassemble()
+}
+
+func (instruction *InstructionUnknown) Dissassemble() string {
+    return fmt.Sprintf("unknown 0x%x", instruction.Value)
+}
+
+/* jump to pc+offset */
+type InstructionBNERel struct {
+    Address byte
+}
+
+func (instruction *InstructionBNERel) String() string {
+    return instruction.Dissassemble()
+}
+
+func (instruction *InstructionBNERel) Dissassemble() string {
+    return fmt.Sprintf("bne 0x%x", instruction.Address)
+}
+
+/* return from subroutine */
+type InstructionRTS struct {
+}
+
+func (instruction *InstructionRTS) String() string {
+    return instruction.Dissassemble()
+}
+
+func (instruction *InstructionRTS) Dissassemble() string {
+    return "rts"
+}
+
+type InstructionReader struct {
+    data *bytes.Reader
+    table map[InstructionType]InstructionDescription
+}
+
+type InstructionDescription struct {
+    Name string
+    Operands byte
+}
+
+type Instruction struct {
+    Name string
+    Kind InstructionType
+    Operands []byte
+}
+
+func (instruction *Instruction) String() string {
+    var out bytes.Buffer
+    out.WriteString(instruction.Name)
+    for _, operand := range instruction.Operands {
+        out.WriteRune(' ')
+        out.WriteString(fmt.Sprintf("0x%x", operand))
+    }
+    return out.String()
+}
+
+type InstructionType int
+
+const (
+    Instruction_BRK InstructionType = 0x00
+    Instruction_ORA_d_x = 0x01
+    Instruction_STP_02 = 0x02
+    Instruction_STP_03 = 0x03
+    Instruction_STP_04 = 0x04
+    Instruction_ORA_zpg = 0x05
+    Instruction_ASL_zero = 0x06
+    Instruction_SLO_07 = 0x07
+    Instruction_PHP = 0x08
+    Instruction_ORA_immediate = 0x09
+    Instruction_ASL_accumulator = 0x0a
+    Instruction_ANC_0b = 0x0b
+    Instruction_NOP_0c = 0x0c
+    Instruction_ORA_abs = 0x0d
+    Instruction_ASL_abs = 0x0e
+    Instruction_SLO_abs = 0x0f
+    Instruction_BPL_rel = 0x10
+    Instruction_CLC = 0x18
+    Instruction_JSR_absolute = 0x20
+    Instruction_BIT_zero = 0x24
+    Instruction_PLP = 0x28
+    Instruction_AND_immediate = 0x29
+    Instruction_ROL_accumulator = 0x2a
+    Instruction_BIT_absolute = 0x2c
+    Instruction_BMI_rel = 0x30
+    Instruction_SEC = 0x38
+    Instruction_RTI = 0x40
+    Instruction_EOR_zero = 0x45
+    Instruction_LSR_zero = 0x46
+    Instruction_PHA = 0x48
+    Instruction_EOR_immediate = 0x49
+    Instruction_LSR_accumulator = 0x4a
+    Instruction_JMP_absolute = 0x4c
+    Instruction_BVC_rel = 0x50
+    Instruction_SRE_y = 0x53
+    Instruction_RTS = 0x60
+    Instruction_ROR_zero = 0x66
+    Instruction_PLA = 0x68
+    Instruction_ADC_immediate = 0x69
+    Instruction_ROR_accumulator = 0x6a
+    Instruction_BVS_rel = 0x70
+    Instruction_SEI_implied = 0x78
+    Instruction_ADC_absolute_y = 0x79
+    Instruction_STA_indirect_x = 0x81
+    Instruction_STA_zero = 0x85
+    Instruction_STX_zero = 0x86
+    Instruction_DEY = 0x88
+    Instruction_TXA = 0x8a
+    Instruction_STA_absolute = 0x8d
+    Instruction_STX_absolute = 0x8e
+    Instruction_BCC_rel = 0x90
+    Instruction_STA_indirect_y = 0x91
+    Instruction_TYA = 0x98
+    Instruction_TXS = 0x9a
+    Instruction_STA_absolute_x = 0x9d
+    Instruction_LDY_immediate = 0xa0
+    Instruction_LDA_indirect_x = 0xa1
+    Instruction_LDX_immediate = 0xa2
+    Instruction_LDA_zero = 0xa5
+    Instruction_LDX_zero = 0xa6
+    Instruction_TAY = 0xa8
+    Instruction_LDA_immediate = 0xa9
+    Instruction_TAX = 0xaa
+    Instruction_LDA_absolute = 0xad
+    Instruction_BCS_rel = 0xb0
+    Instruction_LDA_indirect_y = 0xb1
+    Instruction_LDA_zero_x = 0xb5
+    Instruction_CLV = 0xb8
+    Instruction_TSX = 0xba
+    Instruction_LDA_absolute_x = 0xbd
+    Instruction_CMP_zero = 0xc5
+    Instruction_DEC_zero = 0xc6
+    Instruction_CMP_immediate = 0xc9
+    Instruction_DEX = 0xca
+    Instruction_BNE_rel = 0xd0
+    Instruction_CLD = 0xd8
+    Instruction_INX = 0xe8
+    Instruction_SBC_immediate = 0xe9
+    Instruction_NOP = 0xea
+    Instruction_INC_zero = 0xe6
+    Instruction_BEQ_rel = 0xf0
+    Instruction_Unknown_ff = 0xff
+)
+
+func NewInstructionReader(data []byte) *InstructionReader {
+    table := make(map[InstructionType]InstructionDescription)
+    table[Instruction_BRK] = InstructionDescription{Name: "brk", Operands: 0}
+    table[Instruction_Unknown_ff] = InstructionDescription{Name: "unknown", Operands: 0}
+    table[Instruction_BNE_rel] = InstructionDescription{Name: "bne", Operands: 1}
+    table[Instruction_RTS] = InstructionDescription{Name: "rts", Operands: 0}
+    table[Instruction_BEQ_rel] = InstructionDescription{Name: "beq", Operands: 1}
+    table[Instruction_BMI_rel] = InstructionDescription{Name: "bmi", Operands: 1}
+    table[Instruction_BPL_rel] = InstructionDescription{Name: "bpl", Operands: 1}
+    table[Instruction_BCC_rel] = InstructionDescription{Name: "bcc", Operands: 1}
+    table[Instruction_BCS_rel] = InstructionDescription{Name: "bcs", Operands: 1}
+    table[Instruction_BVC_rel] = InstructionDescription{Name: "bvc", Operands: 1}
+    table[Instruction_BVS_rel] = InstructionDescription{Name: "bvs", Operands: 1}
+    table[Instruction_LDA_immediate] = InstructionDescription{Name: "lda", Operands: 1}
+    table[Instruction_STA_zero] = InstructionDescription{Name: "sta", Operands: 1}
+    table[Instruction_SEI_implied] = InstructionDescription{Name: "sei", Operands: 0}
+    table[Instruction_STA_absolute] = InstructionDescription{Name: "sta", Operands: 2}
+    table[Instruction_JSR_absolute] = InstructionDescription{Name: "jsr", Operands: 2}
+    table[Instruction_LDA_absolute] = InstructionDescription{Name: "lda", Operands: 2}
+    table[Instruction_LDX_immediate] = InstructionDescription{Name: "ldx", Operands: 1}
+    table[Instruction_LDA_absolute_x] = InstructionDescription{Name: "lda", Operands: 2}
+    table[Instruction_INX] = InstructionDescription{Name: "inx", Operands: 0}
+    table[Instruction_JMP_absolute] = InstructionDescription{Name: "jmp", Operands: 2}
+    table[Instruction_LDA_zero] = InstructionDescription{Name: "lda", Operands: 1}
+    table[Instruction_LDY_immediate] = InstructionDescription{Name: "ldy", Operands: 1}
+    table[Instruction_CMP_immediate] = InstructionDescription{Name: "cmp", Operands: 1}
+    table[Instruction_CLC] = InstructionDescription{Name: "clc", Operands: 0}
+    table[Instruction_ADC_immediate] = InstructionDescription{Name: "adc", Operands: 1}
+    table[Instruction_PHA] = InstructionDescription{Name: "pha", Operands: 0}
+    table[Instruction_PLA] = InstructionDescription{Name: "pla", Operands: 0}
+    table[Instruction_NOP] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_STA_absolute_x] = InstructionDescription{Name: "sta", Operands: 2}
+    table[Instruction_LDA_indirect_y] = InstructionDescription{Name: "lda", Operands: 1}
+    table[Instruction_STA_indirect_y] = InstructionDescription{Name: "sta", Operands: 1}
+    table[Instruction_LDA_indirect_x] = InstructionDescription{Name: "lda", Operands: 1}
+    table[Instruction_STA_indirect_x] = InstructionDescription{Name: "sta", Operands: 1}
+    table[Instruction_SBC_immediate] = InstructionDescription{Name: "sbc", Operands: 1}
+    table[Instruction_LSR_accumulator] = InstructionDescription{Name: "lsr", Operands: 0}
+    table[Instruction_PHP] = InstructionDescription{Name: "php", Operands: 0}
+    table[Instruction_PLP] = InstructionDescription{Name: "plp", Operands: 0}
+    table[Instruction_TXA] = InstructionDescription{Name: "txa", Operands: 0}
+    table[Instruction_TYA] = InstructionDescription{Name: "tya", Operands: 0}
+    table[Instruction_TSX] = InstructionDescription{Name: "tsx", Operands: 0}
+    table[Instruction_TAX] = InstructionDescription{Name: "tax", Operands: 0}
+    table[Instruction_AND_immediate] = InstructionDescription{Name: "and", Operands: 1}
+    table[Instruction_TAY] = InstructionDescription{Name: "tay", Operands: 0}
+    table[Instruction_INC_zero] = InstructionDescription{Name: "inc", Operands: 1}
+    table[Instruction_ORA_immediate] = InstructionDescription{Name: "ora", Operands: 1}
+    table[Instruction_DEC_zero] = InstructionDescription{Name: "dec", Operands: 1}
+    table[Instruction_BIT_zero] = InstructionDescription{Name: "bit", Operands: 1}
+    table[Instruction_STX_zero] = InstructionDescription{Name: "stx", Operands: 1}
+    table[Instruction_EOR_zero] = InstructionDescription{Name: "eor", Operands: 1}
+    table[Instruction_LSR_zero] = InstructionDescription{Name: "lsr", Operands: 1}
+    table[Instruction_ROR_zero] = InstructionDescription{Name: "ror", Operands: 1}
+    table[Instruction_ROR_accumulator] = InstructionDescription{Name: "ror", Operands: 0}
+    table[Instruction_EOR_immediate] = InstructionDescription{Name: "eor", Operands: 1}
+    table[Instruction_DEX] = InstructionDescription{Name: "dex", Operands: 0}
+    table[Instruction_LDX_zero] = InstructionDescription{Name: "ldx", Operands: 1}
+    table[Instruction_LDA_zero_x] = InstructionDescription{Name: "lda", Operands: 1}
+    table[Instruction_SEC] = InstructionDescription{Name: "sec", Operands: 0}
+    table[Instruction_ADC_absolute_y] = InstructionDescription{Name: "adc", Operands: 2}
+    table[Instruction_DEY] = InstructionDescription{Name: "dey", Operands: 0}
+    table[Instruction_ROL_accumulator] = InstructionDescription{Name: "rol", Operands: 0}
+    table[Instruction_ASL_accumulator] = InstructionDescription{Name: "asl", Operands: 0}
+    table[Instruction_CLV] = InstructionDescription{Name: "clv", Operands: 0}
+    table[Instruction_TXS] = InstructionDescription{Name: "txs", Operands: 0}
+    table[Instruction_BIT_absolute] = InstructionDescription{Name: "bit", Operands: 2}
+    table[Instruction_STX_absolute] = InstructionDescription{Name: "stx", Operands: 2}
+    table[Instruction_ASL_zero] = InstructionDescription{Name: "asl", Operands: 1}
+    table[Instruction_CLD] = InstructionDescription{Name: "cld", Operands: 0}
+    table[Instruction_RTI] = InstructionDescription{Name: "rti", Operands: 0}
+    table[Instruction_CMP_zero] = InstructionDescription{Name: "cmp", Operands: 1}
+
+    /* make sure I don't do something dumb */
+    for key, value := range table {
+        if value.Operands > 2 {
+            panic(fmt.Sprintf("internal error: operands cannot be more than 2 for instruction %v: %v", key, value.Name))
+        }
+    }
+
+    return &InstructionReader{
+        data: bytes.NewReader(data),
+        table: table,
+    }
+}
+
+/* instructions can vary in their size */
+func (reader *InstructionReader) ReadInstruction() (Instruction, error) {
+    first, err := reader.data.ReadByte()
+    if err != nil {
+        return Instruction{}, err
+    }
+
+    firstI := InstructionType(first)
+
+    description, ok := reader.table[firstI]
+    if !ok {
+        return Instruction{}, fmt.Errorf("unknown instruction: 0x%x\n", first)
+    }
+
+    out := Instruction{
+        Name: description.Name,
+        Kind: firstI,
+        Operands: make([]byte, description.Operands),
+    }
+
+    for i := byte(0); i < description.Operands; i++ {
+        operand, err := reader.data.ReadByte()
+        if err != nil {
+            return Instruction{}, fmt.Errorf("unable to read operand %v for instruction %v", i, description.Name)
+        }
+
+        out.Operands[i] = operand
+    }
+
+    return out, nil
+}
+
+/*
+func (reader *InstructionReader) ReadInstruction() (Instruction, error) {
+    first, err := reader.data.ReadByte()
+    if err != nil {
+        return nil, err
+    }
+
+    switch first {
+        case 0x0: return &InstructionBRK{}, nil
+        case 0x60: return &InstructionRTS{}, nil
+        case 0xd0:
+            address, err := reader.data.ReadByte()
+            if err != nil {
+                return nil, err
+            }
+            return &InstructionBNERel{Address: address}, nil
+        case 0xf0:
+            address, err := reader.data.ReadByte()
+            if err != nil {
+            }
+        case 0xff: return &InstructionUnknown{Value: 0xff}, nil
+    }
+
+    return nil, fmt.Errorf("unknown instruction: 0x%x\n", first)
+}
+*/
+
+
+/* https://www.masswerk.at/6502/6502_instruction_set.html
+ * A = accumulator
+ * abs = absolute
+ * n/# = immediate
+ * impl = implied
+ * ind = indirect
+ * rel = relative
+ * zpg = zeropage
+ */
+/*
 func decodeInstruction(high byte, low byte) string {
+    full := int(high) * 8 + int(low)
+    switch Instruction(full) {
+        case Instruction_BRK: return "BRK impl"
+        case Instruction_ORA_d_x: return "ORA (X, ind)"
+        case Instruction_STP_02: return "STP(02)"
+        case Instruction_STP_03: return "STP(03)"
+        case Instruction_STP_04: return "STP(04)"
+        case Instruction_ORA_zpg: return "ORA zpg"
+        case Instruction_ASL_zpg: return "ASL zpg"
+        case Instruction_SLO_07: return "SLO(07)"
+        case Instruction_PHP_impl: return "PHP impl"
+        case Instruction_ORA_n: return "ORA n"
+        case Instruction_ASL_a: return "ASL a"
+        case Instruction_ANC_0b: return "ANC(0b)"
+        case Instruction_NOP_0c: return "NOP(0c)"
+        case Instruction_ORA_abs: return "ORA abs"
+        case Instruction_ASL_abs: return "ASL abs"
+        case Instruction_SLO_abs: return "SLO abs"
+
+        case Instruction_BNE_rel: return "BNE rel"
+    }
+
+    / *
     switch high {
         case 0x0:
             switch low {
@@ -85,17 +429,35 @@ func decodeInstruction(high byte, low byte) string {
                 case 0xa: return "NOP"
             }
     }
+    * /
 
     return "?"
 }
+*/
 
 func dump_instructions(instructions []byte){
+    reader := NewInstructionReader(instructions)
+
+    count := 1
+    for {
+        instruction, err := reader.ReadInstruction()
+        if err != nil {
+            log.Printf("Error decoding instruction %v: %v\n", count, err)
+            return
+        }
+
+        log.Printf("Instruction %v: %v\n", count, instruction.String())
+        count += 1
+    }
+
+    /*
     for instruction := 0; instruction < len(instructions); instruction++ {
         lo := instructions[instruction] & 0xf
         hi := instructions[instruction] >> 4
 
-        log.Printf("Instruction %v: Lo 0x%x Hi 0x%x = %v\n", instruction, lo, hi, decodeInstruction(hi, lo))
+        log.Printf("Instruction %v: Lo 0x%x Hi 0x%x Full 0x%x = %v\n", instruction, lo, hi, instructions[instruction], decodeInstruction(hi, lo))
     }
+    */
 }
 
 func parse(path string) error {
