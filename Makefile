@@ -5,3 +5,6 @@ nes:
 
 test:
 	go test ./...
+
+count:
+	wc -l ./cmd/nes/*.go
