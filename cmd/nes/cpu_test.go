@@ -112,4 +112,12 @@ func TestCPUSimple(test *testing.T){
     if memory.Load(0x200) != 0x1 {
         test.Fatalf("expected memory location 0x200 to contain 0x1 but was 0x%x\n", memory.Load(0x200))
     }
+
+    if memory.Load(0x201) != 0x5 {
+        test.Fatalf("expected memory location 0x201 to contain 0x5 but was 0x%x\n", memory.Load(0x201))
+    }
+
+    if memory.Load(0x202) != 0x8 {
+        test.Fatalf("expected memory location 0x202 to contain 0x8 but was 0x%x\n", memory.Load(0x202))
+    }
 }
