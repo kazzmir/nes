@@ -59,58 +59,6 @@ func readCHR(header []byte) uint64 {
     }
 }
 
-type Instruction1 interface {
-    Dissassemble() string
-}
-
-type InstructionBRK struct {
-}
-
-func (instruction *InstructionBRK) String() string {
-    return instruction.Dissassemble()
-}
-
-func (instruction *InstructionBRK) Dissassemble() string {
-    return "brk"
-}
-
-type InstructionUnknown struct {
-    Value byte
-}
-
-func (instruction *InstructionUnknown) String() string {
-    return instruction.Dissassemble()
-}
-
-func (instruction *InstructionUnknown) Dissassemble() string {
-    return fmt.Sprintf("unknown 0x%x", instruction.Value)
-}
-
-/* jump to pc+offset */
-type InstructionBNERel struct {
-    Address byte
-}
-
-func (instruction *InstructionBNERel) String() string {
-    return instruction.Dissassemble()
-}
-
-func (instruction *InstructionBNERel) Dissassemble() string {
-    return fmt.Sprintf("bne 0x%x", instruction.Address)
-}
-
-/* return from subroutine */
-type InstructionRTS struct {
-}
-
-func (instruction *InstructionRTS) String() string {
-    return instruction.Dissassemble()
-}
-
-func (instruction *InstructionRTS) Dissassemble() string {
-    return "rts"
-}
-
 type InstructionReader struct {
     data *bytes.Reader
     table map[InstructionType]InstructionDescription
@@ -342,34 +290,6 @@ func (reader *InstructionReader) ReadInstruction() (Instruction, error) {
     return out, nil
 }
 
-/*
-func (reader *InstructionReader) ReadInstruction() (Instruction, error) {
-    first, err := reader.data.ReadByte()
-    if err != nil {
-        return nil, err
-    }
-
-    switch first {
-        case 0x0: return &InstructionBRK{}, nil
-        case 0x60: return &InstructionRTS{}, nil
-        case 0xd0:
-            address, err := reader.data.ReadByte()
-            if err != nil {
-                return nil, err
-            }
-            return &InstructionBNERel{Address: address}, nil
-        case 0xf0:
-            address, err := reader.data.ReadByte()
-            if err != nil {
-            }
-        case 0xff: return &InstructionUnknown{Value: 0xff}, nil
-    }
-
-    return nil, fmt.Errorf("unknown instruction: 0x%x\n", first)
-}
-*/
-
-
 /* https://www.masswerk.at/6502/6502_instruction_set.html
  * A = accumulator
  * abs = absolute
@@ -379,61 +299,6 @@ func (reader *InstructionReader) ReadInstruction() (Instruction, error) {
  * rel = relative
  * zpg = zeropage
  */
-/*
-func decodeInstruction(high byte, low byte) string {
-    full := int(high) * 8 + int(low)
-    switch Instruction(full) {
-        case Instruction_BRK: return "BRK impl"
-        case Instruction_ORA_d_x: return "ORA (X, ind)"
-        case Instruction_STP_02: return "STP(02)"
-        case Instruction_STP_03: return "STP(03)"
-        case Instruction_STP_04: return "STP(04)"
-        case Instruction_ORA_zpg: return "ORA zpg"
-        case Instruction_ASL_zpg: return "ASL zpg"
-        case Instruction_SLO_07: return "SLO(07)"
-        case Instruction_PHP_impl: return "PHP impl"
-        case Instruction_ORA_n: return "ORA n"
-        case Instruction_ASL_a: return "ASL a"
-        case Instruction_ANC_0b: return "ANC(0b)"
-        case Instruction_NOP_0c: return "NOP(0c)"
-        case Instruction_ORA_abs: return "ORA abs"
-        case Instruction_ASL_abs: return "ASL abs"
-        case Instruction_SLO_abs: return "SLO abs"
-
-        case Instruction_BNE_rel: return "BNE rel"
-    }
-
-    / *
-    switch high {
-        case 0x0:
-            switch low {
-                case 0x0: return "BRK impl"
-                case 0x1: return "ORA x,ind"
-                case 0x2: return "STP"
-            }
-        case 0x2:
-            switch low {
-                case 0x0: return "JSR abs"
-            }
-        case 0x4:
-            switch low {
-                case 0xd: return "EOR abs"
-            }
-        case 0xa:
-            switch low {
-                case 0x9: return "LDA #"
-            }
-        case 0xe:
-            switch low {
-                case 0x6: return "INC zpg"
-                case 0xa: return "NOP"
-            }
-    }
-    * /
-
-    return "?"
-}
-*/
 
 func dump_instructions(instructions []byte){
     reader := NewInstructionReader(instructions)
@@ -449,15 +314,6 @@ func dump_instructions(instructions []byte){
         log.Printf("Instruction %v: %v\n", count, instruction.String())
         count += 1
     }
-
-    /*
-    for instruction := 0; instruction < len(instructions); instruction++ {
-        lo := instructions[instruction] & 0xf
-        hi := instructions[instruction] >> 4
-
-        log.Printf("Instruction %v: Lo 0x%x Hi 0x%x Full 0x%x = %v\n", instruction, lo, hi, instructions[instruction], decodeInstruction(hi, lo))
-    }
-    */
 }
 
 func parse(path string) error {
