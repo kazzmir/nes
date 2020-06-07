@@ -22,6 +22,20 @@ type Instruction struct {
     Operands []byte
 }
 
+func (instruction *Instruction) Length() uint16 {
+    return 1 + uint16(len(instruction.Operands))
+}
+
+func (instruction *Instruction) OperandByte() byte {
+    return instruction.Operands[0]
+}
+
+func (instruction *Instruction) OperandWord() uint16 {
+    high := instruction.Operands[1]
+    low := instruction.Operands[0]
+    return (uint16(high) << 8) | uint16(low)
+}
+
 func (instruction *Instruction) String() string {
     var out bytes.Buffer
     out.WriteString(instruction.Name)
@@ -263,3 +277,48 @@ func dump_instructions(instructions []byte){
     }
 }
 
+type CPUState struct {
+    A byte
+    X byte
+    Y byte
+    SP byte
+    PC uint16
+    Status byte
+}
+
+type Memory struct {
+    Data []byte
+}
+
+func NewMemory(size int) Memory {
+    data := make([]byte, size)
+    /* by default the data initializes to all 0's, but we could
+     * put some other arbitrary byte value in each slot
+     */
+    return Memory{
+        Data: data,
+    }
+}
+
+func (memory *Memory) Store(address uint16, value byte){
+    memory.Data[address] = value
+}
+
+func (memory *Memory) Load(address uint16) byte {
+    return memory.Data[address]
+}
+
+func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
+    switch instruction.Kind {
+        case Instruction_LDA_immediate:
+            cpu.A = instruction.OperandByte()
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_STA_absolute:
+            memory.Store(instruction.OperandWord(), cpu.A)
+            cpu.PC += instruction.Length()
+            return nil
+    }
+
+    return fmt.Errorf("unable to execute instruction %v", instruction.String())
+}

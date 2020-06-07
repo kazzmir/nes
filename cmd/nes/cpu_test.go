@@ -53,3 +53,63 @@ func TestCPUDecode(test *testing.T){
         Instruction_STA_absolute,
     })
 }
+
+func TestCPUSimple(test *testing.T){
+    bytes := []byte{0xa9, 0x01, 0x8d, 0x00, 0x02, 0xa9, 0x05, 0x8d, 0x01, 0x02, 0xa9, 0x08, 0x8d, 0x02, 0x02}
+
+    reader := NewInstructionReader(bytes)
+    instructions, err := readAllInstructions(reader)
+
+    if err != nil {
+        if err != io.EOF {
+            test.Fatalf("could not read instructions: %v", err)
+        }
+    }
+
+    checkInstructions(test, instructions, []InstructionType{
+        Instruction_LDA_immediate,
+        Instruction_STA_absolute,
+        Instruction_LDA_immediate,
+        Instruction_STA_absolute,
+        Instruction_LDA_immediate,
+        Instruction_STA_absolute,
+    })
+
+    cpu := CPUState{
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0,
+        PC: 0x100,
+        Status: 0,
+    }
+
+    memory := NewMemory(0x3000)
+
+    for _, instruction := range instructions {
+        err = cpu.Execute(instruction, &memory)
+        if err != nil {
+            test.Fatalf("could not execute instruction %v\n", instruction.String())
+        }
+    }
+
+    if cpu.A != 0x8 {
+        test.Fatalf("A register expected to be 0x8 but was 0x%x\n", cpu.A)
+    }
+
+    if cpu.X != 0x0 {
+        test.Fatalf("X register expected to be 0x0 but was 0x%x\n", cpu.X)
+    }
+
+    if cpu.Y != 0x0 {
+        test.Fatalf("Y register expected to be 0x0 but was 0x%x\n", cpu.Y)
+    }
+
+    if cpu.PC != 0x10f {
+        test.Fatalf("PC register expected to be 0x10f but was 0x%x\n", cpu.PC)
+    }
+
+    if memory.Load(0x200) != 0x1 {
+        test.Fatalf("expected memory location 0x200 to contain 0x1 but was 0x%x\n", memory.Load(0x200))
+    }
+}
