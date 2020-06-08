@@ -26,14 +26,20 @@ func (instruction *Instruction) Length() uint16 {
     return 1 + uint16(len(instruction.Operands))
 }
 
-func (instruction *Instruction) OperandByte() byte {
-    return instruction.Operands[0]
+func (instruction *Instruction) OperandByte() (byte, error) {
+    if len(instruction.Operands) != 1 {
+        return 0, fmt.Errorf("dont have one operand for %v, only have %v", instruction.Name, len(instruction.Operands))
+    }
+    return instruction.Operands[0], nil
 }
 
-func (instruction *Instruction) OperandWord() uint16 {
+func (instruction *Instruction) OperandWord() (uint16, error) {
+    if len(instruction.Operands) != 2 {
+        return 0, fmt.Errorf("dont have two operands for %v, only have %v", instruction.Name, len(instruction.Operands))
+    }
     high := instruction.Operands[1]
     low := instruction.Operands[0]
-    return (uint16(high) << 8) | uint16(low)
+    return (uint16(high) << 8) | uint16(low), nil
 }
 
 func (instruction *Instruction) String() string {
@@ -311,11 +317,19 @@ func (memory *Memory) Load(address uint16) byte {
 func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
     switch instruction.Kind {
         case Instruction_LDA_immediate:
-            cpu.A = instruction.OperandByte()
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            cpu.A = value
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STA_absolute:
-            memory.Store(instruction.OperandWord(), cpu.A)
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            memory.Store(address, cpu.A)
             cpu.PC += instruction.Length()
             return nil
     }
