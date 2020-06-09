@@ -4,10 +4,11 @@ import (
     "bytes"
     "fmt"
     "log"
+    "io"
 )
 
 type InstructionReader struct {
-    data *bytes.Reader
+    data io.Reader
     table map[InstructionType]InstructionDescription
 }
 
@@ -129,8 +130,9 @@ const (
     Instruction_DEC_zero = 0xc6
     Instruction_CMP_immediate = 0xc9
     Instruction_DEX = 0xca
-    Instruction_BNE_rel = 0xd0
+    Instruction_BNE = 0xd0
     Instruction_CLD = 0xd8
+    Instruction_CPX_immediate = 0xe0
     Instruction_INX = 0xe8
     Instruction_SBC_immediate = 0xe9
     Instruction_NOP = 0xea
@@ -143,7 +145,7 @@ func NewInstructionReader(data []byte) *InstructionReader {
     table := make(map[InstructionType]InstructionDescription)
     table[Instruction_BRK] = InstructionDescription{Name: "brk", Operands: 0}
     table[Instruction_Unknown_ff] = InstructionDescription{Name: "unknown", Operands: 0}
-    table[Instruction_BNE_rel] = InstructionDescription{Name: "bne", Operands: 1}
+    table[Instruction_BNE] = InstructionDescription{Name: "bne", Operands: 1}
     table[Instruction_RTS] = InstructionDescription{Name: "rts", Operands: 0}
     table[Instruction_BEQ_rel] = InstructionDescription{Name: "beq", Operands: 1}
     table[Instruction_BMI_rel] = InstructionDescription{Name: "bmi", Operands: 1}
@@ -211,6 +213,7 @@ func NewInstructionReader(data []byte) *InstructionReader {
     table[Instruction_CLD] = InstructionDescription{Name: "cld", Operands: 0}
     table[Instruction_RTI] = InstructionDescription{Name: "rti", Operands: 0}
     table[Instruction_CMP_zero] = InstructionDescription{Name: "cmp", Operands: 1}
+    table[Instruction_CPX_immediate] = InstructionDescription{Name: "cpx", Operands: 1}
 
     /* make sure I don't do something dumb */
     for key, value := range table {
@@ -227,12 +230,13 @@ func NewInstructionReader(data []byte) *InstructionReader {
 
 /* instructions can vary in their size */
 func (reader *InstructionReader) ReadInstruction() (Instruction, error) {
-    first, err := reader.data.ReadByte()
+    first := make([]byte, 1)
+    _, err := io.ReadFull(reader.data, first)
     if err != nil {
         return Instruction{}, err
     }
 
-    firstI := InstructionType(first)
+    firstI := InstructionType(first[0])
 
     description, ok := reader.table[firstI]
     if !ok {
@@ -242,17 +246,16 @@ func (reader *InstructionReader) ReadInstruction() (Instruction, error) {
     out := Instruction{
         Name: description.Name,
         Kind: firstI,
-        Operands: make([]byte, description.Operands),
+        Operands: nil,
     }
 
-    for i := byte(0); i < description.Operands; i++ {
-        operand, err := reader.data.ReadByte()
-        if err != nil {
-            return Instruction{}, fmt.Errorf("unable to read operand %v for instruction %v", i, description.Name)
-        }
-
-        out.Operands[i] = operand
+    operands := make([]byte, description.Operands)
+    _, err = io.ReadFull(reader.data, operands)
+    if err != nil {
+        return Instruction{}, fmt.Errorf("unable to read %v operands for instruction %v", description.Operands, description.Name)
     }
+
+    out.Operands = operands
 
     return out, nil
 }
@@ -290,6 +293,68 @@ type CPUState struct {
     SP byte
     PC uint16
     Status byte
+
+    CodeStart uint16
+    Code []byte
+}
+
+func (cpu *CPUState) MapCode(location int, code []byte){
+    cpu.CodeStart = uint16(location)
+    cpu.Code = code
+}
+
+func (cpu *CPUState) Fetch() (Instruction, error) {
+    where := cpu.PC - cpu.CodeStart
+    if where < 0 {
+        return Instruction{}, fmt.Errorf("Invalid PC value: %v", cpu.PC)
+    }
+
+    if int(where) >= len(cpu.Code) {
+        return Instruction{}, fmt.Errorf("Invalid PC value: %v", cpu.PC)
+    }
+
+    use := cpu.Code[where:]
+    /* FIXME: dont create a new reader each time */
+    reader := NewInstructionReader(use)
+    return reader.ReadInstruction()
+}
+
+func (cpu *CPUState) Run(memory *Memory) error {
+    instruction, err := cpu.Fetch()
+    if err != nil {
+        return err
+    }
+
+    log.Printf("PC: 0x%x Execute instruction %v\n", cpu.PC, instruction.String())
+    return cpu.Execute(instruction, memory)
+}
+
+func (cpu *CPUState) setBit(bit byte, set bool){
+    if set {
+        cpu.Status = cpu.Status | bit
+    } else {
+        cpu.Status = cpu.Status & (^bit)
+    }
+}
+
+func (cpu *CPUState) getBit(bit byte) bool {
+    return (cpu.Status & bit) == bit
+}
+
+func (cpu *CPUState) GetInterruptFlag() bool {
+    return cpu.getBit(byte(0x4))
+}
+
+func (cpu *CPUState) SetInterruptFlag(set bool){
+    cpu.setBit(byte(0x4), set)
+}
+
+func (cpu *CPUState) GetZeroFlag() bool {
+    return cpu.getBit(byte(0x2))
+}
+
+func (cpu *CPUState) SetZeroFlag(zero bool){
+    cpu.setBit(byte(0x2), zero)
 }
 
 type Memory struct {
@@ -351,8 +416,47 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             cpu.A += value
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_STX_absolute:
+            value, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            location := uint16(cpu.X) + value
+            memory.Store(location, cpu.A)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_CPX_immediate:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return nil
+            }
+            cpu.SetZeroFlag(cpu.X == value)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_BNE:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            cpu.PC += instruction.Length()
+            if !cpu.GetZeroFlag() {
+                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+            }
+            return nil
+        case Instruction_LDX_immediate:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            cpu.X = value
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_DEX:
+            cpu.X -= 1
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_BRK:
-            /* FIXME: set status flags or something */
+            cpu.SetInterruptFlag(true)
             cpu.PC += instruction.Length()
             return nil
     }

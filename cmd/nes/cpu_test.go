@@ -189,3 +189,78 @@ func TestCPUSimple2(test *testing.T){
         test.Fatalf("PC register expected to be 0x107 but was 0x%x\n", cpu.PC)
     }
 }
+
+func TestCPUSimpleBranch(test *testing.T){
+    bytes := []byte{
+        0xa9, 0x02, // LDA #$02
+        0xa2, 0x08, // ldx #$08
+        0xca,       // dex
+        0x8e, 0x00, 0x02, // stx #$200
+        0xe0, 0x03, // cpx #$03
+        0xd0, 0xf8, // bne 0xf8
+        0x8e, 0x01, 0x20, // stx #$201
+        0x00, // brk
+    }
+
+    reader := NewInstructionReader(bytes)
+    instructions, err := readAllInstructions(reader)
+
+    if err != nil {
+        if err != io.EOF {
+            test.Fatalf("could not read instructions: %v", err)
+        }
+    }
+
+    checkInstructions(test, instructions, []InstructionType{
+        Instruction_LDA_immediate,
+        Instruction_LDX_immediate,
+        Instruction_DEX,
+        Instruction_STX_absolute,
+        Instruction_CPX_immediate,
+        Instruction_BNE,
+        Instruction_STX_absolute,
+        Instruction_BRK,
+    })
+
+    cpu := CPUState{
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0,
+        PC: 0x100,
+        Status: 0,
+    }
+
+    memory := NewMemory(0x3000)
+
+    cpu.MapCode(0x100, bytes)
+
+    for i := 0; i < 50; i++ {
+        err = cpu.Run(&memory)
+        if err != nil {
+            test.Fatalf("Could not run CPU: %v\n", err)
+        }
+
+        if cpu.GetInterruptFlag() {
+            break
+        }
+    }
+
+    if cpu.A != 0x2 {
+        test.Fatalf("A register expected to be 0x2 but was 0x%x\n", cpu.A)
+    }
+
+    if cpu.X != 0x03 {
+        test.Fatalf("X register expected to be 0x03 but was 0x%x\n", cpu.X)
+    }
+
+    if cpu.Y != 0x0 {
+        test.Fatalf("Y register expected to be 0x0 but was 0x%x\n", cpu.Y)
+    }
+
+    /*
+    if cpu.PC != 0x111 {
+        test.Fatalf("PC register expected to be 0x111 but was 0x%x\n", cpu.PC)
+    }
+    */
+}
