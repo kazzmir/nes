@@ -332,6 +332,29 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             memory.Store(address, cpu.A)
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_TAX:
+            /* FIXME: handle overflow */
+            cpu.X = cpu.A
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_INX:
+            /* FIXME: handle overflow */
+            cpu.X += 1
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_ADC_immediate:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            /* FIXME: handle overflow */
+            cpu.A += value
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_BRK:
+            /* FIXME: set status flags or something */
+            cpu.PC += instruction.Length()
+            return nil
     }
 
     return fmt.Errorf("unable to execute instruction %v", instruction.String())
