@@ -109,6 +109,7 @@ const (
     Instruction_STX_absolute = 0x8e
     Instruction_BCC_rel = 0x90
     Instruction_STA_indirect_y = 0x91
+    Instruction_STA_zeropage_x = 0x95
     Instruction_TYA = 0x98
     Instruction_TXS = 0x9a
     Instruction_STA_absolute_x = 0x9d
@@ -216,6 +217,7 @@ func NewInstructionReader(data []byte) *InstructionReader {
     table[Instruction_CMP_zero] = InstructionDescription{Name: "cmp", Operands: 1}
     table[Instruction_CPX_immediate] = InstructionDescription{Name: "cpx", Operands: 1}
     table[Instruction_STY_absolute] = InstructionDescription{Name: "sty", Operands: 2}
+    table[Instruction_STA_zeropage_x] = InstructionDescription{Name: "sta", Operands: 1}
 
     /* make sure I don't do something dumb */
     for key, value := range table {
@@ -437,6 +439,15 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             }
             // log.Printf("Store X:0x%x into 0x%x\n", cpu.X, value)
             memory.Store(value, cpu.X)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_STA_zeropage_x:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return nil
+            }
+            address := uint16(value + cpu.X)
+            memory.Store(address, cpu.A)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_CPX_immediate:
