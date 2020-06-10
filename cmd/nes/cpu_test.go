@@ -264,3 +264,39 @@ func TestCPUSimpleBranch(test *testing.T){
         test.Fatalf("Expected memory location 0x201 to be 0x3 but was 0x%x\n", memory.Load(0x201))
     }
 }
+
+func TestInstructions1(testing *testing.T){
+    bytes := []byte{
+        0xa9, 0x0c, // LDA #$c0
+        0xa8,       // tay
+        0x8c, 0x03, 0x02, // sty #$203
+        0x00, // brk
+    }
+
+    cpu := CPUState{
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0,
+        PC: 0x100,
+        Status: 0,
+    }
+
+    memory := NewMemory(0x3000)
+
+    cpu.MapCode(0x100, bytes)
+    for i := 0; i < 50; i++ {
+        err := cpu.Run(&memory)
+        if err != nil {
+            testing.Fatalf("Could not execute cpu %v\n", err)
+        }
+
+        if cpu.GetInterruptFlag() {
+            break
+        }
+    }
+
+    if memory.Load(0x203) != 0x0c {
+        testing.Fatalf("Expected memory location 0x203 to be 0x0c but was 0x%x\n", memory.Load(0x203))
+    }
+}

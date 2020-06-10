@@ -104,6 +104,7 @@ const (
     Instruction_STX_zero = 0x86
     Instruction_DEY = 0x88
     Instruction_TXA = 0x8a
+    Instruction_STY_absolute = 0x8c
     Instruction_STA_absolute = 0x8d
     Instruction_STX_absolute = 0x8e
     Instruction_BCC_rel = 0x90
@@ -214,6 +215,7 @@ func NewInstructionReader(data []byte) *InstructionReader {
     table[Instruction_RTI] = InstructionDescription{Name: "rti", Operands: 0}
     table[Instruction_CMP_zero] = InstructionDescription{Name: "cmp", Operands: 1}
     table[Instruction_CPX_immediate] = InstructionDescription{Name: "cpx", Operands: 1}
+    table[Instruction_STY_absolute] = InstructionDescription{Name: "sty", Operands: 2}
 
     /* make sure I don't do something dumb */
     for key, value := range table {
@@ -397,8 +399,11 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             memory.Store(address, cpu.A)
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_TAY:
+            cpu.Y = cpu.A
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_TAX:
-            /* FIXME: handle overflow */
             cpu.X = cpu.A
             cpu.PC += instruction.Length()
             return nil
@@ -414,6 +419,15 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             }
             /* FIXME: handle overflow */
             cpu.A += value
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_STY_absolute:
+            value, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            // log.Printf("Store X:0x%x into 0x%x\n", cpu.X, value)
+            memory.Store(value, cpu.Y)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STX_absolute:
