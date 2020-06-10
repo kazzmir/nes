@@ -401,6 +401,41 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             memory.Store(address, cpu.A)
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_STA_zero:
+            address, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            memory.Store(uint16(address), cpu.A)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_LDA_indirect_x:
+            relative, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            zero_address := relative + cpu.X
+            /* Load the two bytes at address $(relative+X) to
+             * construct a 16-bit address
+             */
+            low := memory.Load(uint16(zero_address))
+            high := memory.Load(uint16(zero_address+1))
+
+            address := (uint16(high) << 8) | uint16(low)
+            /* Then load the value at that 16-bit address */
+            value := memory.Load(address)
+
+            cpu.A = value
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_LDY_immediate:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            cpu.Y = value
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_TAY:
             cpu.Y = cpu.A
             cpu.PC += instruction.Length()
@@ -428,7 +463,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             if err != nil {
                 return err
             }
-            // log.Printf("Store X:0x%x into 0x%x\n", cpu.X, value)
+            // log.Printf("Store Y:0x%x into 0x%x\n", cpu.Y, value)
             memory.Store(value, cpu.Y)
             cpu.PC += instruction.Length()
             return nil
@@ -486,5 +521,5 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             return nil
     }
 
-    return fmt.Errorf("unable to execute instruction %v", instruction.String())
+    return fmt.Errorf("unable to execute instruction 0x%x: %v", instruction.Kind, instruction.String())
 }

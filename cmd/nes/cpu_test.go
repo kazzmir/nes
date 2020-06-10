@@ -342,3 +342,44 @@ func TestInstructionsZeroPage(testing *testing.T){
         testing.Fatalf("Expected memory location 0xa2 to be 0xaa but was 0x%x\n", memory.Load(0xa2))
     }
 }
+
+func TestInstructionsIndirectLoad(testing *testing.T){
+    bytes := []byte{
+        0xa2, 0x01, // ldx #$01
+        0xa9, 0x05, // lda #$05
+        0x85, 0x01, // sta #$01
+        0xa9, 0x07, // lda #$07
+        0x85, 0x02, // sta #$02
+        0xa0, 0x0a, // ldy #$0a
+        0x8c, 0x05, 0x07, // sty #$705
+        0xa1, 0x00, // lda ($00,x)
+        0x00, // brk
+    }
+
+    cpu := CPUState{
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0,
+        PC: 0x100,
+        Status: 0,
+    }
+
+    memory := NewMemory(0x3000)
+
+    cpu.MapCode(0x100, bytes)
+    for i := 0; i < 50; i++ {
+        err := cpu.Run(&memory)
+        if err != nil {
+            testing.Fatalf("Could not execute cpu %v\n", err)
+        }
+
+        if cpu.GetInterruptFlag() {
+            break
+        }
+    }
+
+    if cpu.A != 0x0a {
+        testing.Fatalf("Expected A register to be 0x0a but was 0x%x\n", cpu.A)
+    }
+}
