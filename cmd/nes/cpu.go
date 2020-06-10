@@ -421,8 +421,8 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             if err != nil {
                 return err
             }
-            location := uint16(cpu.X) + value
-            memory.Store(location, cpu.A)
+            // log.Printf("Store X:0x%x into 0x%x\n", cpu.X, value)
+            memory.Store(value, cpu.X)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_CPX_immediate:

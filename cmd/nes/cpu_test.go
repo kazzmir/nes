@@ -192,13 +192,12 @@ func TestCPUSimple2(test *testing.T){
 
 func TestCPUSimpleBranch(test *testing.T){
     bytes := []byte{
-        0xa9, 0x02, // LDA #$02
         0xa2, 0x08, // ldx #$08
         0xca,       // dex
         0x8e, 0x00, 0x02, // stx #$200
         0xe0, 0x03, // cpx #$03
         0xd0, 0xf8, // bne 0xf8
-        0x8e, 0x01, 0x20, // stx #$201
+        0x8e, 0x01, 0x02, // stx #$201
         0x00, // brk
     }
 
@@ -212,7 +211,6 @@ func TestCPUSimpleBranch(test *testing.T){
     }
 
     checkInstructions(test, instructions, []InstructionType{
-        Instruction_LDA_immediate,
         Instruction_LDX_immediate,
         Instruction_DEX,
         Instruction_STX_absolute,
@@ -246,8 +244,8 @@ func TestCPUSimpleBranch(test *testing.T){
         }
     }
 
-    if cpu.A != 0x2 {
-        test.Fatalf("A register expected to be 0x2 but was 0x%x\n", cpu.A)
+    if cpu.A != 0x0 {
+        test.Fatalf("A register expected to be 0x0 but was 0x%x\n", cpu.A)
     }
 
     if cpu.X != 0x03 {
@@ -258,9 +256,11 @@ func TestCPUSimpleBranch(test *testing.T){
         test.Fatalf("Y register expected to be 0x0 but was 0x%x\n", cpu.Y)
     }
 
-    /*
-    if cpu.PC != 0x111 {
-        test.Fatalf("PC register expected to be 0x111 but was 0x%x\n", cpu.PC)
+    if memory.Load(0x200) != 0x3 {
+        test.Fatalf("Expected memory location 0x200 to be 0x3 but was 0x%x\n", memory.Load(0x200))
     }
-    */
+
+    if memory.Load(0x201) != 0x3 {
+        test.Fatalf("Expected memory location 0x201 to be 0x3 but was 0x%x\n", memory.Load(0x201))
+    }
 }
