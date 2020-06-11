@@ -383,3 +383,79 @@ func TestInstructionsIndirectLoad(testing *testing.T){
         testing.Fatalf("Expected A register to be 0x0a but was 0x%x\n", cpu.A)
     }
 }
+
+func TestStack(testing *testing.T){
+    /* store values 0x0 - 0xf into memory locations
+     * 0x200 - 0x20f, then 0xf - 0x0 into 0x210 - 0x21f
+     * first push the values onto the stack then pop them
+     * off again.
+     */
+    bytes := []byte{
+        0xa2, 0x00, // ldx #$00
+        0xa0, 0x00, // ldy #$00
+        0x8a,       // txa
+        0x99, 0x00, 0x02, // sta #$0200,y
+        0x48, // pha
+        0xe8, // inx
+        0xc8, // iny
+        0xc0, 0x10, // cpy #$10
+        0xd0, 0xf5, // bne
+        0x68, // pla
+        0x99, 0x00, 0x02, // sta #$0200,y
+        0xc8, // iny
+        0xc0, 0x20, // cpy #$20
+        0xd0, 0xf7, // bne
+        0x00, // brk
+    }
+
+    cpu := CPUState{
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0xff,
+        PC: 0x100,
+        Status: 0,
+    }
+
+    memory := NewMemory(0x3000)
+    stack := NewMemory(0x100)
+
+    cpu.MapCode(0x100, bytes)
+    cpu.MapStack(&stack)
+    for i := 0; i < 200; i++ {
+        err := cpu.Run(&memory)
+        if err != nil {
+            testing.Fatalf("Could not execute cpu %v\n", err)
+        }
+
+        if cpu.GetInterruptFlag() {
+            break
+        }
+    }
+
+    if cpu.A != 0x0 {
+        testing.Fatalf("Expected A register to be 0x0 but was 0x%x\n", cpu.A)
+    }
+
+    if cpu.X != 0x10 {
+        testing.Fatalf("Expected X register to be 0x10 but was 0x%x\n", cpu.X)
+    }
+
+    if cpu.Y != 0x20 {
+        testing.Fatalf("Expected Y register to be 0x20 but was 0x%x\n", cpu.Y)
+    }
+
+    for i := 0; i <= 0xf; i++ {
+        address := uint16(0x200 + i)
+        if memory.Load(address) != byte(i) {
+            testing.Fatalf("Expected memory location 0x%x to be 0x%x but was 0x%x\n", address, i, memory.Load(address))
+        }
+    }
+
+    for i := 0xf; i >= 0; i-- {
+        address := uint16(0x21f - i)
+        if memory.Load(address) != byte(i) {
+            testing.Fatalf("Expected memory location 0x%x to be 0x%x but was 0x%x\n", address, i, memory.Load(address))
+        }
+    }
+}

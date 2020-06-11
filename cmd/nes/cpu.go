@@ -111,6 +111,7 @@ const (
     Instruction_STA_indirect_y = 0x91
     Instruction_STA_zeropage_x = 0x95
     Instruction_TYA = 0x98
+    Instruction_STA_absolute_y = 0x99
     Instruction_TXS = 0x9a
     Instruction_STA_absolute_x = 0x9d
     Instruction_LDY_immediate = 0xa0
@@ -128,8 +129,10 @@ const (
     Instruction_CLV = 0xb8
     Instruction_TSX = 0xba
     Instruction_LDA_absolute_x = 0xbd
+    Instruction_CPY_immediate = 0xc0
     Instruction_CMP_zero = 0xc5
     Instruction_DEC_zero = 0xc6
+    Instruction_INY = 0xc8
     Instruction_CMP_immediate = 0xc9
     Instruction_DEX = 0xca
     Instruction_BNE = 0xd0
@@ -218,6 +221,9 @@ func NewInstructionReader(data []byte) *InstructionReader {
     table[Instruction_CPX_immediate] = InstructionDescription{Name: "cpx", Operands: 1}
     table[Instruction_STY_absolute] = InstructionDescription{Name: "sty", Operands: 2}
     table[Instruction_STA_zeropage_x] = InstructionDescription{Name: "sta", Operands: 1}
+    table[Instruction_STA_absolute_y] = InstructionDescription{Name: "sta", Operands: 2}
+    table[Instruction_INY] = InstructionDescription{Name: "iny", Operands: 0}
+    table[Instruction_CPY_immediate] = InstructionDescription{Name: "cpy", Operands: 1}
 
     /* make sure I don't do something dumb */
     for key, value := range table {
@@ -300,11 +306,17 @@ type CPUState struct {
 
     CodeStart uint16
     Code []byte
+
+    Stack *Memory
 }
 
 func (cpu *CPUState) MapCode(location int, code []byte){
     cpu.CodeStart = uint16(location)
     cpu.Code = code
+}
+
+func (cpu *CPUState) MapStack(stack *Memory){
+    cpu.Stack = stack
 }
 
 func (cpu *CPUState) Fetch() (Instruction, error) {
@@ -476,6 +488,16 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             memory.Store(value, cpu.X)
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_STA_absolute_y:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return nil
+            }
+
+            full := address + uint16(cpu.Y)
+            memory.Store(full, cpu.A)
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_STA_zeropage_x:
             value, err := instruction.OperandByte()
             if err != nil {
@@ -483,6 +505,24 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             }
             address := uint16(value + cpu.X)
             memory.Store(address, cpu.A)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_PLA:
+            cpu.SP += 1
+            cpu.A = cpu.Stack.Load(uint16(cpu.SP))
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_PHA:
+            cpu.Stack.Store(uint16(cpu.SP), cpu.A)
+            cpu.SP -= 1
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_CPY_immediate:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return nil
+            }
+            cpu.SetZeroFlag(cpu.Y == value)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_CPX_immediate:
@@ -513,6 +553,14 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             return nil
         case Instruction_DEX:
             cpu.X -= 1
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_TXA:
+            cpu.A = cpu.X;
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_INY:
+            cpu.Y += 1
             cpu.PC += instruction.Length()
             return nil
         case Instruction_BRK:
