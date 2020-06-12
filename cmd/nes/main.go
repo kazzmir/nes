@@ -59,6 +59,10 @@ func readCHR(header []byte) uint64 {
     }
 }
 
+func readMapper(header []byte) byte {
+    data := header[6]
+    return data >> 4
+}
 
 func parse(path string) error {
     file, err := os.Open(path)
@@ -86,8 +90,11 @@ func parse(path string) error {
     prgRomSize := readPRG(header)
     chrRomSize := readCHR(header)
 
+    mapper := readMapper(header)
+
     log.Printf("PRG-ROM %v\n", prgRomSize)
     log.Printf("CHR-ROM %v\n", chrRomSize)
+    log.Printf("mapper %v\n", mapper)
 
     hasTrainer := (header[6] & 4) == 4
     log.Printf("Has trainer area %v\n", hasTrainer)
@@ -103,17 +110,47 @@ func parse(path string) error {
         log.Printf("Read trainer area\n")
     }
 
-    prgRom := make([]byte, prgRomSize)
+    programRom := make([]byte, prgRomSize)
 
-    _, err = io.ReadFull(file, prgRom)
+    _, err = io.ReadFull(file, programRom)
     if err != nil {
         return err
     }
 
     log.Printf("Read program data\n")
-    dump_instructions(prgRom)
+    // dump_instructions(prgRom)
+
+    cpu := StartupState()
+    /* map code to 0xc000 for NROM-128.
+     * also map to 0x8000, but most games don't seem to care..?
+     * http://wiki.nesdev.com/w/index.php/Programming_NROM
+     */
+    cpu.MapCode(0xc000, programRom)
+
+    memory := NewMemory(0x3000)
+    stack := NewMemory(0x100)
+
+    cpu.MapStack(&stack)
+
+    for i := 0; i < 100; i++ {
+        err = cpu.Run(&memory)
+        if err != nil {
+            return err
+        }
+    }
 
     return nil
+}
+
+func StartupState() CPUState {
+    return CPUState {
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0xfd,
+        PC: 0xc000,
+        Status: 0x34, // 110100
+    }
 }
 
 func main(){
