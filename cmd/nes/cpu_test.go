@@ -459,3 +459,52 @@ func TestStack(testing *testing.T){
         }
     }
 }
+
+func TestSubroutine(testing *testing.T){
+    bytes := []byte{
+        0x20, 0x08, 0x06, // jsr
+        0xa0, 0x10, // ldy #$10
+        0x4c, 0x0c, 0x06, // jmp
+        0xa2, 0x03, // ldx #$03
+        0xe8, // inx
+        0x60, // rts
+        0x00, // brk
+    }
+
+    cpu := CPUState{
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0xff,
+        PC: 0x600,
+        Status: 0,
+    }
+
+    memory := NewMemory(0x3000)
+    stack := NewMemory(0x100)
+
+    cpu.MapCode(0x600, bytes)
+    cpu.MapStack(&stack)
+    for i := 0; i < 200; i++ {
+        err := cpu.Run(&memory)
+        if err != nil {
+            testing.Fatalf("Could not execute cpu %v\n", err)
+        }
+
+        if cpu.GetInterruptFlag() {
+            break
+        }
+    }
+
+    if cpu.A != 0x0 {
+        testing.Fatalf("Expected A register to be 0x0 but was 0x%x\n", cpu.A)
+    }
+
+    if cpu.X != 0x4 {
+        testing.Fatalf("Expected X register to be 0x4 but was 0x%x\n", cpu.X)
+    }
+
+    if cpu.Y != 0x10 {
+        testing.Fatalf("Expected Y register to be 0x10 but was 0x%x\n", cpu.Y)
+    }
+}

@@ -74,7 +74,7 @@ const (
     Instruction_SLO_abs = 0x0f
     Instruction_BPL_rel = 0x10
     Instruction_CLC = 0x18
-    Instruction_JSR_absolute = 0x20
+    Instruction_JSR = 0x20
     Instruction_BIT_zero = 0x24
     Instruction_PLP = 0x28
     Instruction_AND_immediate = 0x29
@@ -163,7 +163,7 @@ func NewInstructionReader(data []byte) *InstructionReader {
     table[Instruction_STA_zero] = InstructionDescription{Name: "sta", Operands: 1}
     table[Instruction_SEI_implied] = InstructionDescription{Name: "sei", Operands: 0}
     table[Instruction_STA_absolute] = InstructionDescription{Name: "sta", Operands: 2}
-    table[Instruction_JSR_absolute] = InstructionDescription{Name: "jsr", Operands: 2}
+    table[Instruction_JSR] = InstructionDescription{Name: "jsr", Operands: 2}
     table[Instruction_LDA_absolute] = InstructionDescription{Name: "lda", Operands: 2}
     table[Instruction_LDX_immediate] = InstructionDescription{Name: "ldx", Operands: 1}
     table[Instruction_LDA_absolute_x] = InstructionDescription{Name: "lda", Operands: 2}
@@ -563,11 +563,45 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             cpu.Y += 1
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_JSR:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+
+            next := cpu.PC + instruction.Length()
+
+            low := byte(next & 0xff)
+            high := byte(next >> 8)
+
+            cpu.Stack.Store(uint16(cpu.SP), low)
+            cpu.SP -= 1
+            cpu.Stack.Store(uint16(cpu.SP), high)
+            cpu.SP -= 1
+
+            cpu.PC = address
+            return nil
+        case Instruction_RTS:
+            cpu.SP += 1
+            high := cpu.Stack.Load(uint16(cpu.SP))
+            cpu.SP += 1
+            low := cpu.Stack.Load(uint16(cpu.SP))
+
+            cpu.PC = (uint16(high) << 8) | uint16(low)
+            return nil
+        case Instruction_JMP_absolute:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+
+            cpu.PC = address
+            return nil
         case Instruction_BRK:
             cpu.SetInterruptFlag(true)
             cpu.PC += instruction.Length()
             return nil
     }
 
-    return fmt.Errorf("unable to execute instruction 0x%x: %v", instruction.Kind, instruction.String())
+    return fmt.Errorf("unable to execute instruction 0x%x: %v at PC 0x%x", instruction.Kind, instruction.String(), cpu.PC)
 }
