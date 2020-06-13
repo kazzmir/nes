@@ -384,6 +384,22 @@ func (cpu *CPUState) GetCarryFlag() bool {
     return cpu.getBit(byte(0x1))
 }
 
+func (cpu *CPUState) GetNegativeFlag() bool {
+    return cpu.getBit(byte(1 << 7))
+}
+
+func (cpu *CPUState) SetNegativeFlag(set bool) {
+    cpu.setBit(byte(1 << 7), set)
+}
+
+func (cpu *CPUState) GetOverflowFlag() bool {
+    return cpu.getBit(byte(1 << 6))
+}
+
+func (cpu *CPUState) SetOverflowFlag(set bool) {
+    cpu.setBit(byte(1 << 6), set)
+}
+
 type Memory struct {
     Data []byte
 }
@@ -565,6 +581,21 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
             }
 
+            return nil
+        case Instruction_BIT_zero:
+            relative, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            /* pull from the zero page */
+            value := memory.Load(uint16(relative))
+
+            cpu.SetZeroFlag((cpu.A & value) == 0)
+            cpu.SetNegativeFlag((value & (1<<7)) == (1<<7))
+            cpu.SetOverflowFlag((value & (1<<6)) == (1<<6))
+
+            cpu.PC += instruction.Length()
             return nil
         case Instruction_BEQ_relative:
             value, err := instruction.OperandByte()

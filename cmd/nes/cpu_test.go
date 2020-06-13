@@ -508,3 +508,166 @@ func TestSubroutine(testing *testing.T){
         testing.Fatalf("Expected Y register to be 0x10 but was 0x%x\n", cpu.Y)
     }
 }
+
+func TestBit(testing *testing.T){
+    /* 3&1 = 1, so dont set the zero flag */
+    bytes := []byte{
+        0xa9, 0x03, // lda #$03
+        0x85, 0x10, // sta $10
+        0xa9, 0x01, // lda #$01
+        0x24, 0x10, // bit $10
+        0x00, // brk
+    }
+
+    cpu := CPUState{
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0xff,
+        PC: 0x600,
+        Status: 0,
+    }
+
+    memory := NewMemory(0x3000)
+
+    cpu.MapCode(0x600, bytes)
+    for i := 0; i < 200; i++ {
+        err := cpu.Run(&memory)
+        if err != nil {
+            testing.Fatalf("Could not execute cpu %v\n", err)
+        }
+
+        if cpu.GetInterruptFlag() {
+            break
+        }
+    }
+
+    if cpu.A != 0x1 {
+        testing.Fatalf("Expected A register to be 0x1 but was 0x%x\n", cpu.A)
+    }
+
+    if cpu.X != 0x0 {
+        testing.Fatalf("Expected X register to be 0x0 but was 0x%x\n", cpu.X)
+    }
+
+    if cpu.Y != 0x0 {
+        testing.Fatalf("Expected Y register to be 0x0 but was 0x%x\n", cpu.Y)
+    }
+
+    if cpu.GetZeroFlag() {
+        testing.Fatalf("Expected zero flag to be false but was %v\n", cpu.GetZeroFlag())
+    }
+
+    /* make sure zero flag gets set becuase 4&3=0 */
+    bytes = []byte{
+        0xa9, 0x03, // lda #$03
+        0x85, 0x10, // sta $10
+        0xa9, 0x04, // lda #$04
+        0x24, 0x10, // bit $10
+        0x00, // brk
+    }
+
+    cpu = CPUState{
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0xff,
+        PC: 0x600,
+        Status: 0,
+    }
+
+    memory = NewMemory(0x3000)
+
+    cpu.MapCode(0x600, bytes)
+    for i := 0; i < 200; i++ {
+        err := cpu.Run(&memory)
+        if err != nil {
+            testing.Fatalf("Could not execute cpu %v\n", err)
+        }
+
+        if cpu.GetInterruptFlag() {
+            break
+        }
+    }
+
+    if cpu.A != 0x4 {
+        testing.Fatalf("Expected A register to be 0x1 but was 0x%x\n", cpu.A)
+    }
+
+    if cpu.X != 0x0 {
+        testing.Fatalf("Expected X register to be 0x0 but was 0x%x\n", cpu.X)
+    }
+
+    if cpu.Y != 0x0 {
+        testing.Fatalf("Expected Y register to be 0x0 but was 0x%x\n", cpu.Y)
+    }
+
+    if !cpu.GetZeroFlag() {
+        testing.Fatalf("Expected zero flag to be true but was %v\n", cpu.GetZeroFlag())
+    }
+
+    if cpu.GetNegativeFlag() {
+        testing.Fatalf("Expected negative flag to be false but was %v\n", cpu.GetNegativeFlag())
+    }
+
+    if cpu.GetOverflowFlag() {
+        testing.Fatalf("Expected overflow flag to be false but was %v\n", cpu.GetOverflowFlag())
+    }
+
+
+    /* N is set to 1 because highest bit of 0x80 is 1 */
+    bytes = []byte{
+        0xa9, 0x80, // lda #$80
+        0x85, 0x10, // sta $10
+        0xa9, 0x04, // lda #$04
+        0x24, 0x10, // bit $10
+        0x00, // brk
+    }
+
+    cpu = CPUState{
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0xff,
+        PC: 0x600,
+        Status: 0,
+    }
+
+    memory = NewMemory(0x3000)
+
+    cpu.MapCode(0x600, bytes)
+    for i := 0; i < 200; i++ {
+        err := cpu.Run(&memory)
+        if err != nil {
+            testing.Fatalf("Could not execute cpu %v\n", err)
+        }
+
+        if cpu.GetInterruptFlag() {
+            break
+        }
+    }
+
+    if cpu.A != 0x4 {
+        testing.Fatalf("Expected A register to be 0x1 but was 0x%x\n", cpu.A)
+    }
+
+    if cpu.X != 0x0 {
+        testing.Fatalf("Expected X register to be 0x0 but was 0x%x\n", cpu.X)
+    }
+
+    if cpu.Y != 0x0 {
+        testing.Fatalf("Expected Y register to be 0x0 but was 0x%x\n", cpu.Y)
+    }
+
+    if !cpu.GetZeroFlag() {
+        testing.Fatalf("Expected zero flag to be true but was %v\n", cpu.GetZeroFlag())
+    }
+
+    if !cpu.GetNegativeFlag() {
+        testing.Fatalf("Expected negative flag to be true but was %v\n", cpu.GetNegativeFlag())
+    }
+
+    if cpu.GetOverflowFlag() {
+        testing.Fatalf("Expected overflow flag to be false but was %v\n", cpu.GetOverflowFlag())
+    }
+}
