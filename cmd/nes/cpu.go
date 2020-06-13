@@ -72,7 +72,7 @@ const (
     Instruction_ORA_abs = 0x0d
     Instruction_ASL_abs = 0x0e
     Instruction_SLO_abs = 0x0f
-    Instruction_BPL_rel = 0x10
+    Instruction_BPL = 0x10
     Instruction_CLC = 0x18
     Instruction_JSR = 0x20
     Instruction_BIT_zero = 0x24
@@ -80,7 +80,7 @@ const (
     Instruction_AND_immediate = 0x29
     Instruction_ROL_accumulator = 0x2a
     Instruction_BIT_absolute = 0x2c
-    Instruction_BMI_rel = 0x30
+    Instruction_BMI = 0x30
     Instruction_SEC = 0x38
     Instruction_RTI = 0x40
     Instruction_EOR_zero = 0x45
@@ -97,7 +97,7 @@ const (
     Instruction_ADC_immediate = 0x69
     Instruction_ROR_accumulator = 0x6a
     Instruction_BVS_relative = 0x70
-    Instruction_SEI_implied = 0x78
+    Instruction_SEI = 0x78
     Instruction_ADC_absolute_y = 0x79
     Instruction_STA_indirect_x = 0x81
     Instruction_STA_zero = 0x85
@@ -143,6 +143,7 @@ const (
     Instruction_NOP = 0xea
     Instruction_INC_zero = 0xe6
     Instruction_BEQ_relative = 0xf0
+    Instruction_SED = 0xf8
     Instruction_Unknown_ff = 0xff
 )
 
@@ -153,15 +154,15 @@ func NewInstructionReader(data []byte) *InstructionReader {
     table[Instruction_BNE] = InstructionDescription{Name: "bne", Operands: 1}
     table[Instruction_RTS] = InstructionDescription{Name: "rts", Operands: 0}
     table[Instruction_BEQ_relative] = InstructionDescription{Name: "beq", Operands: 1}
-    table[Instruction_BMI_rel] = InstructionDescription{Name: "bmi", Operands: 1}
-    table[Instruction_BPL_rel] = InstructionDescription{Name: "bpl", Operands: 1}
+    table[Instruction_BMI] = InstructionDescription{Name: "bmi", Operands: 1}
+    table[Instruction_BPL] = InstructionDescription{Name: "bpl", Operands: 1}
     table[Instruction_BCC_relative] = InstructionDescription{Name: "bcc", Operands: 1}
     table[Instruction_BCS_relative] = InstructionDescription{Name: "bcs", Operands: 1}
     table[Instruction_BVC_relative] = InstructionDescription{Name: "bvc", Operands: 1}
     table[Instruction_BVS_relative] = InstructionDescription{Name: "bvs", Operands: 1}
     table[Instruction_LDA_immediate] = InstructionDescription{Name: "lda", Operands: 1}
     table[Instruction_STA_zero] = InstructionDescription{Name: "sta", Operands: 1}
-    table[Instruction_SEI_implied] = InstructionDescription{Name: "sei", Operands: 0}
+    table[Instruction_SEI] = InstructionDescription{Name: "sei", Operands: 0}
     table[Instruction_STA_absolute] = InstructionDescription{Name: "sta", Operands: 2}
     table[Instruction_JSR] = InstructionDescription{Name: "jsr", Operands: 2}
     table[Instruction_LDA_absolute] = InstructionDescription{Name: "lda", Operands: 2}
@@ -224,6 +225,7 @@ func NewInstructionReader(data []byte) *InstructionReader {
     table[Instruction_STA_absolute_y] = InstructionDescription{Name: "sta", Operands: 2}
     table[Instruction_INY] = InstructionDescription{Name: "iny", Operands: 0}
     table[Instruction_CPY_immediate] = InstructionDescription{Name: "cpy", Operands: 1}
+    table[Instruction_SED] = InstructionDescription{Name: "sed", Operands: 0}
 
     /* make sure I don't do something dumb */
     for key, value := range table {
@@ -343,8 +345,8 @@ func (cpu *CPUState) Run(memory *Memory) error {
         return err
     }
 
-    // cycle := 0
-    // log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cycle)
+    cycle := 0
+    log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cycle)
     return cpu.Execute(instruction, memory)
 }
 
@@ -361,11 +363,11 @@ func (cpu *CPUState) getBit(bit byte) bool {
 }
 
 func (cpu *CPUState) GetInterruptFlag() bool {
-    return cpu.getBit(byte(0x4))
+    return cpu.getBit(byte(1<<2))
 }
 
 func (cpu *CPUState) SetInterruptFlag(set bool){
-    cpu.setBit(byte(0x4), set)
+    cpu.setBit(byte(1<<2), set)
 }
 
 func (cpu *CPUState) GetZeroFlag() bool {
@@ -400,6 +402,14 @@ func (cpu *CPUState) SetOverflowFlag(set bool) {
     cpu.setBit(byte(1 << 6), set)
 }
 
+func (cpu *CPUState) SetDecimalFlag(set bool) {
+    cpu.setBit(byte(1<<3), set)
+}
+
+func (cpu *CPUState) GetDecimalFlag() bool {
+    return cpu.getBit(byte(1<<3))
+}
+
 type Memory struct {
     Data []byte
 }
@@ -430,7 +440,8 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return err
             }
             cpu.A = value
-            cpu.SetNegativeFlag((value & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(value) < 0)
+            cpu.SetZeroFlag(cpu.A == 0)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STA_absolute:
@@ -466,7 +477,8 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             value := memory.Load(address)
 
             cpu.A = value
-            cpu.SetNegativeFlag((cpu.A & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(cpu.A) < 0)
+            cpu.SetZeroFlag(cpu.A == 0)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_LDY_immediate:
@@ -475,23 +487,27 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return err
             }
             cpu.Y = value
-            cpu.SetNegativeFlag((value & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(cpu.Y) < 0)
+            cpu.SetZeroFlag(cpu.Y == 0)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_TAY:
             cpu.Y = cpu.A
-            cpu.SetNegativeFlag((cpu.A & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(cpu.Y) < 0)
+            cpu.SetZeroFlag(cpu.Y == 0)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_TAX:
             cpu.X = cpu.A
-            cpu.SetNegativeFlag((cpu.A & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(cpu.X) < 0)
+            cpu.SetZeroFlag(cpu.X == 0)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_INX:
             /* FIXME: handle overflow */
             cpu.X += 1
-            cpu.SetNegativeFlag((cpu.X & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(cpu.X) < 0)
+            cpu.SetZeroFlag(cpu.X == 0)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_ADC_immediate:
@@ -500,8 +516,11 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return err
             }
             /* FIXME: handle overflow */
+            carry := int16(cpu.A) + int16(value) > 0xff
             cpu.A += value
-            cpu.SetNegativeFlag((cpu.A & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(cpu.A) < 0)
+            cpu.SetCarryFlag(carry)
+            cpu.SetZeroFlag(cpu.A == 0)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STY_absolute:
@@ -553,7 +572,18 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
         case Instruction_PLA:
             cpu.SP += 1
             cpu.A = cpu.Stack.Load(uint16(cpu.SP))
-            cpu.SetNegativeFlag((cpu.A & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(cpu.A) < 0)
+            cpu.SetZeroFlag(cpu.A == 0)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_PHP:
+            cpu.Stack.Store(uint16(cpu.SP), cpu.Status)
+            cpu.SP -= 1
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_PLP:
+            cpu.SP += 1
+            cpu.Status = cpu.Stack.Load(uint16(cpu.SP))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_PHA:
@@ -617,6 +647,10 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             }
 
             return nil
+        case Instruction_SEI:
+            cpu.SetInterruptFlag(true)
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_BCS_relative:
             value, err := instruction.OperandByte()
             if err != nil {
@@ -627,6 +661,30 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             if cpu.GetCarryFlag() {
                 cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
             }
+            return nil
+        case Instruction_BMI:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            cpu.PC += instruction.Length()
+            if cpu.GetNegativeFlag() {
+                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+            }
+
+            return nil
+        case Instruction_BPL:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            cpu.PC += instruction.Length()
+            if ! cpu.GetNegativeFlag() {
+                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+            }
+
             return nil
         case Instruction_BVS_relative:
             value, err := instruction.OperandByte()
@@ -667,25 +725,29 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return err
             }
             cpu.X = value
-            cpu.SetNegativeFlag((value & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(cpu.X) < 0)
+            cpu.SetZeroFlag(value == 0)
             cpu.PC += instruction.Length()
             return nil
         /* decrement X */
         case Instruction_DEX:
             cpu.X -= 1
-            cpu.SetNegativeFlag((cpu.X & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(cpu.X) < 0)
+            cpu.SetZeroFlag(cpu.X == 0)
             cpu.PC += instruction.Length()
             return nil
         /* A = X */
         case Instruction_TXA:
             cpu.A = cpu.X;
-            cpu.SetNegativeFlag((cpu.X & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(cpu.X) < 0)
+            cpu.SetZeroFlag(cpu.A == 0)
             cpu.PC += instruction.Length()
             return nil
         /* increment Y */
         case Instruction_INY:
             cpu.Y += 1
-            cpu.SetNegativeFlag((cpu.Y & (1<<7)) == (1<<7))
+            cpu.SetNegativeFlag(int8(cpu.Y) < 0)
+            cpu.SetZeroFlag(cpu.Y == 0)
             cpu.PC += instruction.Length()
             return nil
         /* push PC+2 on stack, jump to address */
@@ -707,6 +769,16 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
 
             cpu.PC = address
             return nil
+        case Instruction_AND_immediate:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            cpu.A = cpu.A & value
+            cpu.SetNegativeFlag(int8(cpu.A) < 0)
+            cpu.SetZeroFlag(cpu.A == 0)
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_RTS:
             cpu.SP += 1
             high := cpu.Stack.Load(uint16(cpu.SP))
@@ -714,6 +786,32 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             low := cpu.Stack.Load(uint16(cpu.SP))
 
             cpu.PC = (uint16(high) << 8) | uint16(low)
+            return nil
+        case Instruction_EOR_immediate:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            cpu.A = cpu.A ^ value
+            cpu.SetNegativeFlag(int8(cpu.A) < 0)
+            cpu.SetZeroFlag(cpu.A == 0)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_ORA_immediate:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            cpu.A = cpu.A | value
+            cpu.SetNegativeFlag(int8(cpu.A) < 0)
+            cpu.SetZeroFlag(cpu.A == 0)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_CLV:
+            cpu.SetOverflowFlag(false)
+            cpu.PC += instruction.Length()
             return nil
         case Instruction_JMP_absolute:
             address, err := instruction.OperandWord()
@@ -726,12 +824,32 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
         case Instruction_NOP:
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_CMP_immediate:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            result := int8(cpu.A) - int8(value)
+            carry := cpu.A > value
+            cpu.SetCarryFlag(carry)
+            cpu.SetNegativeFlag(result < 0)
+            cpu.SetZeroFlag(result == 0)
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_CLC:
             cpu.SetCarryFlag(false)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_SEC:
             cpu.SetCarryFlag(true)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SED:
+            cpu.SetDecimalFlag(true)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_CLD:
+            cpu.SetDecimalFlag(false)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_BRK:

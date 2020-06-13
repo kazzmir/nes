@@ -136,7 +136,7 @@ func parse(path string) error {
 
     cpu.MapStack(&stack)
 
-    for i := 0; i < 100; i++ {
+    for i := 0; i < 1000; i++ {
         err = cpu.Run(&memory)
         if err != nil {
             return err
