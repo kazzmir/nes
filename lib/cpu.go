@@ -1,4 +1,4 @@
-package main
+package lib
 
 import (
     "bytes"
@@ -879,3 +879,16 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
 
     return fmt.Errorf("unable to execute instruction 0x%x: %v at PC 0x%x", instruction.Kind, instruction.String(), cpu.PC)
 }
+
+/* http://wiki.nesdev.com/w/index.php/CPU_power_up_state */
+func StartupState() CPUState {
+    return CPUState {
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0xfd,
+        PC: 0xc000,
+        Status: 0x34, // 110100
+    }
+}
+
