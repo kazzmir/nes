@@ -830,7 +830,26 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return err
             }
             result := int8(cpu.A) - int8(value)
-            carry := cpu.A > value
+            carry := int8(cpu.A) >= int8(value)
+            cpu.SetCarryFlag(carry)
+            cpu.SetNegativeFlag(result < 0)
+            cpu.SetZeroFlag(result == 0)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SBC_immediate:
+            /* A := A - M - !C */
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            var carryValue int8
+            if !cpu.GetCarryFlag() {
+                carryValue = 1
+            }
+
+            result := int8(cpu.A) - int8(value) - carryValue
+            carry := int8(cpu.A) > int8(value)
+            cpu.A = byte(result)
             cpu.SetCarryFlag(carry)
             cpu.SetNegativeFlag(result < 0)
             cpu.SetZeroFlag(result == 0)
