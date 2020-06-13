@@ -343,8 +343,8 @@ func (cpu *CPUState) Run(memory *Memory) error {
         return err
     }
 
-    cycle := 0
-    log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cycle)
+    // cycle := 0
+    // log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cycle)
     return cpu.Execute(instruction, memory)
 }
 

@@ -671,3 +671,34 @@ func TestBit(testing *testing.T){
         testing.Fatalf("Expected overflow flag to be false but was %v\n", cpu.GetOverflowFlag())
     }
 }
+
+func BenchmarkSimple(benchmark *testing.B){
+    bytes := []byte{
+        0xa2, 0x02, // ldx #$02
+        0x8a, // txa
+        0x85, 0x10, // sta $10
+        0xe8, // inx
+        0x4c, 0x00, 0x06, // jmp #$600
+    }
+
+    cpu := CPUState{
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0xff,
+        PC: 0x600,
+        Status: 0,
+    }
+
+    memory := NewMemory(0x3000)
+
+    cpu.MapCode(0x600, bytes)
+
+    benchmark.ResetTimer()
+    for i := 0; i < benchmark.N; i++ {
+        err := cpu.Run(&memory)
+        if err != nil {
+            benchmark.Fatalf("Could not execute cpu %v\n", err)
+        }
+    }
+}
