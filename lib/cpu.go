@@ -23,6 +23,23 @@ type Instruction struct {
     Operands []byte
 }
 
+func equalBytes(a []byte, b[]byte) bool {
+    for i := 0; i < len(a); i++ {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+
+    return true
+}
+
+func (instruction *Instruction) Equals(other Instruction) bool {
+    return instruction.Name == other.Name &&
+           instruction.Kind == other.Kind &&
+           len(instruction.Operands) == len(other.Operands) &&
+           equalBytes(instruction.Operands, other.Operands)
+}
+
 func (instruction *Instruction) Length() uint16 {
     return 1 + uint16(len(instruction.Operands))
 }
@@ -312,6 +329,19 @@ type CPUState struct {
     Code []byte
 
     Stack *Memory
+}
+
+func (cpu *CPUState) Equals(other CPUState) bool {
+    return cpu.A == other.A &&
+           cpu.X == other.X &&
+           cpu.Y == other.Y &&
+           cpu.SP == other.SP &&
+           cpu.PC == other.PC &&
+           cpu.Status == other.Status;
+}
+
+func (cpu *CPUState) String() string {
+    return fmt.Sprintf("A:0x%X X:0x%X Y:0x%X SP:0x%X P:0x%X PC:0x%X", cpu.A, cpu.X, cpu.Y, cpu.SP, cpu.Status, cpu.PC)
 }
 
 func (cpu *CPUState) MapCode(location int, code []byte){
