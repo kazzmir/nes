@@ -126,6 +126,10 @@ func parse(path string) error {
      * http://wiki.nesdev.com/w/index.php/Programming_NROM
      */
     cpu.MapCode(0xc000, programRom)
+    /* for some reason the nestest code starts with status=0x24
+     * http://www.qmtpro.com/~nes/misc/nestest.log
+     */
+    cpu.Status = 0x24
 
     memory := NewMemory(0x3000)
     stack := NewMemory(0x100)

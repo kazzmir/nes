@@ -89,14 +89,14 @@ const (
     Instruction_EOR_immediate = 0x49
     Instruction_LSR_accumulator = 0x4a
     Instruction_JMP_absolute = 0x4c
-    Instruction_BVC_rel = 0x50
+    Instruction_BVC_relative = 0x50
     Instruction_SRE_y = 0x53
     Instruction_RTS = 0x60
     Instruction_ROR_zero = 0x66
     Instruction_PLA = 0x68
     Instruction_ADC_immediate = 0x69
     Instruction_ROR_accumulator = 0x6a
-    Instruction_BVS_rel = 0x70
+    Instruction_BVS_relative = 0x70
     Instruction_SEI_implied = 0x78
     Instruction_ADC_absolute_y = 0x79
     Instruction_STA_indirect_x = 0x81
@@ -157,8 +157,8 @@ func NewInstructionReader(data []byte) *InstructionReader {
     table[Instruction_BPL_rel] = InstructionDescription{Name: "bpl", Operands: 1}
     table[Instruction_BCC_relative] = InstructionDescription{Name: "bcc", Operands: 1}
     table[Instruction_BCS_relative] = InstructionDescription{Name: "bcs", Operands: 1}
-    table[Instruction_BVC_rel] = InstructionDescription{Name: "bvc", Operands: 1}
-    table[Instruction_BVS_rel] = InstructionDescription{Name: "bvs", Operands: 1}
+    table[Instruction_BVC_relative] = InstructionDescription{Name: "bvc", Operands: 1}
+    table[Instruction_BVS_relative] = InstructionDescription{Name: "bvs", Operands: 1}
     table[Instruction_LDA_immediate] = InstructionDescription{Name: "lda", Operands: 1}
     table[Instruction_STA_zero] = InstructionDescription{Name: "sta", Operands: 1}
     table[Instruction_SEI_implied] = InstructionDescription{Name: "sei", Operands: 0}
@@ -430,6 +430,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return err
             }
             cpu.A = value
+            cpu.SetNegativeFlag((value & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STA_absolute:
@@ -465,6 +466,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             value := memory.Load(address)
 
             cpu.A = value
+            cpu.SetNegativeFlag((cpu.A & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_LDY_immediate:
@@ -473,19 +475,23 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return err
             }
             cpu.Y = value
+            cpu.SetNegativeFlag((value & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_TAY:
             cpu.Y = cpu.A
+            cpu.SetNegativeFlag((cpu.A & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_TAX:
             cpu.X = cpu.A
+            cpu.SetNegativeFlag((cpu.A & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_INX:
             /* FIXME: handle overflow */
             cpu.X += 1
+            cpu.SetNegativeFlag((cpu.X & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_ADC_immediate:
@@ -495,6 +501,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             }
             /* FIXME: handle overflow */
             cpu.A += value
+            cpu.SetNegativeFlag((cpu.A & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STY_absolute:
@@ -546,6 +553,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
         case Instruction_PLA:
             cpu.SP += 1
             cpu.A = cpu.Stack.Load(uint16(cpu.SP))
+            cpu.SetNegativeFlag((cpu.A & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_PHA:
@@ -620,6 +628,28 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
             }
             return nil
+        case Instruction_BVS_relative:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            cpu.PC += instruction.Length()
+            if cpu.GetOverflowFlag() {
+                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+            }
+            return nil
+        /* branch on overflow clear */
+        case Instruction_BVC_relative:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            cpu.PC += instruction.Length()
+            if !cpu.GetOverflowFlag() {
+                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+            }
+            return nil
+        /* branch on zero flag clear */
         case Instruction_BNE:
             value, err := instruction.OperandByte()
             if err != nil {
@@ -630,26 +660,35 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
             }
             return nil
+        /* load X with an immediate value */
         case Instruction_LDX_immediate:
             value, err := instruction.OperandByte()
             if err != nil {
                 return err
             }
             cpu.X = value
+            cpu.SetNegativeFlag((value & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
+        /* decrement X */
         case Instruction_DEX:
             cpu.X -= 1
+            cpu.SetNegativeFlag((cpu.X & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
+        /* A = X */
         case Instruction_TXA:
             cpu.A = cpu.X;
+            cpu.SetNegativeFlag((cpu.X & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
+        /* increment Y */
         case Instruction_INY:
             cpu.Y += 1
+            cpu.SetNegativeFlag((cpu.Y & (1<<7)) == (1<<7))
             cpu.PC += instruction.Length()
             return nil
+        /* push PC+2 on stack, jump to address */
         case Instruction_JSR:
             address, err := instruction.OperandWord()
             if err != nil {
