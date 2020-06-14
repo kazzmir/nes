@@ -102,7 +102,7 @@ func main(){
     }
 
     cpu := nes.StartupState()
-    cpu.MapCode(0xc000, nesFile.ProgramRom)
+    cpu.MapMemory(0xc000, nesFile.ProgramRom)
     cpu.Status = 0x24
 
     golden, err := parseLog(logFile)

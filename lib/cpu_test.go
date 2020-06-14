@@ -227,13 +227,13 @@ func TestCPUSimpleBranch(test *testing.T){
         X: 0,
         Y: 0,
         SP: 0,
-        PC: 0x100,
+        PC: 0x5000,
         Status: 0,
         Maps: make(map[uint16][]byte),
     }
 
     cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapCode(0x100, bytes)
+    cpu.MapMemory(0x5000, bytes)
 
     for i := 0; i < 50; i++ {
         err = cpu.Run()
@@ -280,13 +280,13 @@ func TestInstructions1(testing *testing.T){
         X: 0,
         Y: 0,
         SP: 0,
-        PC: 0x100,
+        PC: 0x5000,
         Status: 0,
         Maps: make(map[uint16][]byte),
     }
 
     cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapCode(0x100, bytes)
+    cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 50; i++ {
         err := cpu.Run()
         if err != nil {
@@ -318,13 +318,13 @@ func TestInstructionsZeroPage(testing *testing.T){
         X: 0,
         Y: 0,
         SP: 0,
-        PC: 0x100,
+        PC: 0x5000,
         Status: 0,
         Maps: make(map[uint16][]byte),
     }
 
     cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapCode(0x100, bytes)
+    cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 50; i++ {
         err := cpu.Run()
         if err != nil {
@@ -363,13 +363,13 @@ func TestInstructionsIndirectLoad(testing *testing.T){
         X: 0,
         Y: 0,
         SP: 0,
-        PC: 0x100,
+        PC: 0x5000,
         Status: 0,
         Maps: make(map[uint16][]byte),
     }
 
     cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapCode(0x100, bytes)
+    cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 50; i++ {
         err := cpu.Run()
         if err != nil {
@@ -415,13 +415,13 @@ func TestStack(testing *testing.T){
         X: 0,
         Y: 0,
         SP: 0xff,
-        PC: 0x100,
+        PC: 0x5000,
         Status: 0,
         Maps: make(map[uint16][]byte),
     }
 
     cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapCode(0x100, bytes)
+    cpu.MapMemory(0x5000, bytes)
     cpu.SetStack(0x1000)
     for i := 0; i < 200; i++ {
         err := cpu.Run()
@@ -463,9 +463,9 @@ func TestStack(testing *testing.T){
 
 func TestSubroutine(testing *testing.T){
     bytes := []byte{
-        0x20, 0x08, 0x06, // jsr
+        0x20, 0x08, 0x50, // jsr
         0xa0, 0x10, // ldy #$10
-        0x4c, 0x0c, 0x06, // jmp
+        0x4c, 0x0c, 0x50, // jmp
         0xa2, 0x03, // ldx #$03
         0xe8, // inx
         0x60, // rts
@@ -477,13 +477,13 @@ func TestSubroutine(testing *testing.T){
         X: 0,
         Y: 0,
         SP: 0xff,
-        PC: 0x600,
+        PC: 0x5000,
         Status: 0,
         Maps: make(map[uint16][]byte),
     }
 
     cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapCode(0x600, bytes)
+    cpu.MapMemory(0x5000, bytes)
     cpu.SetStack(0x100)
     for i := 0; i < 200; i++ {
         err := cpu.Run()
@@ -524,13 +524,13 @@ func TestBit(testing *testing.T){
         X: 0,
         Y: 0,
         SP: 0xff,
-        PC: 0x600,
+        PC: 0x5000,
         Status: 0,
         Maps: make(map[uint16][]byte),
     }
 
     cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapCode(0x600, bytes)
+    cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 200; i++ {
         err := cpu.Run()
         if err != nil {
@@ -572,13 +572,13 @@ func TestBit(testing *testing.T){
         X: 0,
         Y: 0,
         SP: 0xff,
-        PC: 0x600,
+        PC: 0x5000,
         Status: 0,
         Maps: make(map[uint16][]byte),
     }
 
     cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapCode(0x600, bytes)
+    cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 200; i++ {
         err := cpu.Run()
         if err != nil {
@@ -629,13 +629,13 @@ func TestBit(testing *testing.T){
         X: 0,
         Y: 0,
         SP: 0xff,
-        PC: 0x600,
+        PC: 0x5000,
         Status: 0,
         Maps: make(map[uint16][]byte),
     }
 
     cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapCode(0x600, bytes)
+    cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 200; i++ {
         err := cpu.Run()
         if err != nil {
@@ -692,7 +692,7 @@ func BenchmarkSimple(benchmark *testing.B){
     }
 
     cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapCode(0x600, bytes)
+    cpu.MapMemory(0x600, bytes)
 
     benchmark.ResetTimer()
     for i := 0; i < benchmark.N; i++ {

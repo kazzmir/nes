@@ -21,7 +21,7 @@ func Run(path string) error {
      * also map to 0x8000, but most games don't seem to care..?
      * http://wiki.nesdev.com/w/index.php/Programming_NROM
      */
-    cpu.MapCode(0xc000, nesFile.ProgramRom)
+    cpu.MapMemory(0xc000, nesFile.ProgramRom)
     /* for some reason the nestest code starts with status=0x24
      * http://www.qmtpro.com/~nes/misc/nestest.log
      */
