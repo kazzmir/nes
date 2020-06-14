@@ -97,6 +97,7 @@ const (
     Instruction_AND_immediate = 0x29
     Instruction_ROL_accumulator = 0x2a
     Instruction_BIT_absolute = 0x2c
+    Instruction_AND_absolute = 0x2d
     Instruction_BMI = 0x30
     Instruction_SEC = 0x38
     Instruction_RTI = 0x40
@@ -210,6 +211,7 @@ func NewInstructionReader(data []byte) *InstructionReader {
     table[Instruction_TSX] = InstructionDescription{Name: "tsx", Operands: 0}
     table[Instruction_TAX] = InstructionDescription{Name: "tax", Operands: 0}
     table[Instruction_AND_immediate] = InstructionDescription{Name: "and", Operands: 1}
+    table[Instruction_AND_absolute] = InstructionDescription{Name: "and", Operands: 2}
     table[Instruction_TAY] = InstructionDescription{Name: "tay", Operands: 0}
     table[Instruction_INC_zero] = InstructionDescription{Name: "inc", Operands: 1}
     table[Instruction_ORA_immediate] = InstructionDescription{Name: "ora", Operands: 1}
@@ -511,6 +513,12 @@ func (memory *Memory) Store(address uint16, value byte){
 
 func (memory *Memory) Load(address uint16) byte {
     return memory.Data[address]
+}
+
+func (cpu *CPUState) doAnd(value byte){
+    cpu.A = cpu.A & value
+    cpu.SetNegativeFlag(int8(cpu.A) < 0)
+    cpu.SetZeroFlag(cpu.A == 0)
 }
 
 func (cpu *CPUState) Execute(instruction Instruction) error {
@@ -932,14 +940,14 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
 
-            next := cpu.PC + instruction.Length()
+            next := cpu.PC + 2
 
             low := byte(next & 0xff)
             high := byte(next >> 8)
 
-            cpu.StoreStack(cpu.SP, low)
-            cpu.SP -= 1
             cpu.StoreStack(cpu.SP, high)
+            cpu.SP -= 1
+            cpu.StoreStack(cpu.SP, low)
             cpu.SP -= 1
 
             cpu.PC = address
@@ -949,18 +957,26 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            cpu.A = cpu.A & value
-            cpu.SetNegativeFlag(int8(cpu.A) < 0)
-            cpu.SetZeroFlag(cpu.A == 0)
+            cpu.doAnd(value)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_AND_absolute:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            value := cpu.LoadMemory(address)
+            cpu.doAnd(value)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_RTS:
             cpu.SP += 1
-            high := cpu.LoadStack(cpu.SP)
-            cpu.SP += 1
             low := cpu.LoadStack(cpu.SP)
+            cpu.SP += 1
+            high := cpu.LoadStack(cpu.SP)
 
-            cpu.PC = (uint16(high) << 8) | uint16(low)
+            cpu.PC = (uint16(high) << 8) + uint16(low) + 1
+
             return nil
         case Instruction_EOR_immediate:
             value, err := instruction.OperandByte()
