@@ -10,4 +10,4 @@ test:
 	go test ./...
 
 count:
-	wc -l ./cmd/nes/*.go
+	wc -l ./cmd/nes/*.go ./lib/*.go
