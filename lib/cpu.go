@@ -95,6 +95,8 @@ const (
     Instruction_ASL_zero_x = 0x16
     Instruction_CLC = 0x18
     Instruction_ORA_absolute_y = 0x19
+    Instruction_ORA_absolute_x = 0x1d
+    Instruction_ASL_absolute_x = 0x1e
     Instruction_JSR = 0x20
     Instruction_AND_indirect_x = 0x21
     Instruction_BIT_zero = 0x24
@@ -112,6 +114,8 @@ const (
     Instruction_ROL_zero_x = 0x36
     Instruction_SEC = 0x38
     Instruction_AND_absolute_y = 0x39
+    Instruction_AND_absolute_x = 0x3d
+    Instruction_ROL_absolute_x = 0x3e
     Instruction_RTI = 0x40
     Instruction_EOR_indirect_x = 0x41
     Instruction_EOR_zero = 0x45
@@ -128,6 +132,8 @@ const (
     Instruction_EOR_zero_x = 0x55
     Instruction_LSR_zero_x = 0x56
     Instruction_EOR_absolute_y = 0x59
+    Instruction_EOR_absolute_x = 0x5d
+    Instruction_LSR_absolute_x = 0x5e
     Instruction_RTS = 0x60
     Instruction_ADC_indirect_x = 0x61
     Instruction_ADC_zero = 0x65
@@ -144,6 +150,8 @@ const (
     Instruction_ROR_zero_x = 0x76
     Instruction_SEI = 0x78
     Instruction_ADC_absolute_y = 0x79
+    Instruction_ADC_absolute_x = 0x7d
+    Instruction_ROR_absolute_x = 0x7e
     Instruction_STA_indirect_x = 0x81
     Instruction_STY_zero = 0x84
     Instruction_STA_zero = 0x85
@@ -184,6 +192,7 @@ const (
     Instruction_TSX = 0xba
     Instruction_LDY_absolute_x = 0xbc
     Instruction_LDA_absolute_x = 0xbd
+    Instruction_LDX_absolute_y = 0xbe
     Instruction_CPY_immediate = 0xc0
     Instruction_CMP_indirect_x = 0xc1
     Instruction_CPY_zero = 0xc4
@@ -201,6 +210,8 @@ const (
     Instruction_DEC_zero_x = 0xd6
     Instruction_CLD = 0xd8
     Instruction_CMP_absolute_y = 0xd9
+    Instruction_CMP_absolute_x = 0xdd
+    Instruction_DEC_absolute_x = 0xde
     Instruction_CPX_immediate = 0xe0
     Instruction_SBC_indirect_x = 0xe1
     Instruction_CPX_zero = 0xe4
@@ -218,6 +229,8 @@ const (
     Instruction_INC_zero_x = 0xf6
     Instruction_SED = 0xf8
     Instruction_SBC_absolute_y = 0xf9
+    Instruction_SBC_absolute_x = 0xfd
+    Instruction_INC_absolute_x = 0xfe
     Instruction_Unknown_ff = 0xff
 )
 
@@ -247,6 +260,7 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_LDY_zero_x] = InstructionDescription{Name: "ldy", Operands: 1}
     table[Instruction_LDA_absolute] = InstructionDescription{Name: "lda", Operands: 2}
     table[Instruction_LDX_immediate] = InstructionDescription{Name: "ldx", Operands: 1}
+    table[Instruction_LDX_absolute_y] = InstructionDescription{Name: "ldx", Operands: 2}
     table[Instruction_LDX_zero_y] = InstructionDescription{Name: "ldx", Operands: 1}
     table[Instruction_LDA_absolute_x] = InstructionDescription{Name: "lda", Operands: 2}
     table[Instruction_INX] = InstructionDescription{Name: "inx", Operands: 0}
@@ -256,12 +270,14 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_LDY_immediate] = InstructionDescription{Name: "ldy", Operands: 1}
     table[Instruction_LDY_zero] = InstructionDescription{Name: "ldy", Operands: 1}
     table[Instruction_CMP_immediate] = InstructionDescription{Name: "cmp", Operands: 1}
+    table[Instruction_CMP_absolute_x] = InstructionDescription{Name: "cmp", Operands: 2}
     table[Instruction_CMP_absolute_y] = InstructionDescription{Name: "cmp", Operands: 2}
     table[Instruction_CMP_zero_x] = InstructionDescription{Name: "cmp", Operands: 1}
     table[Instruction_CMP_indirect_y] = InstructionDescription{Name: "cmp", Operands: 1}
     table[Instruction_CMP_absolute] = InstructionDescription{Name: "cmp", Operands: 2}
     table[Instruction_CLC] = InstructionDescription{Name: "clc", Operands: 0}
     table[Instruction_ADC_immediate] = InstructionDescription{Name: "adc", Operands: 1}
+    table[Instruction_ADC_absolute_x] = InstructionDescription{Name: "adc", Operands: 2}
     table[Instruction_ADC_zero_x] = InstructionDescription{Name: "adc", Operands: 1}
     table[Instruction_ADC_indirect_y] = InstructionDescription{Name: "adc", Operands: 1}
     table[Instruction_ADC_absolute] = InstructionDescription{Name: "adc", Operands: 2}
@@ -276,6 +292,7 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_LDA_indirect_x] = InstructionDescription{Name: "lda", Operands: 1}
     table[Instruction_STA_indirect_x] = InstructionDescription{Name: "sta", Operands: 1}
     table[Instruction_SBC_immediate] = InstructionDescription{Name: "sbc", Operands: 1}
+    table[Instruction_SBC_absolute_x] = InstructionDescription{Name: "sbc", Operands: 2}
     table[Instruction_SBC_zero_x] = InstructionDescription{Name: "sbc", Operands: 1}
     table[Instruction_SBC_absolute_y] = InstructionDescription{Name: "sbc", Operands: 2}
     table[Instruction_SBC_indirect_y] = InstructionDescription{Name: "sbc", Operands: 1}
@@ -283,6 +300,7 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_SBC_zero] = InstructionDescription{Name: "sbc", Operands: 1}
     table[Instruction_SBC_indirect_x] = InstructionDescription{Name: "sbc", Operands: 1}
     table[Instruction_LSR_accumulator] = InstructionDescription{Name: "lsr", Operands: 0}
+    table[Instruction_LSR_absolute_x] = InstructionDescription{Name: "lsr", Operands: 2}
     table[Instruction_LSR_zero_x] = InstructionDescription{Name: "lsr", Operands: 1}
     table[Instruction_LSR_absolute] = InstructionDescription{Name: "lsr", Operands: 2}
     table[Instruction_PHP] = InstructionDescription{Name: "php", Operands: 0}
@@ -292,6 +310,7 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_TSX] = InstructionDescription{Name: "tsx", Operands: 0}
     table[Instruction_TAX] = InstructionDescription{Name: "tax", Operands: 0}
     table[Instruction_AND_immediate] = InstructionDescription{Name: "and", Operands: 1}
+    table[Instruction_AND_absolute_x] = InstructionDescription{Name: "and", Operands: 2}
     table[Instruction_AND_zero_x] = InstructionDescription{Name: "and", Operands: 1}
     table[Instruction_AND_absolute_y] = InstructionDescription{Name: "and", Operands: 2}
     table[Instruction_AND_indirect_y] = InstructionDescription{Name: "and", Operands: 1}
@@ -300,9 +319,11 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_AND_zero] = InstructionDescription{Name: "and", Operands: 1}
     table[Instruction_TAY] = InstructionDescription{Name: "tay", Operands: 0}
     table[Instruction_INC_zero] = InstructionDescription{Name: "inc", Operands: 1}
+    table[Instruction_INC_absolute_x] = InstructionDescription{Name: "inc", Operands: 2}
     table[Instruction_INC_zero_x] = InstructionDescription{Name: "inc", Operands: 1}
     table[Instruction_INC_absolute] = InstructionDescription{Name: "inc", Operands: 2}
     table[Instruction_ORA_immediate] = InstructionDescription{Name: "ora", Operands: 1}
+    table[Instruction_ORA_absolute_x] = InstructionDescription{Name: "ora", Operands: 2}
     table[Instruction_ORA_zero_x] = InstructionDescription{Name: "ora", Operands: 1}
     table[Instruction_ORA_absolute_y] = InstructionDescription{Name: "ora", Operands: 2}
     table[Instruction_ORA_indirect_y] = InstructionDescription{Name: "ora", Operands: 1}
@@ -310,12 +331,14 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_ORA_zero] = InstructionDescription{Name: "ora", Operands: 1}
     table[Instruction_ORA_indirect_x] = InstructionDescription{Name: "ora", Operands: 1}
     table[Instruction_DEC_zero] = InstructionDescription{Name: "dec", Operands: 1}
+    table[Instruction_DEC_absolute_x] = InstructionDescription{Name: "dec", Operands: 2}
     table[Instruction_DEC_zero_x] = InstructionDescription{Name: "dec", Operands: 1}
     table[Instruction_DEC_absolute] = InstructionDescription{Name: "dec", Operands: 2}
     table[Instruction_BIT_zero] = InstructionDescription{Name: "bit", Operands: 1}
     table[Instruction_STX_zero] = InstructionDescription{Name: "stx", Operands: 1}
     table[Instruction_STX_zero_y] = InstructionDescription{Name: "stx", Operands: 1}
     table[Instruction_EOR_zero] = InstructionDescription{Name: "eor", Operands: 1}
+    table[Instruction_EOR_absolute_x] = InstructionDescription{Name: "eor", Operands: 2}
     table[Instruction_EOR_zero_x] = InstructionDescription{Name: "eor", Operands: 1}
     table[Instruction_EOR_absolute_y] = InstructionDescription{Name: "eor", Operands: 2}
     table[Instruction_EOR_indirect_y] = InstructionDescription{Name: "eor", Operands: 1}
@@ -323,6 +346,7 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_EOR_indirect_x] = InstructionDescription{Name: "eor", Operands: 1}
     table[Instruction_LSR_zero] = InstructionDescription{Name: "lsr", Operands: 1}
     table[Instruction_ROR_zero] = InstructionDescription{Name: "ror", Operands: 1}
+    table[Instruction_ROR_absolute_x] = InstructionDescription{Name: "ror", Operands: 2}
     table[Instruction_ROR_zero_x] = InstructionDescription{Name: "ror", Operands: 1}
     table[Instruction_ROR_absolute] = InstructionDescription{Name: "ror", Operands: 2}
     table[Instruction_ROR_accumulator] = InstructionDescription{Name: "ror", Operands: 0}
@@ -334,10 +358,12 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_ADC_absolute_y] = InstructionDescription{Name: "adc", Operands: 2}
     table[Instruction_DEY] = InstructionDescription{Name: "dey", Operands: 0}
     table[Instruction_ROL_zero] = InstructionDescription{Name: "rol", Operands: 1}
+    table[Instruction_ROL_absolute_x] = InstructionDescription{Name: "rol", Operands: 2}
     table[Instruction_ROL_zero_x] = InstructionDescription{Name: "rol", Operands: 1}
     table[Instruction_ROL_absolute] = InstructionDescription{Name: "rol", Operands: 2}
     table[Instruction_ROL_accumulator] = InstructionDescription{Name: "rol", Operands: 0}
     table[Instruction_ASL_accumulator] = InstructionDescription{Name: "asl", Operands: 0}
+    table[Instruction_ASL_absolute_x] = InstructionDescription{Name: "asl", Operands: 2}
     table[Instruction_ASL_absolute] = InstructionDescription{Name: "asl", Operands: 2}
     table[Instruction_ASL_zero_x] = InstructionDescription{Name: "asl", Operands: 1}
     table[Instruction_CLV] = InstructionDescription{Name: "clv", Operands: 0}
@@ -856,6 +882,15 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.loadA(cpu.LoadMemory(uint16(zero + cpu.X)))
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_LDA_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.X)
+            cpu.loadA(cpu.LoadMemory(full))
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_LDA_absolute_y:
             address, err := instruction.OperandWord()
             if err != nil {
@@ -996,6 +1031,14 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.doAdc(cpu.LoadMemory(uint16(zero + cpu.X)))
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_ADC_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            cpu.doAdc(cpu.LoadMemory(address + uint16(cpu.X)))
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_ADC_absolute_y:
             address, err := instruction.OperandWord()
             if err != nil {
@@ -1048,6 +1091,14 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
 
             cpu.doAdc(value)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SBC_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            cpu.doSbc(cpu.LoadMemory(address + uint16(cpu.X)))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_SBC_absolute_y:
@@ -1148,6 +1199,16 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
             // log.Printf("Store X:0x%x into 0x%x\n", cpu.X, value)
             cpu.StoreMemory(value, cpu.X)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_STA_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+
+            full := address + uint16(cpu.X)
+            cpu.StoreMemory(full, cpu.A)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STA_absolute_y:
@@ -1400,6 +1461,17 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.loadX(value)
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_LDX_absolute_y:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+
+            full := address + uint16(cpu.Y)
+            value := cpu.LoadMemory(full)
+            cpu.loadX(value)
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_LDX_absolute:
             address, err := instruction.OperandWord()
             if err != nil {
@@ -1490,6 +1562,14 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.SP -= 1
 
             cpu.PC = address
+            return nil
+        case Instruction_AND_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            cpu.doAnd(cpu.LoadMemory(address + uint16(cpu.X)))
+            cpu.PC += instruction.Length()
             return nil
         case Instruction_AND_absolute_y:
             address, err := instruction.OperandWord()
@@ -1593,6 +1673,16 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.StoreMemory(uint16(address), cpu.doLsr(value))
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_LSR_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.X)
+            value := cpu.LoadMemory(full)
+            cpu.StoreMemory(full, cpu.doLsr(value))
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_LSR_absolute:
             address, err := instruction.OperandWord()
             if err != nil {
@@ -1604,6 +1694,16 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             return nil
         case Instruction_LSR_accumulator:
             cpu.A = cpu.doLsr(cpu.A)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_ASL_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.X)
+            value := cpu.LoadMemory(full)
+            cpu.StoreMemory(full, cpu.doAsl(value))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_ASL_absolute:
@@ -1636,6 +1736,14 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             return nil
         case Instruction_ASL_accumulator:
             cpu.A = cpu.doAsl(cpu.A)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_EOR_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            cpu.doEorA(cpu.LoadMemory(address + uint16(cpu.X)))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_EOR_absolute_y:
@@ -1707,6 +1815,14 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.doOrA(cpu.LoadMemory(uint16(zero + cpu.X)))
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_ORA_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            cpu.doOrA(cpu.LoadMemory(address + uint16(cpu.X)))
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_ORA_absolute_y:
             address, err := instruction.OperandWord()
             if err != nil {
@@ -1772,6 +1888,16 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.SP = cpu.X
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_DEC_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.X)
+            value := cpu.LoadMemory(full)
+            cpu.StoreMemory(full, cpu.doDec(value))
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_DEC_absolute:
             address, err := instruction.OperandWord()
             if err != nil {
@@ -1800,6 +1926,16 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.StoreMemory(uint16(address), cpu.doDec(value))
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_INC_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.X)
+            value := cpu.LoadMemory(full)
+            cpu.StoreMemory(full, cpu.doInc(value))
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_INC_absolute:
             address, err := instruction.OperandWord()
             if err != nil {
@@ -1826,6 +1962,16 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
             value := cpu.LoadMemory(uint16(address))
             cpu.StoreMemory(uint16(address), cpu.doInc(value))
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_ROL_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.X)
+            value := cpu.LoadMemory(full)
+            cpu.StoreMemory(full, cpu.doRol(value))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_ROL_absolute:
@@ -1858,6 +2004,16 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             return nil
         case Instruction_ROL_accumulator:
             cpu.A = cpu.doRol(cpu.A)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_ROR_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.X)
+            value := cpu.LoadMemory(full)
+            cpu.StoreMemory(full, cpu.doRor(value))
             cpu.PC += instruction.Length()
             return nil
         case Instruction_ROR_absolute:
@@ -1923,6 +2079,15 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
         case Instruction_NOP:
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_CMP_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            cpu.doCmp(cpu.LoadMemory(address + uint16(cpu.X)))
+            cpu.PC += instruction.Length()
+            return nil
+
         case Instruction_CMP_absolute_y:
             address, err := instruction.OperandWord()
             if err != nil {
