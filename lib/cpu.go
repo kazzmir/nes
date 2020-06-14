@@ -7,6 +7,13 @@ import (
     "io"
 )
 
+/* opcode references
+ * http://wiki.nesdev.com/w/index.php/CPU_unofficial_opcodes -- nice table of opcodes
+ * http://www.oxyron.de/html/opcodes02.html -- has illegal opcodes and their semantics
+ * https://www.masswerk.at/6502/6502_instruction_set.html
+ * http://www.6502.org/tutorials/6502opcodes.html
+ */
+
 type InstructionReader struct {
     data io.Reader
     table map[InstructionType]InstructionDescription
@@ -168,19 +175,23 @@ const (
     Instruction_ROR_absolute_x = 0x7e
     Instruction_NOP_immediate = 0x80
     Instruction_STA_indirect_x = 0x81
+    Instruction_SAX_indirect_x = 0x83
     Instruction_STY_zero = 0x84
     Instruction_STA_zero = 0x85
     Instruction_STX_zero = 0x86
+    Instruction_SAX_zero = 0x87
     Instruction_DEY = 0x88
     Instruction_TXA = 0x8a
     Instruction_STY_absolute = 0x8c
     Instruction_STA_absolute = 0x8d
     Instruction_STX_absolute = 0x8e
+    Instruction_SAX_absolute = 0x8f
     Instruction_BCC_relative = 0x90
     Instruction_STA_indirect_y = 0x91
     Instruction_STY_zero_x = 0x94
     Instruction_STA_zero_x = 0x95
     Instruction_STX_zero_y = 0x96
+    Instruction_SAX_zero_y = 0x97
     Instruction_TYA = 0x98
     Instruction_STA_absolute_y = 0x99
     Instruction_TXS = 0x9a
@@ -216,26 +227,33 @@ const (
     Instruction_LAX_absolute_y = 0xbf
     Instruction_CPY_immediate = 0xc0
     Instruction_CMP_indirect_x = 0xc1
+    Instruction_DCP_indirect_x = 0xc3
     Instruction_CPY_zero = 0xc4
     Instruction_CMP_zero = 0xc5
     Instruction_DEC_zero = 0xc6
+    Instruction_DCP_zero = 0xc7
     Instruction_INY = 0xc8
     Instruction_CMP_immediate = 0xc9
     Instruction_DEX = 0xca
     Instruction_CPY_absolute = 0xcc
     Instruction_CMP_absolute = 0xcd
     Instruction_DEC_absolute = 0xce
+    Instruction_DCP_absolute = 0xcf
     Instruction_BNE = 0xd0
     Instruction_CMP_indirect_y = 0xd1
+    Instruction_DCP_indirect_y = 0xd3
     Instruction_NOP_zero_x_4 = 0xd4
     Instruction_CMP_zero_x = 0xd5
     Instruction_DEC_zero_x = 0xd6
+    Instruction_DCP_zero_x = 0xd7
     Instruction_CLD = 0xd8
     Instruction_CMP_absolute_y = 0xd9
     Instruction_NOP_5 = 0xda
+    Instruction_DCP_absolute_y = 0xdb
     Instruction_NOP_absolute_x_5 = 0xdc
     Instruction_CMP_absolute_x = 0xdd
     Instruction_DEC_absolute_x = 0xde
+    Instruction_DCP_absolute_x = 0xdf
     Instruction_CPX_immediate = 0xe0
     Instruction_SBC_indirect_x = 0xe1
     Instruction_CPX_zero = 0xe4
@@ -244,6 +262,7 @@ const (
     Instruction_INX = 0xe8
     Instruction_SBC_immediate = 0xe9
     Instruction_NOP_6 = 0xea
+    Instruction_SBC_immediate_1 = 0xeb
     Instruction_CPX_absolute = 0xec
     Instruction_SBC_absolute = 0xed
     Instruction_INC_absolute = 0xee
@@ -281,6 +300,10 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_STY_zero_x] = InstructionDescription{Name: "sty", Operands: 1}
     table[Instruction_SEI] = InstructionDescription{Name: "sei", Operands: 0}
     table[Instruction_STA_absolute] = InstructionDescription{Name: "sta", Operands: 2}
+    table[Instruction_SAX_indirect_x] = InstructionDescription{Name: "sax", Operands: 1}
+    table[Instruction_SAX_absolute] = InstructionDescription{Name: "sax", Operands: 2}
+    table[Instruction_SAX_zero] = InstructionDescription{Name: "sax", Operands: 1}
+    table[Instruction_SAX_zero_y] = InstructionDescription{Name: "sax", Operands: 1}
     table[Instruction_JSR] = InstructionDescription{Name: "jsr", Operands: 2}
     table[Instruction_LDY_absolute] = InstructionDescription{Name: "ldy", Operands: 2}
     table[Instruction_LDY_absolute_x] = InstructionDescription{Name: "ldy", Operands: 2}
@@ -296,6 +319,13 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_LDA_zero] = InstructionDescription{Name: "lda", Operands: 1}
     table[Instruction_LDY_immediate] = InstructionDescription{Name: "ldy", Operands: 1}
     table[Instruction_LDY_zero] = InstructionDescription{Name: "ldy", Operands: 1}
+    table[Instruction_DCP_indirect_x] = InstructionDescription{Name: "dcp", Operands: 1}
+    table[Instruction_DCP_indirect_y] = InstructionDescription{Name: "dcp", Operands: 1}
+    table[Instruction_DCP_absolute] = InstructionDescription{Name: "dcp", Operands: 2}
+    table[Instruction_DCP_absolute_y] = InstructionDescription{Name: "dcp", Operands: 2}
+    table[Instruction_DCP_absolute_x] = InstructionDescription{Name: "dcp", Operands: 2}
+    table[Instruction_DCP_zero] = InstructionDescription{Name: "dcp", Operands: 1}
+    table[Instruction_DCP_zero_x] = InstructionDescription{Name: "dcp", Operands: 1}
     table[Instruction_CMP_immediate] = InstructionDescription{Name: "cmp", Operands: 1}
     table[Instruction_CMP_absolute_x] = InstructionDescription{Name: "cmp", Operands: 2}
     table[Instruction_CMP_absolute_y] = InstructionDescription{Name: "cmp", Operands: 2}
@@ -348,6 +378,7 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_LDA_indirect_x] = InstructionDescription{Name: "lda", Operands: 1}
     table[Instruction_STA_indirect_x] = InstructionDescription{Name: "sta", Operands: 1}
     table[Instruction_SBC_immediate] = InstructionDescription{Name: "sbc", Operands: 1}
+    table[Instruction_SBC_immediate_1] = InstructionDescription{Name: "sbc", Operands: 1}
     table[Instruction_SBC_absolute_x] = InstructionDescription{Name: "sbc", Operands: 2}
     table[Instruction_SBC_zero_x] = InstructionDescription{Name: "sbc", Operands: 1}
     table[Instruction_SBC_absolute_y] = InstructionDescription{Name: "sbc", Operands: 2}
@@ -1210,7 +1241,8 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.doSbc(value)
             cpu.PC += instruction.Length()
             return nil
-        case Instruction_SBC_immediate:
+        case Instruction_SBC_immediate,
+             Instruction_SBC_immediate_1:
             /* A := A - M - !C */
             value, err := instruction.OperandByte()
             if err != nil {
@@ -1221,7 +1253,45 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             cpu.PC += instruction.Length()
             return nil
+        case Instruction_SAX_absolute:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            cpu.StoreMemory(address, cpu.A & cpu.X)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SAX_zero_y:
+            zero, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            address := uint16(zero + cpu.Y)
+            cpu.StoreMemory(address, cpu.A & cpu.X)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SAX_zero:
+            zero, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            address := uint16(zero)
+            cpu.StoreMemory(address, cpu.A & cpu.X)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SAX_indirect_x:
+            /* illegal opcode. addr := A & X, where addr := (X,X+1) */
+            zero, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
 
+            low := uint16(cpu.LoadMemory(uint16(zero + cpu.X)))
+            high := uint16(cpu.LoadMemory(uint16(zero + cpu.X + 1)))
+            address := (high<<8) | low
+            cpu.StoreMemory(address, cpu.A & cpu.X)
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_STY_absolute:
             value, err := instruction.OperandWord()
             if err != nil {
@@ -2329,6 +2399,99 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
             cpu.doCmp(value)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_DCP_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+
+            full := address + uint16(cpu.X)
+
+            value := cpu.LoadMemory(full) - 1
+            cpu.doCmp(value)
+            cpu.StoreMemory(full, value)
+
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_DCP_absolute_y:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+
+            full := address + uint16(cpu.Y)
+
+            value := cpu.LoadMemory(full) - 1
+            cpu.doCmp(value)
+            cpu.StoreMemory(full, value)
+
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_DCP_absolute:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+
+            value := cpu.LoadMemory(address) - 1
+            cpu.doCmp(value)
+            cpu.StoreMemory(address, value)
+
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_DCP_zero_x:
+            zero, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            address := uint16(zero + cpu.X)
+            value := cpu.LoadMemory(address) - 1
+            cpu.doCmp(value)
+            cpu.StoreMemory(address, value)
+
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_DCP_zero:
+            zero, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            address := uint16(zero)
+            value := cpu.LoadMemory(address) - 1
+            cpu.doCmp(value)
+            cpu.StoreMemory(address, value)
+
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_DCP_indirect_y:
+            relative, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            address := cpu.ComputeIndirectY(relative)
+            value := cpu.LoadMemory(address) - 1
+            cpu.doCmp(value)
+            cpu.StoreMemory(address, value)
+
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_DCP_indirect_x:
+            /* illegal opcode: (addr) = (addr) - 1, compare(A, (addr)) */
+            relative, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            address := cpu.ComputeIndirectX(relative)
+            value := cpu.LoadMemory(address) - 1
+            cpu.doCmp(value)
+            cpu.StoreMemory(address, value)
+
             cpu.PC += instruction.Length()
             return nil
         case Instruction_CLC:
