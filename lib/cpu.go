@@ -330,7 +330,8 @@ type CPUState struct {
     CodeStart uint16
     Code []byte
 
-    Stack *Memory
+    Maps map[uint16][]byte
+    StackBase uint16
 }
 
 func (cpu *CPUState) Equals(other CPUState) bool {
@@ -351,8 +352,52 @@ func (cpu *CPUState) MapCode(location int, code []byte){
     cpu.Code = code
 }
 
-func (cpu *CPUState) MapStack(stack *Memory){
-    cpu.Stack = stack
+func (cpu *CPUState) MapMemory(location uint16, memory []byte) error {
+    for base, memory := range cpu.Maps {
+        if location >= base && location <= base + uint16(len(memory)) {
+            return fmt.Errorf("Overlapping memory map with 0x%x - 0x%x", base, base + uint16(len(memory)))
+        }
+    }
+
+    cpu.Maps[location] = memory
+    return nil
+}
+
+func (cpu *CPUState) SetStack(location uint16){
+    cpu.StackBase = location
+}
+
+func (cpu *CPUState) LoadMemory(address uint16) byte {
+    large := uint64(address)
+    for base, memory := range cpu.Maps {
+        if large >= uint64(base) && large < uint64(base) + uint64(len(memory)) {
+            return memory[address-base]
+        }
+    }
+
+    /* FIXME: return an error? */
+    log.Printf("Warning: accessing unmapped memory at 0x%x\n", address)
+    return 0
+}
+
+func (cpu *CPUState) StoreMemory(address uint16, value byte) {
+    large := uint64(address)
+    for base, memory := range cpu.Maps {
+        if large >= uint64(base) && large < uint64(base) + uint64(len(memory)) {
+            memory[address-base] = value
+            return
+        }
+    }
+
+    log.Printf("Warning: could not access unmapped memory at 0x%x\n", address)
+}
+
+func (cpu *CPUState) LoadStack(where byte) byte {
+    return cpu.LoadMemory(cpu.StackBase + uint16(where))
+}
+
+func (cpu *CPUState) StoreStack(where byte, value byte) {
+    cpu.StoreMemory(cpu.StackBase + uint16(where), value)
 }
 
 func (cpu *CPUState) Fetch() (Instruction, error) {
@@ -371,7 +416,7 @@ func (cpu *CPUState) Fetch() (Instruction, error) {
     return reader.ReadInstruction()
 }
 
-func (cpu *CPUState) Run(memory *Memory) error {
+func (cpu *CPUState) Run() error {
     instruction, err := cpu.Fetch()
     if err != nil {
         return err
@@ -379,7 +424,7 @@ func (cpu *CPUState) Run(memory *Memory) error {
 
     cycle := 0
     log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cycle)
-    return cpu.Execute(instruction, memory)
+    return cpu.Execute(instruction)
 }
 
 func (cpu *CPUState) setBit(bit byte, set bool){
@@ -446,7 +491,11 @@ type Memory struct {
     Data []byte
 }
 
-func NewMemory(size int) Memory {
+func NewMemory(size int) []byte {
+    return make([]byte, size)
+}
+
+func NewMemory2(size int) Memory {
     data := make([]byte, size)
     /* by default the data initializes to all 0's, but we could
      * put some other arbitrary byte value in each slot
@@ -464,7 +513,7 @@ func (memory *Memory) Load(address uint16) byte {
     return memory.Data[address]
 }
 
-func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
+func (cpu *CPUState) Execute(instruction Instruction) error {
     switch instruction.Kind {
         case Instruction_LDA_immediate:
             value, err := instruction.OperandByte()
@@ -481,7 +530,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             if err != nil {
                 return err
             }
-            memory.Store(address, cpu.A)
+            cpu.StoreMemory(address, cpu.A)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STA_zero:
@@ -489,7 +538,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             if err != nil {
                 return err
             }
-            memory.Store(uint16(address), cpu.A)
+            cpu.StoreMemory(uint16(address), cpu.A)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_LDA_indirect_x:
@@ -501,12 +550,12 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             /* Load the two bytes at address $(relative+X) to
              * construct a 16-bit address
              */
-            low := memory.Load(uint16(zero_address))
-            high := memory.Load(uint16(zero_address+1))
+            low := cpu.LoadMemory(uint16(zero_address))
+            high := cpu.LoadMemory(uint16(zero_address+1))
 
             address := (uint16(high) << 8) | uint16(low)
             /* Then load the value at that 16-bit address */
-            value := memory.Load(address)
+            value := cpu.LoadMemory(address)
 
             cpu.A = value
             cpu.SetNegativeFlag(int8(cpu.A) < 0)
@@ -603,7 +652,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return err
             }
             // log.Printf("Store Y:0x%x into 0x%x\n", cpu.Y, value)
-            memory.Store(value, cpu.Y)
+            cpu.StoreMemory(value, cpu.Y)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STX_zero:
@@ -612,7 +661,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return nil
             }
             address := uint16(value + cpu.X)
-            memory.Store(address, cpu.X)
+            cpu.StoreMemory(address, cpu.X)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STX_absolute:
@@ -621,7 +670,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return err
             }
             // log.Printf("Store X:0x%x into 0x%x\n", cpu.X, value)
-            memory.Store(value, cpu.X)
+            cpu.StoreMemory(value, cpu.X)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STA_absolute_y:
@@ -631,7 +680,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             }
 
             full := address + uint16(cpu.Y)
-            memory.Store(full, cpu.A)
+            cpu.StoreMemory(full, cpu.A)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STA_zeropage_x:
@@ -640,12 +689,12 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return nil
             }
             address := uint16(value + cpu.X)
-            memory.Store(address, cpu.A)
+            cpu.StoreMemory(address, cpu.A)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_PLA:
             cpu.SP += 1
-            cpu.A = cpu.Stack.Load(uint16(cpu.SP))
+            cpu.A = cpu.LoadStack(cpu.SP)
             cpu.SetNegativeFlag(int8(cpu.A) < 0)
             cpu.SetZeroFlag(cpu.A == 0)
             cpu.PC += instruction.Length()
@@ -655,13 +704,13 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
              * http://wiki.nesdev.com/w/index.php/CPU_ALL#The_B_flag
              */
             value := cpu.Status | byte(1<<4) | byte(1<<5)
-            cpu.Stack.Store(uint16(cpu.SP), value)
+            cpu.StoreStack(cpu.SP, value)
             cpu.SP -= 1
             cpu.PC += instruction.Length()
             return nil
         case Instruction_PLP:
             cpu.SP += 1
-            value := cpu.Stack.Load(uint16(cpu.SP))
+            value := cpu.LoadStack(cpu.SP)
             /* 00110000 */
             b_bits := byte(0x30)
             /* the new status is all the non-b bits of the value pulled
@@ -672,7 +721,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             cpu.PC += instruction.Length()
             return nil
         case Instruction_PHA:
-            cpu.Stack.Store(uint16(cpu.SP), cpu.A)
+            cpu.StoreStack(cpu.SP, cpu.A)
             cpu.SP -= 1
             cpu.PC += instruction.Length()
             return nil
@@ -716,7 +765,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             }
 
             /* pull from the zero page */
-            value := memory.Load(uint16(relative))
+            value := cpu.LoadMemory(uint16(relative))
 
             cpu.SetZeroFlag((cpu.A & value) == 0)
             cpu.SetNegativeFlag((value & (1<<7)) == (1<<7))
@@ -824,7 +873,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return err
             }
 
-            value := memory.Load(address)
+            value := cpu.LoadMemory(address)
             cpu.X = value
             cpu.SetNegativeFlag(int8(cpu.X) < 0)
             cpu.SetZeroFlag(cpu.X == 0)
@@ -836,7 +885,7 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
                 return err
             }
 
-            value := memory.Load(address)
+            value := cpu.LoadMemory(address)
             cpu.A = value
             cpu.SetNegativeFlag(int8(cpu.A) < 0)
             cpu.SetZeroFlag(cpu.A == 0)
@@ -888,9 +937,9 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             low := byte(next & 0xff)
             high := byte(next >> 8)
 
-            cpu.Stack.Store(uint16(cpu.SP), low)
+            cpu.StoreStack(cpu.SP, low)
             cpu.SP -= 1
-            cpu.Stack.Store(uint16(cpu.SP), high)
+            cpu.StoreStack(cpu.SP, high)
             cpu.SP -= 1
 
             cpu.PC = address
@@ -907,9 +956,9 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
             return nil
         case Instruction_RTS:
             cpu.SP += 1
-            high := cpu.Stack.Load(uint16(cpu.SP))
+            high := cpu.LoadStack(cpu.SP)
             cpu.SP += 1
-            low := cpu.Stack.Load(uint16(cpu.SP))
+            low := cpu.LoadStack(cpu.SP)
 
             cpu.PC = (uint16(high) << 8) | uint16(low)
             return nil
@@ -999,13 +1048,24 @@ func (cpu *CPUState) Execute(instruction Instruction, memory *Memory) error {
 
 /* http://wiki.nesdev.com/w/index.php/CPU_power_up_state */
 func StartupState() CPUState {
-    return CPUState {
+    cpu := CPUState {
         A: 0,
         X: 0,
         Y: 0,
         SP: 0xfd,
         PC: 0xc000,
         Status: 0x34, // 110100
+        Maps: make(map[uint16][]byte),
     }
+
+    /* http://wiki.nesdev.com/w/index.php/CPU_memory_map */
+    memory := NewMemory(0x800)
+    cpu.MapMemory(0x0, memory)
+    cpu.MapMemory(0x800, memory)
+    cpu.MapMemory(0x1000, memory)
+    cpu.MapMemory(0x1800, memory)
+    cpu.SetStack(0x100)
+
+    return cpu
 }
 

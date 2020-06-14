@@ -27,13 +27,8 @@ func Run(path string) error {
      */
     cpu.Status = 0x24
 
-    memory := nes.NewMemory(0x3000)
-    stack := nes.NewMemory(0x100)
-
-    cpu.MapStack(&stack)
-
     for i := 0; i < 1000; i++ {
-        err = cpu.Run(&memory)
+        err = cpu.Run()
         if err != nil {
             return err
         }

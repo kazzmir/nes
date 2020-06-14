@@ -89,12 +89,13 @@ func TestCPUSimple(test *testing.T){
         SP: 0,
         PC: 0x100,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory := NewMemory(0x3000)
+    cpu.MapMemory(0x0, NewMemory(0x3000))
 
     for _, instruction := range instructions {
-        err = cpu.Execute(instruction, &memory)
+        err = cpu.Execute(instruction)
         if err != nil {
             test.Fatalf("could not execute instruction %v\n", instruction.String())
         }
@@ -116,16 +117,16 @@ func TestCPUSimple(test *testing.T){
         test.Fatalf("PC register expected to be 0x10f but was 0x%x\n", cpu.PC)
     }
 
-    if memory.Load(0x200) != 0x1 {
-        test.Fatalf("expected memory location 0x200 to contain 0x1 but was 0x%x\n", memory.Load(0x200))
+    if cpu.LoadMemory(0x200) != 0x1 {
+        test.Fatalf("expected memory location 0x200 to contain 0x1 but was 0x%x\n", cpu.LoadMemory(0x200))
     }
 
-    if memory.Load(0x201) != 0x5 {
-        test.Fatalf("expected memory location 0x201 to contain 0x5 but was 0x%x\n", memory.Load(0x201))
+    if cpu.LoadMemory(0x201) != 0x5 {
+        test.Fatalf("expected memory location 0x201 to contain 0x5 but was 0x%x\n", cpu.LoadMemory(0x201))
     }
 
-    if memory.Load(0x202) != 0x8 {
-        test.Fatalf("expected memory location 0x202 to contain 0x8 but was 0x%x\n", memory.Load(0x202))
+    if cpu.LoadMemory(0x202) != 0x8 {
+        test.Fatalf("expected memory location 0x202 to contain 0x8 but was 0x%x\n", cpu.LoadMemory(0x202))
     }
 }
 
@@ -162,12 +163,13 @@ func TestCPUSimple2(test *testing.T){
         SP: 0,
         PC: 0x100,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory := NewMemory(0x3000)
+    cpu.MapMemory(0x0, NewMemory(0x3000))
 
     for _, instruction := range instructions {
-        err = cpu.Execute(instruction, &memory)
+        err = cpu.Execute(instruction)
         if err != nil {
             test.Fatalf("could not execute instruction %v\n", instruction.String())
         }
@@ -227,14 +229,14 @@ func TestCPUSimpleBranch(test *testing.T){
         SP: 0,
         PC: 0x100,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory := NewMemory(0x3000)
-
+    cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapCode(0x100, bytes)
 
     for i := 0; i < 50; i++ {
-        err = cpu.Run(&memory)
+        err = cpu.Run()
         if err != nil {
             test.Fatalf("Could not run CPU: %v\n", err)
         }
@@ -256,12 +258,12 @@ func TestCPUSimpleBranch(test *testing.T){
         test.Fatalf("Y register expected to be 0x0 but was 0x%x\n", cpu.Y)
     }
 
-    if memory.Load(0x200) != 0x3 {
-        test.Fatalf("Expected memory location 0x200 to be 0x3 but was 0x%x\n", memory.Load(0x200))
+    if cpu.LoadMemory(0x200) != 0x3 {
+        test.Fatalf("Expected memory location 0x200 to be 0x3 but was 0x%x\n", cpu.LoadMemory(0x200))
     }
 
-    if memory.Load(0x201) != 0x3 {
-        test.Fatalf("Expected memory location 0x201 to be 0x3 but was 0x%x\n", memory.Load(0x201))
+    if cpu.LoadMemory(0x201) != 0x3 {
+        test.Fatalf("Expected memory location 0x201 to be 0x3 but was 0x%x\n", cpu.LoadMemory(0x201))
     }
 }
 
@@ -280,13 +282,13 @@ func TestInstructions1(testing *testing.T){
         SP: 0,
         PC: 0x100,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory := NewMemory(0x3000)
-
+    cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapCode(0x100, bytes)
     for i := 0; i < 50; i++ {
-        err := cpu.Run(&memory)
+        err := cpu.Run()
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -296,8 +298,8 @@ func TestInstructions1(testing *testing.T){
         }
     }
 
-    if memory.Load(0x203) != 0x0c {
-        testing.Fatalf("Expected memory location 0x203 to be 0x0c but was 0x%x\n", memory.Load(0x203))
+    if cpu.LoadMemory(0x203) != 0x0c {
+        testing.Fatalf("Expected memory location 0x203 to be 0x0c but was 0x%x\n", cpu.LoadMemory(0x203))
     }
 }
 
@@ -318,13 +320,13 @@ func TestInstructionsZeroPage(testing *testing.T){
         SP: 0,
         PC: 0x100,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory := NewMemory(0x3000)
-
+    cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapCode(0x100, bytes)
     for i := 0; i < 50; i++ {
-        err := cpu.Run(&memory)
+        err := cpu.Run()
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -334,12 +336,12 @@ func TestInstructionsZeroPage(testing *testing.T){
         }
     }
 
-    if memory.Load(0xa1) != 0xaa {
-        testing.Fatalf("Expected memory location 0xa1 to be 0xaa but was 0x%x\n", memory.Load(0xa1))
+    if cpu.LoadMemory(0xa1) != 0xaa {
+        testing.Fatalf("Expected memory location 0xa1 to be 0xaa but was 0x%x\n", cpu.LoadMemory(0xa1))
     }
 
-    if memory.Load(0xa2) != 0xaa {
-        testing.Fatalf("Expected memory location 0xa2 to be 0xaa but was 0x%x\n", memory.Load(0xa2))
+    if cpu.LoadMemory(0xa2) != 0xaa {
+        testing.Fatalf("Expected memory location 0xa2 to be 0xaa but was 0x%x\n", cpu.LoadMemory(0xa2))
     }
 }
 
@@ -363,13 +365,13 @@ func TestInstructionsIndirectLoad(testing *testing.T){
         SP: 0,
         PC: 0x100,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory := NewMemory(0x3000)
-
+    cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapCode(0x100, bytes)
     for i := 0; i < 50; i++ {
-        err := cpu.Run(&memory)
+        err := cpu.Run()
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -415,15 +417,14 @@ func TestStack(testing *testing.T){
         SP: 0xff,
         PC: 0x100,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory := NewMemory(0x3000)
-    stack := NewMemory(0x100)
-
+    cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapCode(0x100, bytes)
-    cpu.MapStack(&stack)
+    cpu.SetStack(0x1000)
     for i := 0; i < 200; i++ {
-        err := cpu.Run(&memory)
+        err := cpu.Run()
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -447,15 +448,15 @@ func TestStack(testing *testing.T){
 
     for i := 0; i <= 0xf; i++ {
         address := uint16(0x200 + i)
-        if memory.Load(address) != byte(i) {
-            testing.Fatalf("Expected memory location 0x%x to be 0x%x but was 0x%x\n", address, i, memory.Load(address))
+        if cpu.LoadMemory(address) != byte(i) {
+            testing.Fatalf("Expected memory location 0x%x to be 0x%x but was 0x%x\n", address, i, cpu.LoadMemory(address))
         }
     }
 
     for i := 0xf; i >= 0; i-- {
         address := uint16(0x21f - i)
-        if memory.Load(address) != byte(i) {
-            testing.Fatalf("Expected memory location 0x%x to be 0x%x but was 0x%x\n", address, i, memory.Load(address))
+        if cpu.LoadMemory(address) != byte(i) {
+            testing.Fatalf("Expected memory location 0x%x to be 0x%x but was 0x%x\n", address, i, cpu.LoadMemory(address))
         }
     }
 }
@@ -478,15 +479,14 @@ func TestSubroutine(testing *testing.T){
         SP: 0xff,
         PC: 0x600,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory := NewMemory(0x3000)
-    stack := NewMemory(0x100)
-
+    cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapCode(0x600, bytes)
-    cpu.MapStack(&stack)
+    cpu.SetStack(0x100)
     for i := 0; i < 200; i++ {
-        err := cpu.Run(&memory)
+        err := cpu.Run()
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -526,13 +526,13 @@ func TestBit(testing *testing.T){
         SP: 0xff,
         PC: 0x600,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory := NewMemory(0x3000)
-
+    cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapCode(0x600, bytes)
     for i := 0; i < 200; i++ {
-        err := cpu.Run(&memory)
+        err := cpu.Run()
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -574,13 +574,13 @@ func TestBit(testing *testing.T){
         SP: 0xff,
         PC: 0x600,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory = NewMemory(0x3000)
-
+    cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapCode(0x600, bytes)
     for i := 0; i < 200; i++ {
-        err := cpu.Run(&memory)
+        err := cpu.Run()
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -631,13 +631,13 @@ func TestBit(testing *testing.T){
         SP: 0xff,
         PC: 0x600,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory = NewMemory(0x3000)
-
+    cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapCode(0x600, bytes)
     for i := 0; i < 200; i++ {
-        err := cpu.Run(&memory)
+        err := cpu.Run()
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -688,15 +688,15 @@ func BenchmarkSimple(benchmark *testing.B){
         SP: 0xff,
         PC: 0x600,
         Status: 0,
+        Maps: make(map[uint16][]byte),
     }
 
-    memory := NewMemory(0x3000)
-
+    cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapCode(0x600, bytes)
 
     benchmark.ResetTimer()
     for i := 0; i < benchmark.N; i++ {
-        err := cpu.Run(&memory)
+        err := cpu.Run()
         if err != nil {
             benchmark.Fatalf("Could not execute cpu %v\n", err)
         }

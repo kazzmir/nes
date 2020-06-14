@@ -105,11 +105,6 @@ func main(){
     cpu.MapCode(0xc000, nesFile.ProgramRom)
     cpu.Status = 0x24
 
-    memory := nes.NewMemory(0x3000)
-    stack := nes.NewMemory(0x100)
-
-    cpu.MapStack(&stack)
-
     golden, err := parseLog(logFile)
     if err != nil {
         log.Fatalf("Error: %v\n", err)
@@ -127,7 +122,7 @@ func main(){
             log.Fatalf("Error: PC 0x%X Expected %v but had %v\n", cpu.PC, expected.CPU.String(), cpu.String())
         }
 
-        err = cpu.Execute(instruction, &memory)
+        err = cpu.Execute(instruction)
         if err != nil {
             log.Fatalf("Error: %v\n", err)
             return
