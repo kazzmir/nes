@@ -401,9 +401,6 @@ type CPUState struct {
     PC uint16
     Status byte
 
-    CodeStart uint16
-    Code []byte
-
     Maps map[uint16][]byte
     StackBase uint16
 }
@@ -420,16 +417,6 @@ func (cpu *CPUState) Equals(other CPUState) bool {
 func (cpu *CPUState) String() string {
     return fmt.Sprintf("A:0x%X X:0x%X Y:0x%X SP:0x%X P:0x%X PC:0x%X", cpu.A, cpu.X, cpu.Y, cpu.SP, cpu.Status, cpu.PC)
 }
-
-/*
-func (cpu *CPUState) MapCode(location uint16, code []byte){
-    // cpu.MapMemory(location, code)
-    / *
-    cpu.CodeStart = uint16(location)
-    cpu.Code = code
-    * /
-}
-*/
 
 func (cpu *CPUState) MapMemory(location uint16, memory []byte) error {
     for base, memory := range cpu.Maps {
@@ -480,19 +467,6 @@ func (cpu *CPUState) StoreStack(where byte, value byte) {
 }
 
 func (cpu *CPUState) Fetch() (Instruction, error) {
-    /*
-    where := cpu.PC - cpu.CodeStart
-    if where < 0 {
-        return Instruction{}, fmt.Errorf("Invalid PC value: %X", cpu.PC)
-    }
-    */
-
-    /*
-    if int(where) >= len(cpu.Code) {
-        return Instruction{}, fmt.Errorf("Invalid PC value: %X", cpu.PC)
-    }
-    */
-
     first := cpu.LoadMemory(cpu.PC)
     /* FIXME: don't create a new table each time */
     table := makeInstructionDescriptiontable()
