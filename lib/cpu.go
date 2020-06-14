@@ -77,7 +77,7 @@ const (
     Instruction_ORA_indirect_x = 0x01
     Instruction_STP_02 = 0x02
     Instruction_STP_03 = 0x03
-    Instruction_STP_04 = 0x04
+    Instruction_NOP_zero = 0x04
     Instruction_ORA_zero = 0x05
     Instruction_ASL_zero = 0x06
     Instruction_SLO_07 = 0x07
@@ -85,16 +85,19 @@ const (
     Instruction_ORA_immediate = 0x09
     Instruction_ASL_accumulator = 0x0a
     Instruction_ANC_0b = 0x0b
-    Instruction_NOP_0c = 0x0c
+    Instruction_NOP_absolute = 0x0c
     Instruction_ORA_absolute = 0x0d
     Instruction_ASL_absolute = 0x0e
     Instruction_SLO_abs = 0x0f
     Instruction_BPL = 0x10
     Instruction_ORA_indirect_y = 0x11
+    Instruction_NOP_zero_x = 0x14
     Instruction_ORA_zero_x = 0x15
     Instruction_ASL_zero_x = 0x16
     Instruction_CLC = 0x18
     Instruction_ORA_absolute_y = 0x19
+    Instruction_NOP_1 = 0x1a
+    Instruction_NOP_absolute_x_1 = 0x1c
     Instruction_ORA_absolute_x = 0x1d
     Instruction_ASL_absolute_x = 0x1e
     Instruction_JSR = 0x20
@@ -110,14 +113,18 @@ const (
     Instruction_ROL_absolute = 0x2e
     Instruction_BMI = 0x30
     Instruction_AND_indirect_y = 0x31
+    Instruction_NOP_zero_x_1 = 0x34
     Instruction_AND_zero_x = 0x35
     Instruction_ROL_zero_x = 0x36
     Instruction_SEC = 0x38
     Instruction_AND_absolute_y = 0x39
+    Instruction_NOP_2 = 0x3a
+    Instruction_NOP_absolute_x_2 = 0x3c
     Instruction_AND_absolute_x = 0x3d
     Instruction_ROL_absolute_x = 0x3e
     Instruction_RTI = 0x40
     Instruction_EOR_indirect_x = 0x41
+    Instruction_NOP_zero_1 = 0x44
     Instruction_EOR_zero = 0x45
     Instruction_LSR_zero = 0x46
     Instruction_PHA = 0x48
@@ -129,13 +136,17 @@ const (
     Instruction_BVC_relative = 0x50
     Instruction_EOR_indirect_y = 0x51
     Instruction_SRE_y = 0x53
+    Instruction_NOP_zero_x_2 = 0x54
     Instruction_EOR_zero_x = 0x55
     Instruction_LSR_zero_x = 0x56
     Instruction_EOR_absolute_y = 0x59
+    Instruction_NOP_3 = 0x5a
+    Instruction_NOP_absolute_x_3 = 0x5c
     Instruction_EOR_absolute_x = 0x5d
     Instruction_LSR_absolute_x = 0x5e
     Instruction_RTS = 0x60
     Instruction_ADC_indirect_x = 0x61
+    Instruction_NOP_zero_2 = 0x64
     Instruction_ADC_zero = 0x65
     Instruction_ROR_zero = 0x66
     Instruction_PLA = 0x68
@@ -146,12 +157,16 @@ const (
     Instruction_ROR_absolute = 0x6e
     Instruction_BVS_relative = 0x70
     Instruction_ADC_indirect_y = 0x71
+    Instruction_NOP_zero_x_3 = 0x74
     Instruction_ADC_zero_x = 0x75
     Instruction_ROR_zero_x = 0x76
     Instruction_SEI = 0x78
     Instruction_ADC_absolute_y = 0x79
+    Instruction_NOP_4 = 0x7a
+    Instruction_NOP_absolute_x_4 = 0x7c
     Instruction_ADC_absolute_x = 0x7d
     Instruction_ROR_absolute_x = 0x7e
+    Instruction_NOP_immediate = 0x80
     Instruction_STA_indirect_x = 0x81
     Instruction_STY_zero = 0x84
     Instruction_STA_zero = 0x85
@@ -173,26 +188,32 @@ const (
     Instruction_LDY_immediate = 0xa0
     Instruction_LDA_indirect_x = 0xa1
     Instruction_LDX_immediate = 0xa2
+    Instruction_LAX_zero_x = 0xa3
     Instruction_LDY_zero = 0xa4
     Instruction_LDA_zero = 0xa5
     Instruction_LDX_zero = 0xa6
+    Instruction_LAX_zero = 0xa7
     Instruction_TAY = 0xa8
     Instruction_LDA_immediate = 0xa9
     Instruction_TAX = 0xaa
     Instruction_LDY_absolute = 0xac
     Instruction_LDA_absolute = 0xad
     Instruction_LDX_absolute = 0xae
+    Instruction_LAX_absolute = 0xaf
     Instruction_BCS_relative = 0xb0
     Instruction_LDA_indirect_y = 0xb1
+    Instruction_LAX_indirect_y = 0xb3
     Instruction_LDY_zero_x = 0xb4
     Instruction_LDA_zero_x = 0xb5
     Instruction_LDX_zero_y = 0xb6
+    Instruction_LAX_zero_y = 0xb7
     Instruction_CLV = 0xb8
     Instruction_LDA_absolute_y = 0xb9
     Instruction_TSX = 0xba
     Instruction_LDY_absolute_x = 0xbc
     Instruction_LDA_absolute_x = 0xbd
     Instruction_LDX_absolute_y = 0xbe
+    Instruction_LAX_absolute_y = 0xbf
     Instruction_CPY_immediate = 0xc0
     Instruction_CMP_indirect_x = 0xc1
     Instruction_CPY_zero = 0xc4
@@ -206,10 +227,13 @@ const (
     Instruction_DEC_absolute = 0xce
     Instruction_BNE = 0xd0
     Instruction_CMP_indirect_y = 0xd1
+    Instruction_NOP_zero_x_4 = 0xd4
     Instruction_CMP_zero_x = 0xd5
     Instruction_DEC_zero_x = 0xd6
     Instruction_CLD = 0xd8
     Instruction_CMP_absolute_y = 0xd9
+    Instruction_NOP_5 = 0xda
+    Instruction_NOP_absolute_x_5 = 0xdc
     Instruction_CMP_absolute_x = 0xdd
     Instruction_DEC_absolute_x = 0xde
     Instruction_CPX_immediate = 0xe0
@@ -219,16 +243,19 @@ const (
     Instruction_INC_zero = 0xe6
     Instruction_INX = 0xe8
     Instruction_SBC_immediate = 0xe9
-    Instruction_NOP = 0xea
+    Instruction_NOP_6 = 0xea
     Instruction_CPX_absolute = 0xec
     Instruction_SBC_absolute = 0xed
     Instruction_INC_absolute = 0xee
     Instruction_BEQ_relative = 0xf0
     Instruction_SBC_indirect_y = 0xf1
+    Instruction_NOP_zero_x_5 = 0xf4
     Instruction_SBC_zero_x = 0xf5
     Instruction_INC_zero_x = 0xf6
     Instruction_SED = 0xf8
     Instruction_SBC_absolute_y = 0xf9
+    Instruction_NOP_7 = 0xfa
+    Instruction_NOP_absolute_x_6 = 0xfc
     Instruction_SBC_absolute_x = 0xfd
     Instruction_INC_absolute_x = 0xfe
     Instruction_Unknown_ff = 0xff
@@ -276,6 +303,12 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_CMP_indirect_y] = InstructionDescription{Name: "cmp", Operands: 1}
     table[Instruction_CMP_absolute] = InstructionDescription{Name: "cmp", Operands: 2}
     table[Instruction_CLC] = InstructionDescription{Name: "clc", Operands: 0}
+    table[Instruction_LAX_zero_x] = InstructionDescription{Name: "lax", Operands: 1}
+    table[Instruction_LAX_zero_y] = InstructionDescription{Name: "lax", Operands: 1}
+    table[Instruction_LAX_zero] = InstructionDescription{Name: "lax", Operands: 1}
+    table[Instruction_LAX_absolute] = InstructionDescription{Name: "lax", Operands: 2}
+    table[Instruction_LAX_absolute_y] = InstructionDescription{Name: "lax", Operands: 2}
+    table[Instruction_LAX_indirect_y] = InstructionDescription{Name: "lax", Operands: 1}
     table[Instruction_ADC_immediate] = InstructionDescription{Name: "adc", Operands: 1}
     table[Instruction_ADC_absolute_x] = InstructionDescription{Name: "adc", Operands: 2}
     table[Instruction_ADC_zero_x] = InstructionDescription{Name: "adc", Operands: 1}
@@ -285,7 +318,30 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_ADC_indirect_x] = InstructionDescription{Name: "adc", Operands: 1}
     table[Instruction_PHA] = InstructionDescription{Name: "pha", Operands: 0}
     table[Instruction_PLA] = InstructionDescription{Name: "pla", Operands: 0}
-    table[Instruction_NOP] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_NOP_immediate] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_absolute_x_1] = InstructionDescription{Name: "nop", Operands: 2}
+    table[Instruction_NOP_absolute_x_2] = InstructionDescription{Name: "nop", Operands: 2}
+    table[Instruction_NOP_absolute_x_3] = InstructionDescription{Name: "nop", Operands: 2}
+    table[Instruction_NOP_absolute_x_4] = InstructionDescription{Name: "nop", Operands: 2}
+    table[Instruction_NOP_absolute_x_5] = InstructionDescription{Name: "nop", Operands: 2}
+    table[Instruction_NOP_absolute_x_6] = InstructionDescription{Name: "nop", Operands: 2}
+    table[Instruction_NOP_1] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_NOP_2] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_NOP_3] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_NOP_4] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_NOP_5] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_NOP_6] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_NOP_7] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_NOP_absolute] = InstructionDescription{Name: "nop", Operands: 2}
+    table[Instruction_NOP_zero_x] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_zero_x_1] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_zero_x_2] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_zero_x_3] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_zero_x_4] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_zero_x_5] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_zero] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_zero_1] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_zero_2] = InstructionDescription{Name: "nop", Operands: 1}
     table[Instruction_STA_absolute_x] = InstructionDescription{Name: "sta", Operands: 2}
     table[Instruction_LDA_indirect_y] = InstructionDescription{Name: "lda", Operands: 1}
     table[Instruction_STA_indirect_y] = InstructionDescription{Name: "sta", Operands: 1}
@@ -2076,7 +2132,134 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             cpu.PC = address
             return nil
-        case Instruction_NOP:
+        case Instruction_NOP_immediate:
+            /* theres an operand but we dont need to use it */
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_NOP_absolute:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            /* FIXME: should we read memory here? */
+            cpu.LoadMemory(address)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_NOP_zero_x,
+             Instruction_NOP_zero_x_1,
+             Instruction_NOP_zero_x_2,
+             Instruction_NOP_zero_x_3,
+             Instruction_NOP_zero_x_4,
+             Instruction_NOP_zero_x_5:
+            zero, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            address := uint16(zero + cpu.X)
+            /* FIXME: should we read memory here? */
+            cpu.LoadMemory(address)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_NOP_zero,
+             Instruction_NOP_zero_1,
+             Instruction_NOP_zero_2:
+            zero, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            /* FIXME: should we read memory here? */
+            cpu.LoadMemory(uint16(zero))
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_NOP_1,
+             Instruction_NOP_2,
+             Instruction_NOP_3,
+             Instruction_NOP_4,
+             Instruction_NOP_5,
+             Instruction_NOP_6,
+             Instruction_NOP_7:
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_NOP_absolute_x_1,
+             Instruction_NOP_absolute_x_2,
+             Instruction_NOP_absolute_x_3,
+             Instruction_NOP_absolute_x_4,
+             Instruction_NOP_absolute_x_5,
+             Instruction_NOP_absolute_x_6:
+
+             address, err := instruction.OperandWord()
+             if err != nil {
+                 return err
+             }
+
+             full := address + uint16(cpu.X)
+             /* FIXME: should we read memory here? */
+             cpu.LoadMemory(full)
+             cpu.PC += instruction.Length()
+             return nil
+         case Instruction_LAX_zero_y:
+             zero, err := instruction.OperandByte()
+             if err != nil {
+                 return err
+             }
+             address := uint16(zero + cpu.Y)
+             value := cpu.LoadMemory(address)
+             cpu.loadA(value)
+             cpu.X = value
+             cpu.PC += instruction.Length()
+             return nil
+         case Instruction_LAX_indirect_y:
+             relative, err := instruction.OperandByte()
+             if err != nil {
+                 return err
+             }
+             value := cpu.LoadIndirectY(relative)
+             cpu.loadA(value)
+             cpu.X = value
+             cpu.PC += instruction.Length()
+             return nil
+         case Instruction_LAX_absolute_y:
+             address, err := instruction.OperandWord()
+             if err != nil {
+                 return err
+             }
+             value := cpu.LoadMemory(address + uint16(cpu.Y))
+             cpu.loadA(value)
+             cpu.X = value
+             cpu.PC += instruction.Length()
+             return nil
+         case Instruction_LAX_absolute:
+             address, err := instruction.OperandWord()
+             if err != nil {
+                 return err
+             }
+             value := cpu.LoadMemory(address)
+             cpu.loadA(value)
+             cpu.X = value
+             cpu.PC += instruction.Length()
+             return nil
+         case Instruction_LAX_zero:
+             zero, err := instruction.OperandByte()
+             if err != nil {
+                 return err
+             }
+             value := cpu.LoadMemory(uint16(zero))
+             cpu.loadA(value)
+             cpu.X = value
+             cpu.PC += instruction.Length()
+             return nil
+        case Instruction_LAX_zero_x:
+            zero, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            low := uint16(cpu.LoadMemory(uint16(zero + cpu.X)))
+            high := uint16(cpu.LoadMemory(uint16(zero + cpu.X + 1)))
+            address := (high<<8) | low
+            value := cpu.LoadMemory(address)
+            /* this is a crazy instruction that loads A and X at the same time */
+            cpu.X = value
+            cpu.loadA(value)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_CMP_absolute_x:

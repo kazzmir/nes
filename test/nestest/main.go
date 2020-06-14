@@ -61,7 +61,7 @@ func parseLine(line string) Expected {
     return Expected{
         nes.Instruction{
             Name: "blah",
-            Kind: nes.Instruction_NOP,
+            Kind: nes.Instruction_NOP_1,
         },
         nes.CPUState{
             PC: uint16(pc),
