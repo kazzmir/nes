@@ -83,11 +83,11 @@ const (
     Instruction_BRK InstructionType = 0x00
     Instruction_ORA_indirect_x = 0x01
     Instruction_STP_02 = 0x02
-    Instruction_STP_03 = 0x03
+    Instruction_SLO_indirect_x = 0x03
     Instruction_NOP_zero = 0x04
     Instruction_ORA_zero = 0x05
     Instruction_ASL_zero = 0x06
-    Instruction_SLO_07 = 0x07
+    Instruction_SLO_zero = 0x07
     Instruction_PHP = 0x08
     Instruction_ORA_immediate = 0x09
     Instruction_ASL_accumulator = 0x0a
@@ -95,18 +95,22 @@ const (
     Instruction_NOP_absolute = 0x0c
     Instruction_ORA_absolute = 0x0d
     Instruction_ASL_absolute = 0x0e
-    Instruction_SLO_abs = 0x0f
+    Instruction_SLO_absolute = 0x0f
     Instruction_BPL = 0x10
     Instruction_ORA_indirect_y = 0x11
+    Instruction_SLO_indirect_y = 0x13
     Instruction_NOP_zero_x = 0x14
     Instruction_ORA_zero_x = 0x15
     Instruction_ASL_zero_x = 0x16
+    Instruction_SLO_zero_x = 0x17
     Instruction_CLC = 0x18
     Instruction_ORA_absolute_y = 0x19
     Instruction_NOP_1 = 0x1a
+    Instruction_SLO_absolute_y = 0x1b
     Instruction_NOP_absolute_x_1 = 0x1c
     Instruction_ORA_absolute_x = 0x1d
     Instruction_ASL_absolute_x = 0x1e
+    Instruction_SLO_absolute_x = 0x1f
     Instruction_JSR = 0x20
     Instruction_AND_indirect_x = 0x21
     Instruction_BIT_zero = 0x24
@@ -304,6 +308,13 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_STY_zero] = InstructionDescription{Name: "sty", Operands: 1}
     table[Instruction_STY_zero_x] = InstructionDescription{Name: "sty", Operands: 1}
     table[Instruction_SEI] = InstructionDescription{Name: "sei", Operands: 0}
+    table[Instruction_SLO_indirect_x] = InstructionDescription{Name: "slo", Operands: 1}
+    table[Instruction_SLO_absolute_x] = InstructionDescription{Name: "slo", Operands: 2}
+    table[Instruction_SLO_absolute_y] = InstructionDescription{Name: "slo", Operands: 2}
+    table[Instruction_SLO_zero_x] = InstructionDescription{Name: "slo", Operands: 1}
+    table[Instruction_SLO_indirect_y] = InstructionDescription{Name: "slo", Operands: 1}
+    table[Instruction_SLO_zero] = InstructionDescription{Name: "slo", Operands: 1}
+    table[Instruction_SLO_absolute] = InstructionDescription{Name: "slo", Operands: 2}
     table[Instruction_STA_absolute] = InstructionDescription{Name: "sta", Operands: 2}
     table[Instruction_SAX_indirect_x] = InstructionDescription{Name: "sax", Operands: 1}
     table[Instruction_SAX_absolute] = InstructionDescription{Name: "sax", Operands: 2}
@@ -947,6 +958,27 @@ func (cpu *CPUState) doIsc(address uint16){
     cpu.doSbc(value)
 }
 
+/* illegal opcode that combines shift left with or */
+func (cpu *CPUState) doSlo(address uint16){
+    original := cpu.LoadMemory(address)
+    carry := (original & (1<<7)) == (1<<7)
+    value := original << 1
+    cpu.StoreMemory(address, value)
+    /* negative and zero flags are set here */
+    cpu.doOrA(value)
+
+    /* but carry is set based on the left-shift operation of memory */
+    cpu.SetCarryFlag(carry)
+
+    /*
+    cpu.A = cpu.A | value
+
+    cpu.SetNegativeFlag(int8(cpu.A) < 0)
+    cpu.SetZeroFlag(cpu.A == 0)
+    cpu.SetCarryFlag(carry == (1<<7))
+    */
+}
+
 func (cpu *CPUState) doSbc(value byte){
     var carryValue int8
     if !cpu.GetCarryFlag() {
@@ -1014,6 +1046,68 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
             cpu.loadA(value)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SLO_absolute_x:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.X)
+            cpu.doSlo(full)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SLO_absolute_y:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.Y)
+            cpu.doSlo(full)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SLO_indirect_y:
+            relative, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            address := cpu.ComputeIndirectY(relative)
+            cpu.doSlo(address)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SLO_absolute:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            cpu.doSlo(address)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SLO_zero_x:
+            zero, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            address := uint16(zero + cpu.X)
+            cpu.doSlo(address)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SLO_zero:
+            zero, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            address := uint16(zero)
+            cpu.doSlo(address)
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_SLO_indirect_x:
+            relative, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+            address := cpu.ComputeIndirectX(relative)
+            cpu.doSlo(address)
             cpu.PC += instruction.Length()
             return nil
         case Instruction_STA_absolute:
