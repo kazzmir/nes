@@ -38,6 +38,16 @@ func parseValue(input string) byte {
     return byte(out)
 }
 
+func parseCycle(input string) uint64 {
+    parts := strings.Split(input, ":")
+    out, err  := strconv.ParseInt(parts[1], 10, 64)
+    if err != nil {
+        log.Fatalf("Could not parse hex value from %v: %v\n", input, err)
+    }
+
+    return uint64(out)
+}
+
 func parseLine(line string) Expected {
     pc, err := strconv.ParseInt(line[0:4], 16, 64)
     if err != nil {
@@ -58,18 +68,26 @@ func parseLine(line string) Expected {
     Status := parseValue(parts[3])
     SP := parseValue(parts[4])
 
+    var cycle uint64 = 0
+    for _, part := range parts {
+        if strings.HasPrefix(part, "CYC") {
+            cycle = parseCycle(part)
+        }
+    }
+
     return Expected{
-        nes.Instruction{
+        Instruction: nes.Instruction{
             Name: "blah",
             Kind: nes.Instruction_NOP_1,
         },
-        nes.CPUState{
+        CPU: nes.CPUState{
             PC: uint16(pc),
             A: A,
             X: X,
             Y: Y,
             Status: Status,
             SP: SP,
+            Cycle: cycle,
         },
     }
 }
@@ -104,6 +122,8 @@ func main(){
     cpu := nes.StartupState()
     cpu.MapMemory(0xc000, nesFile.ProgramRom)
     cpu.Status = 0x24
+    /* FIXME: not sure why this starts at cycle 7 */
+    cpu.Cycle = 7
 
     golden, err := parseLog(logFile)
     if err != nil {

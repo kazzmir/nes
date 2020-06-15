@@ -69,6 +69,7 @@ func (instruction *Instruction) OperandWord() (uint16, error) {
 
 func (instruction *Instruction) String() string {
     var out bytes.Buffer
+    out.WriteString(fmt.Sprintf("%X ", instruction.Kind))
     out.WriteString(instruction.Name)
     for _, operand := range instruction.Operands {
         out.WriteRune(' ')
@@ -627,6 +628,8 @@ type CPUState struct {
     PC uint16
     Status byte
 
+    Cycle uint64
+
     Maps map[uint16][]byte
     StackBase uint16
 }
@@ -637,11 +640,12 @@ func (cpu *CPUState) Equals(other CPUState) bool {
            cpu.Y == other.Y &&
            cpu.SP == other.SP &&
            cpu.PC == other.PC &&
+           cpu.Cycle == other.Cycle &&
            cpu.Status == other.Status;
 }
 
 func (cpu *CPUState) String() string {
-    return fmt.Sprintf("A:0x%X X:0x%X Y:0x%X SP:0x%X P:0x%X PC:0x%X", cpu.A, cpu.X, cpu.Y, cpu.SP, cpu.Status, cpu.PC)
+    return fmt.Sprintf("A:0x%X X:0x%X Y:0x%X SP:0x%X P:0x%X PC:0x%X Cycle:%v", cpu.A, cpu.X, cpu.Y, cpu.SP, cpu.Status, cpu.PC, cpu.Cycle)
 }
 
 func (cpu *CPUState) MapMemory(location uint16, memory []byte) error {
@@ -1118,6 +1122,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
             cpu.loadA(value)
+            cpu.Cycle += 2
             cpu.PC += instruction.Length()
             return nil
 
@@ -1399,6 +1404,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
             cpu.StoreMemory(uint16(address), cpu.A)
+            cpu.Cycle += 3
             cpu.PC += instruction.Length()
             return nil
         case Instruction_LDA_indirect_y:
@@ -1691,6 +1697,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
             cpu.StoreMemory(uint16(address), cpu.X)
             cpu.PC += instruction.Length()
+            cpu.Cycle += 3
             return nil
         case Instruction_STX_absolute:
             value, err := instruction.OperandWord()
@@ -1755,6 +1762,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.SetNegativeFlag(int8(cpu.A) < 0)
             cpu.SetZeroFlag(cpu.A == 0)
             cpu.PC += instruction.Length()
+            cpu.Cycle += 4
             return nil
         case Instruction_PHP:
             /* PHP always sets the B flags to 1
@@ -1764,6 +1772,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.StoreStack(cpu.SP, value)
             cpu.SP -= 1
             cpu.PC += instruction.Length()
+            cpu.Cycle += 3
             return nil
         case Instruction_PLP:
             cpu.SP += 1
@@ -1776,11 +1785,13 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
              */
             cpu.Status = (value & (^b_bits)) | (cpu.Status & b_bits)
             cpu.PC += instruction.Length()
+            cpu.Cycle += 4
             return nil
         case Instruction_PHA:
             cpu.StoreStack(cpu.SP, cpu.A)
             cpu.SP -= 1
             cpu.PC += instruction.Length()
+            cpu.Cycle += 3
             return nil
         case Instruction_CPY_zero:
             address, err := instruction.OperandByte()
@@ -1844,7 +1855,10 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             if !cpu.GetCarryFlag() {
                 cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                cpu.Cycle += 1
             }
+
+            cpu.Cycle += 2
 
             return nil
         case Instruction_BIT_absolute:
@@ -1867,6 +1881,8 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             cpu.doBit(value)
 
+            cpu.Cycle += 3
+
             cpu.PC += instruction.Length()
             return nil
         case Instruction_BEQ_relative:
@@ -1878,12 +1894,16 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
             if cpu.GetZeroFlag() {
                 cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                cpu.Cycle += 1
             }
+
+            cpu.Cycle += 2
 
             return nil
         case Instruction_SEI:
             cpu.SetInterruptFlag(true)
             cpu.PC += instruction.Length()
+            cpu.Cycle += 2
             return nil
         case Instruction_BCS_relative:
             value, err := instruction.OperandByte()
@@ -1894,7 +1914,11 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             if cpu.GetCarryFlag() {
                 cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                cpu.Cycle += 1
             }
+
+            cpu.Cycle += 2
+
             return nil
         case Instruction_BMI:
             value, err := instruction.OperandByte()
@@ -1917,7 +1941,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
             if ! cpu.GetNegativeFlag() {
                 cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                cpu.Cycle += 1
             }
+            cpu.Cycle += 2
 
             return nil
         case Instruction_BVS_relative:
@@ -1928,7 +1954,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
             if cpu.GetOverflowFlag() {
                 cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                cpu.Cycle += 1
             }
+            cpu.Cycle += 2
             return nil
         /* branch on overflow clear */
         case Instruction_BVC_relative:
@@ -1939,7 +1967,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
             if !cpu.GetOverflowFlag() {
                 cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                cpu.Cycle += 1
             }
+            cpu.Cycle += 2
             return nil
         /* branch on zero flag clear */
         case Instruction_BNE:
@@ -1950,7 +1980,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
             if !cpu.GetZeroFlag() {
                 cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                cpu.Cycle += 1
             }
+            cpu.Cycle += 2
             return nil
         /* load X with an immediate value */
         case Instruction_LDX_immediate:
@@ -1959,6 +1991,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
             cpu.loadX(value)
+            cpu.Cycle += 2
             cpu.PC += instruction.Length()
             return nil
         case Instruction_LDX_absolute_y:
@@ -2062,6 +2095,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.SP -= 1
 
             cpu.PC = address
+            cpu.Cycle += 6
             return nil
         case Instruction_AND_absolute_x:
             address, err := instruction.OperandWord()
@@ -2094,6 +2128,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
             cpu.doAnd(value)
             cpu.PC += instruction.Length()
+            cpu.Cycle += 2
             return nil
         case Instruction_AND_absolute:
             address, err := instruction.OperandWord()
@@ -2138,6 +2173,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             high := cpu.LoadStack(cpu.SP)
 
             cpu.PC = (uint16(high) << 8) + uint16(low) + 1
+            cpu.Cycle += 6
 
             return nil
         case Instruction_RTI:
@@ -2575,6 +2611,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
 
             cpu.PC = address
+            cpu.Cycle += 3
             return nil
         case Instruction_NOP_immediate:
             /* theres an operand but we dont need to use it */
@@ -2623,6 +2660,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
              Instruction_NOP_6,
              Instruction_NOP_7:
             cpu.PC += instruction.Length()
+            cpu.Cycle += 2
             return nil
         case Instruction_NOP_absolute_x_1,
              Instruction_NOP_absolute_x_2,
@@ -2939,14 +2977,17 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
         case Instruction_CLC:
             cpu.SetCarryFlag(false)
             cpu.PC += instruction.Length()
+            cpu.Cycle += 2
             return nil
         case Instruction_SEC:
             cpu.SetCarryFlag(true)
             cpu.PC += instruction.Length()
+            cpu.Cycle += 2
             return nil
         case Instruction_SED:
             cpu.SetDecimalFlag(true)
             cpu.PC += instruction.Length()
+            cpu.Cycle += 2
             return nil
         case Instruction_CLD:
             cpu.SetDecimalFlag(false)
@@ -2969,6 +3010,7 @@ func StartupState() CPUState {
         Y: 0,
         SP: 0xfd,
         PC: 0xc000,
+        Cycle: 0,
         Status: 0x34, // 110100
         Maps: make(map[uint16][]byte),
     }
