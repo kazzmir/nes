@@ -27,23 +27,29 @@ func Run(path string) error {
     }
 
     /* for a 32k rom, dont map the programrom at 0xc000 */
-    err = cpu.MapMemory(0xc000, nesFile.ProgramRom)
-    if err != nil {
-        return err
+    if len(nesFile.ProgramRom) == 16*1024 {
+        err = cpu.MapMemory(0xc000, nesFile.ProgramRom)
+        if err != nil {
+            return err
+        }
     }
 
-    cpu.PC = (uint16(cpu.LoadMemory(0xfffd)) << 8) | uint16(cpu.LoadMemory(0xfffc))
+    cpu.Reset()
 
     /* for some reason the nestest code starts with status=0x24
      * http://www.qmtpro.com/~nes/misc/nestest.log
      */
     // cpu.Status = 0x34
 
-    for i := 0; i < 5; i++ {
+    for cpu.Cycle < 1000000 {
+        cycles := cpu.Cycle
         err = cpu.Run()
         if err != nil {
             return err
         }
+        usedCycles := cpu.Cycle
+
+        cpu.PPU.Run(usedCycles - cycles)
     }
 
     return nil

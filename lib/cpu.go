@@ -690,6 +690,8 @@ type CPUState struct {
 
     Maps map[uint16][]byte
     StackBase uint16
+
+    PPU PPUState
 }
 
 func (cpu *CPUState) Equals(other CPUState) bool {
@@ -721,8 +723,39 @@ func (cpu *CPUState) SetStack(location uint16){
     cpu.StackBase = location
 }
 
+func (cpu *CPUState) PushStack(value byte) {
+    cpu.StoreStack(cpu.SP, value)
+    /* FIXME: what happens when SP reaches 0? */
+    cpu.SP -= 1
+}
+
+func (cpu *CPUState) PopStack() byte {
+    cpu.SP += 1
+    return cpu.LoadStack(cpu.SP)
+}
+
 func (cpu *CPUState) LoadMemory(address uint16) byte {
     large := uint64(address)
+
+    page := address >> 8
+    if page >= 0x20 && page < 0x40 {
+        /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
+        use := address & 0x7
+        switch 0x2000 | use {
+            case PPUCTRL:
+                log.Printf("Warning: reading from PPUCTRL location is not allowed\n")
+                return 0
+            case PPUMASK:
+                log.Printf("Warning: reading from PPUMASK location is not allowed\n")
+                return 0
+            case PPUSTATUS:
+                return cpu.PPU.ReadStatus()
+        }
+
+        log.Printf("Unhandled PPU read to 0x%x\n", address)
+        return 0
+    }
+
     for base, memory := range cpu.Maps {
         // log.Printf("Accessing memory 0x%x check 0x%x to 0x%x\n", address, uint64(base), uint64(base) + uint64(len(memory)))
         if large >= uint64(base) && large < uint64(base) + uint64(len(memory)) {
@@ -735,8 +768,41 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
     return 0
 }
 
+/* Special memory-mapped locations */
+const (
+    PPUCTRL uint16 = 0x2000
+    PPUMASK = 0x2001
+    PPUSTATUS = 0x2002
+    OAMADDR = 0x2003
+    OAMDATA = 0x2004
+    PPUSCROLL = 0x2005
+    PPUADDR = 0x2006
+    PPUDATA = 0x2007
+    OAMDMA = 0x4014
+)
+
+
 func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     large := uint64(address)
+
+    page := address >> 8
+    if page >= 0x20 && page < 0x40 {
+        /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
+        use := address & 0x7
+        switch 0x2000 | use {
+            case PPUCTRL:
+                cpu.PPU.SetControllerFlags(value)
+                return
+            case PPUMASK:
+                cpu.PPU.SetMask(value)
+                return
+
+        }
+
+        log.Printf("Unhandled PPU write to 0x%x\n", address)
+        return
+    }
+
     for base, memory := range cpu.Maps {
         if large >= uint64(base) && large < uint64(base) + uint64(len(memory)) {
             memory[address-base] = value
@@ -2053,8 +2119,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
             return nil
         case Instruction_PLA:
-            cpu.SP += 1
-            cpu.A = cpu.LoadStack(cpu.SP)
+            cpu.A = cpu.PopStack()
             cpu.SetNegativeFlag(int8(cpu.A) < 0)
             cpu.SetZeroFlag(cpu.A == 0)
             cpu.PC += instruction.Length()
@@ -2065,14 +2130,12 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
              * http://wiki.nesdev.com/w/index.php/CPU_ALL#The_B_flag
              */
             value := cpu.Status | byte(1<<4) | byte(1<<5)
-            cpu.StoreStack(cpu.SP, value)
-            cpu.SP -= 1
+            cpu.PushStack(value)
             cpu.PC += instruction.Length()
             cpu.Cycle += 3
             return nil
         case Instruction_PLP:
-            cpu.SP += 1
-            value := cpu.LoadStack(cpu.SP)
+            value := cpu.PopStack()
             /* 00110000 */
             b_bits := byte(0x30)
             /* the new status is all the non-b bits of the value pulled
@@ -2084,8 +2147,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.Cycle += 4
             return nil
         case Instruction_PHA:
-            cpu.StoreStack(cpu.SP, cpu.A)
-            cpu.SP -= 1
+            cpu.PushStack(cpu.A)
             cpu.PC += instruction.Length()
             cpu.Cycle += 3
             return nil
@@ -2471,10 +2533,8 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             low := byte(next & 0xff)
             high := byte(next >> 8)
 
-            cpu.StoreStack(cpu.SP, high)
-            cpu.SP -= 1
-            cpu.StoreStack(cpu.SP, low)
-            cpu.SP -= 1
+            cpu.PushStack(high)
+            cpu.PushStack(low)
 
             cpu.PC = address
             cpu.Cycle += 6
@@ -2571,22 +2631,17 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
             return nil
         case Instruction_RTS:
-            cpu.SP += 1
-            low := cpu.LoadStack(cpu.SP)
-            cpu.SP += 1
-            high := cpu.LoadStack(cpu.SP)
+            low := cpu.PopStack()
+            high := cpu.PopStack()
 
             cpu.PC = (uint16(high) << 8) + uint16(low) + 1
             cpu.Cycle += 6
 
             return nil
         case Instruction_RTI:
-            cpu.SP += 1
-            value := cpu.LoadStack(cpu.SP)
-            cpu.SP += 1
-            low := cpu.LoadStack(cpu.SP)
-            cpu.SP += 1
-            high := cpu.LoadStack(cpu.SP)
+            value := cpu.PopStack()
+            low := cpu.PopStack()
+            high := cpu.PopStack()
 
             /* see PLP */
             b_bits := byte(0x30)
@@ -3570,6 +3625,28 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
     }
 
     return fmt.Errorf("unable to execute instruction 0x%x: %v at PC 0x%x", instruction.Kind, instruction.String(), cpu.PC)
+}
+
+func (cpu *CPUState) Reset() {
+    /* https://en.wikipedia.org/wiki/Interrupts_in_65xx_processors */
+    cpu.Cycle += 6
+    low := uint16(cpu.LoadMemory(ResetVector))
+    high := uint16(cpu.LoadMemory(ResetVector+1))
+    // cpu.PC = (uint16(cpu.LoadMemory(0xfffd)) << 8) | uint16(cpu.LoadMemory(0xfffc))
+    cpu.PC = (high<<8) | low
+    cpu.SetInterruptFlag(true)
+}
+
+/* NMI was set, so jump to the NMI routine */
+func (cpu *CPUState) NMI() {
+    cpu.PushStack(byte(cpu.PC >> 8))
+    cpu.PushStack(byte(cpu.PC) & 0xff)
+    cpu.PushStack(cpu.Status)
+
+    low := uint16(cpu.LoadMemory(NMIVector))
+    high := uint16(cpu.LoadMemory(NMIVector+1))
+    cpu.PC = (high<<8) | low
+    cpu.SetInterruptFlag(true)
 }
 
 /* http://wiki.nesdev.com/w/index.php/CPU_power_up_state */
