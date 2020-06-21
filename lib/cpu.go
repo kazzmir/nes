@@ -12,6 +12,7 @@ import (
  * http://www.oxyron.de/html/opcodes02.html -- has illegal opcodes and their semantics
  * https://www.masswerk.at/6502/6502_instruction_set.html
  * http://www.6502.org/tutorials/6502opcodes.html
+ * http://bbc.nvg.org/doc/6502OpList.txt
  */
 
 type InstructionReader struct {
@@ -92,7 +93,7 @@ const (
     Instruction_PHP =                 0x08
     Instruction_ORA_immediate =       0x09
     Instruction_ASL_accumulator =     0x0a
-    Instruction_ANC_0b =              0x0b
+    Instruction_ANC_immediate_1 =     0x0b
     Instruction_NOP_absolute =        0x0c
     Instruction_ORA_absolute =        0x0d
     Instruction_ASL_absolute =        0x0e
@@ -124,6 +125,7 @@ const (
     Instruction_PLP =                 0x28
     Instruction_AND_immediate =       0x29
     Instruction_ROL_accumulator =     0x2a
+    Instruction_ANC_immediate_2 =     0x2b
     Instruction_BIT_absolute =        0x2c
     Instruction_AND_absolute =        0x2d
     Instruction_ROL_absolute =        0x2e
@@ -155,6 +157,7 @@ const (
     Instruction_PHA =                 0x48
     Instruction_EOR_immediate =       0x49
     Instruction_LSR_accumulator =     0x4a
+    Instruction_ALR =                 0x4b
     Instruction_JMP_absolute =        0x4c
     Instruction_EOR_absolute =        0x4d
     Instruction_LSR_absolute =        0x4e
@@ -185,6 +188,7 @@ const (
     Instruction_PLA =                 0x68
     Instruction_ADC_immediate =       0x69
     Instruction_ROR_accumulator =     0x6a
+    Instruction_ARR =                 0x6b
     Instruction_JMP_indirect =        0x6c
     Instruction_ADC_absolute =        0x6d
     Instruction_ROR_absolute =        0x6e
@@ -216,12 +220,14 @@ const (
     Instruction_DEY =                 0x88
     Instruction_TXA =                 0x8a
     Instruction_STY_absolute =        0x8c
+    Instruction_XAA =                 0x8b
     Instruction_STA_absolute =        0x8d
     Instruction_STX_absolute =        0x8e
     Instruction_SAX_absolute =        0x8f
     Instruction_BCC_relative =        0x90
     Instruction_STA_indirect_y =      0x91
     Instruction_KIL_9 =               0x92
+    Instruction_AHX_indirect_y =      0x93
     Instruction_STY_zero_x =          0x94
     Instruction_STA_zero_x =          0x95
     Instruction_STX_zero_y =          0x96
@@ -229,7 +235,10 @@ const (
     Instruction_TYA =                 0x98
     Instruction_STA_absolute_y =      0x99
     Instruction_TXS =                 0x9a
+    Instruction_SHY =                 0x9c
     Instruction_STA_absolute_x =      0x9d
+    Instruction_SHX =                 0x9e
+    Instruction_AHX_absolute_y =      0x9f
     Instruction_LDY_immediate =       0xa0
     Instruction_LDA_indirect_x =      0xa1
     Instruction_LDX_immediate =       0xa2
@@ -241,6 +250,7 @@ const (
     Instruction_TAY =                 0xa8
     Instruction_LDA_immediate =       0xa9
     Instruction_TAX =                 0xaa
+    Instruction_LAX_immediate =       0xab
     Instruction_LDY_absolute =        0xac
     Instruction_LDA_absolute =        0xad
     Instruction_LDX_absolute =        0xae
@@ -270,6 +280,7 @@ const (
     Instruction_INY =                 0xc8
     Instruction_CMP_immediate =       0xc9
     Instruction_DEX =                 0xca
+    Instruction_AXS =                 0xcb
     Instruction_CPY_absolute =        0xcc
     Instruction_CMP_absolute =        0xcd
     Instruction_DEC_absolute =        0xce
@@ -331,6 +342,21 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_BEQ_relative] = InstructionDescription{Name: "beq", Operands: 1}
     table[Instruction_BMI] = InstructionDescription{Name: "bmi", Operands: 1}
     table[Instruction_BPL] = InstructionDescription{Name: "bpl", Operands: 1}
+
+    table[Instruction_ANC_immediate_1] = InstructionDescription{Name: "anc", Operands: 1}
+    table[Instruction_ANC_immediate_2] = InstructionDescription{Name: "anc", Operands: 1}
+
+    table[Instruction_AXS] = InstructionDescription{Name: "axs", Operands: 1}
+    table[Instruction_ALR] = InstructionDescription{Name: "alr", Operands: 1}
+    table[Instruction_ARR] = InstructionDescription{Name: "arr", Operands: 1}
+
+    table[Instruction_SHY] = InstructionDescription{Name: "shy", Operands: 2}
+    table[Instruction_SHX] = InstructionDescription{Name: "shy", Operands: 2}
+
+    table[Instruction_AHX_indirect_y] = InstructionDescription{Name: "ahx", Operands: 1}
+    table[Instruction_AHX_absolute_y] = InstructionDescription{Name: "ahx", Operands: 2}
+
+    table[Instruction_XAA] = InstructionDescription{Name: "xaa", Operands: 1}
 
     table[Instruction_KIL_1] = InstructionDescription{Name: "kil", Operands: 0}
     table[Instruction_KIL_2] = InstructionDescription{Name: "kil", Operands: 0}
@@ -427,6 +453,7 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
     table[Instruction_CMP_indirect_y] = InstructionDescription{Name: "cmp", Operands: 1}
     table[Instruction_CMP_absolute] = InstructionDescription{Name: "cmp", Operands: 2}
     table[Instruction_CLC] = InstructionDescription{Name: "clc", Operands: 0}
+    table[Instruction_LAX_immediate] = InstructionDescription{Name: "lax", Operands: 1}
     table[Instruction_LAX_indirect_x] = InstructionDescription{Name: "lax", Operands: 1}
     table[Instruction_LAX_zero_y] = InstructionDescription{Name: "lax", Operands: 1}
     table[Instruction_LAX_zero] = InstructionDescription{Name: "lax", Operands: 1}
@@ -1683,6 +1710,112 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
             cpu.Cycle += 2
             return nil
+        case Instruction_XAA:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            cpu.A = cpu.X & value
+            cpu.SetNegativeFlag(int8(cpu.A) < 0)
+            cpu.SetZeroFlag(cpu.A == 0)
+
+            cpu.PC += instruction.Length()
+            cpu.Cycle += 2
+            return nil
+
+        case Instruction_SHY:
+            return fmt.Errorf("shy unimplemented")
+        case Instruction_SHX:
+            return fmt.Errorf("shx unimplemented")
+
+        case Instruction_AHX_indirect_y:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            address, page_cross := cpu.ComputeIndirectY(value)
+            _ = page_cross
+
+            /* FIXME: probably not exactly right
+             * http://forums.nesdev.com/viewtopic.php?f=3&t=10698&start=15
+             */
+            cpu.StoreMemory(address, cpu.X & cpu.A & (byte(address >> 8) + 1))
+
+            cpu.Cycle += 6
+            cpu.PC += instruction.Length()
+
+            return nil
+
+        case Instruction_AHX_absolute_y:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+
+            /* FIXME: probably not exactly right */
+            cpu.StoreMemory(address, cpu.X & cpu.A & (byte(address >> 8) + 1))
+
+            cpu.Cycle += 6
+            cpu.PC += instruction.Length()
+
+            return nil
+
+        case Instruction_ARR:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            cpu.A = cpu.doRor(cpu.A & value)
+            /* FIXME: supposedly this sets the V overflow flag, but not sure how */
+
+            cpu.PC += instruction.Length()
+            cpu.Cycle += 2
+            return nil
+        case Instruction_ALR:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            cpu.A = cpu.doLsr(cpu.A & value)
+            cpu.PC += instruction.Length()
+            cpu.Cycle += 2
+            return nil
+        case Instruction_AXS:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            /* FIXME: not 100% sure on this */
+            result := int8(cpu.A & cpu.X) - int8(value)
+            carry := result >= int8(value)
+            cpu.SetCarryFlag(carry)
+            cpu.SetNegativeFlag(result < 0)
+            cpu.SetZeroFlag(result == 0)
+            cpu.X = byte(result)
+
+            cpu.Cycle += 2
+            cpu.PC += instruction.Length()
+            return nil
+        case Instruction_ANC_immediate_1,
+             Instruction_ANC_immediate_2:
+            value, err := instruction.OperandByte()
+            if err != nil {
+                return err
+            }
+
+            cpu.A = cpu.A & value
+            cpu.SetNegativeFlag(int8(cpu.A) < 0)
+            cpu.SetZeroFlag(cpu.A == 0)
+            cpu.SetCarryFlag((cpu.A & (1<<7)) == (1<<7))
+
+            cpu.Cycle += 2
+            cpu.PC += instruction.Length()
+            return nil
         case Instruction_SBC_absolute_x:
             address, err := instruction.OperandWord()
             if err != nil {
@@ -2019,8 +2152,13 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
 
             if !cpu.GetCarryFlag() {
-                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                newPC := uint16(int(cpu.PC) + int(int8(value)))
+                page_crossing := (newPC >> 8) != (cpu.PC >> 8)
+                cpu.PC = newPC
                 cpu.Cycle += 1
+                if page_crossing {
+                    cpu.Cycle += 1
+                }
             }
 
             cpu.Cycle += 2
@@ -2087,8 +2225,13 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
 
             if cpu.GetCarryFlag() {
-                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                newPC := uint16(int(cpu.PC) + int(int8(value)))
+                page_crossing := (newPC >> 8) != (cpu.PC >> 8)
+                cpu.PC = newPC
                 cpu.Cycle += 1
+                if page_crossing {
+                    cpu.Cycle += 1
+                }
             }
 
             cpu.Cycle += 2
@@ -2102,8 +2245,13 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             cpu.PC += instruction.Length()
             if cpu.GetNegativeFlag() {
-                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                newPC := uint16(int(cpu.PC) + int(int8(value)))
+                page_cross := (newPC >> 8) != (cpu.PC >> 8)
+                cpu.PC = newPC
                 cpu.Cycle += 1
+                if page_cross {
+                    cpu.Cycle += 1
+                }
             }
 
             cpu.Cycle += 2
@@ -2130,8 +2278,13 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             cpu.PC += instruction.Length()
             if ! cpu.GetNegativeFlag() {
-                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                newPC := uint16(int(cpu.PC) + int(int8(value)))
+                page_crossing := (newPC >> 8) != (cpu.PC >> 8)
+                cpu.PC = newPC
                 cpu.Cycle += 1
+                if page_crossing {
+                    cpu.Cycle += 1
+                }
             }
             cpu.Cycle += 2
 
@@ -2143,8 +2296,14 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
             cpu.PC += instruction.Length()
             if cpu.GetOverflowFlag() {
-                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                newPC := uint16(int(cpu.PC) + int(int8(value)))
+                page_crossing := (newPC >> 8) != (cpu.PC >> 8)
+                cpu.PC = newPC
                 cpu.Cycle += 1
+
+                if page_crossing {
+                    cpu.Cycle += 1
+                }
             }
             cpu.Cycle += 2
             return nil
@@ -2156,8 +2315,13 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
             cpu.PC += instruction.Length()
             if !cpu.GetOverflowFlag() {
-                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                newPC := uint16(int(cpu.PC) + int(int8(value)))
+                page_cross := (newPC >> 8) != (cpu.PC >> 8)
+                cpu.PC = newPC
                 cpu.Cycle += 1
+                if page_cross {
+                    cpu.Cycle += 1
+                }
             }
             cpu.Cycle += 2
             return nil
@@ -2169,8 +2333,13 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
             cpu.PC += instruction.Length()
             if !cpu.GetZeroFlag() {
-                cpu.PC = uint16(int(cpu.PC) + int(int8(value)))
+                newPC := uint16(int(cpu.PC) + int(int8(value)))
+                page_crossing := (newPC >> 8) != (cpu.PC >> 8)
+                cpu.PC = newPC
                 cpu.Cycle += 1
+                if page_crossing {
+                    cpu.Cycle += 1
+                }
             }
             cpu.Cycle += 2
             return nil
@@ -2999,6 +3168,21 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
              if page_cross {
                  cpu.Cycle += 1
              }
+             return nil
+         case Instruction_LAX_immediate:
+             value, err := instruction.OperandByte()
+             if err != nil {
+                 return err
+             }
+
+             cpu.A = value
+             cpu.X = value
+
+             cpu.SetNegativeFlag(int8(cpu.A) < 0)
+             cpu.SetZeroFlag(cpu.A == 0)
+
+             cpu.PC += instruction.Length()
+             cpu.Cycle += 2
              return nil
          case Instruction_LAX_zero_y:
              zero, err := instruction.OperandByte()
