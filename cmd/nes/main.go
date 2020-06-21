@@ -25,7 +25,7 @@ func Run(path string) error {
     /* for some reason the nestest code starts with status=0x24
      * http://www.qmtpro.com/~nes/misc/nestest.log
      */
-    cpu.Status = 0x24
+    // cpu.Status = 0x34
 
     for i := 0; i < 1000; i++ {
         err = cpu.Run()

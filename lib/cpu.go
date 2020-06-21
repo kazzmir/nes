@@ -15,6 +15,10 @@ import (
  * http://bbc.nvg.org/doc/6502OpList.txt
  */
 
+const NMIVector uint16 = 0xfffa
+const ResetVector uint16 = 0xfffc
+const IRQVector uint16 = 0xfffe
+
 type InstructionReader struct {
     data io.Reader
     table map[InstructionType]InstructionDescription
@@ -789,8 +793,7 @@ func (cpu *CPUState) Run() error {
         return err
     }
 
-    cycle := 0
-    log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cycle)
+    log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cpu.Cycle)
     return cpu.Execute(instruction)
 }
 
@@ -3561,6 +3564,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
         case Instruction_BRK:
             cpu.SetInterruptFlag(true)
             cpu.PC += instruction.Length()
+            cpu.Cycle += 7
             return nil
     }
 
