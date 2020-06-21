@@ -708,8 +708,8 @@ func (cpu *CPUState) String() string {
 
 func (cpu *CPUState) MapMemory(location uint16, memory []byte) error {
     for base, memory := range cpu.Maps {
-        if location >= base && location <= base + uint16(len(memory)) {
-            return fmt.Errorf("Overlapping memory map with 0x%x - 0x%x", base, base + uint16(len(memory)))
+        if location >= base && uint64(location) < uint64(base) + uint64(len(memory)) {
+            return fmt.Errorf("Overlapping memory map with 0x%x - 0x%x", base, uint64(base) + uint64(len(memory)))
         }
     }
 
@@ -724,6 +724,7 @@ func (cpu *CPUState) SetStack(location uint16){
 func (cpu *CPUState) LoadMemory(address uint16) byte {
     large := uint64(address)
     for base, memory := range cpu.Maps {
+        // log.Printf("Accessing memory 0x%x check 0x%x to 0x%x\n", address, uint64(base), uint64(base) + uint64(len(memory)))
         if large >= uint64(base) && large < uint64(base) + uint64(len(memory)) {
             return memory[address-base]
         }
@@ -3578,7 +3579,7 @@ func StartupState() CPUState {
         X: 0,
         Y: 0,
         SP: 0xfd,
-        PC: 0xc000,
+        PC: ResetVector,
         Cycle: 0,
         Status: 0x34, // 110100
         Maps: make(map[uint16][]byte),

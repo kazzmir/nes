@@ -122,7 +122,10 @@ func main(){
     cpu := nes.StartupState()
     cpu.MapMemory(0xc000, nesFile.ProgramRom)
     cpu.Status = 0x24
-    /* FIXME: not sure why this starts at cycle 7 */
+    cpu.PC = 0xc000
+    /* FIXME: initiate the RESET process, which takes 6 clock cycles.
+     * https://en.wikipedia.org/wiki/Interrupts_in_65xx_processors
+     */
     cpu.Cycle = 7
 
     golden, err := parseLog(logFile)
