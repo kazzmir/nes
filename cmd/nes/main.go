@@ -7,6 +7,8 @@ import (
     "os"
 
     nes "github.com/kazzmir/nes/lib"
+
+    "github.com/veandco/go-sdl2/sdl"
 )
 
 func Run(path string, debug bool, maxCycles uint64) error {
@@ -43,10 +45,25 @@ func Run(path string, debug bool, maxCycles uint64) error {
 
     cpu.Reset()
 
-    /* for some reason the nestest code starts with status=0x24
-     * http://www.qmtpro.com/~nes/misc/nestest.log
-     */
-    // cpu.Status = 0x34
+    err = sdl.Init(sdl.INIT_EVERYTHING)
+    if err != nil {
+        return err
+    }
+    defer sdl.Quit()
+
+    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, 640, 480, sdl.WINDOW_SHOWN)
+    if err != nil {
+        return err
+    }
+    defer window.Destroy()
+
+    surface, err := window.GetSurface()
+    if err != nil {
+        return err
+    }
+
+    surface.FillRect(nil, 0)
+    window.UpdateSurface()
 
     for {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
