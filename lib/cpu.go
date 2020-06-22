@@ -338,7 +338,9 @@ const (
     Instruction_ISC_absolute_x =      0xff
 )
 
-func makeInstructionDescriptiontable() map[InstructionType]InstructionDescription {
+type InstructionTable map[InstructionType]InstructionDescription
+
+func MakeInstructionDescriptiontable() InstructionTable {
     table := make(map[InstructionType]InstructionDescription)
     table[Instruction_BRK] = InstructionDescription{Name: "brk", Operands: 0}
     table[Instruction_BNE] = InstructionDescription{Name: "bne", Operands: 1}
@@ -614,7 +616,7 @@ func makeInstructionDescriptiontable() map[InstructionType]InstructionDescriptio
 func NewInstructionReader(data []byte) *InstructionReader {
     return &InstructionReader{
         data: bytes.NewReader(data),
-        table: makeInstructionDescriptiontable(),
+        table: MakeInstructionDescriptiontable(),
     }
 }
 
@@ -692,6 +694,7 @@ type CPUState struct {
     StackBase uint16
 
     PPU PPUState
+    Debug uint
 }
 
 func (cpu *CPUState) Equals(other CPUState) bool {
@@ -821,11 +824,8 @@ func (cpu *CPUState) StoreStack(where byte, value byte) {
     cpu.StoreMemory(cpu.StackBase + uint16(where), value)
 }
 
-func (cpu *CPUState) Fetch() (Instruction, error) {
+func (cpu *CPUState) Fetch(table InstructionTable) (Instruction, error) {
     first := cpu.LoadMemory(cpu.PC)
-    /* FIXME: don't create a new table each time */
-    table := makeInstructionDescriptiontable()
-
     firstI := InstructionType(first)
 
     description, ok := table[firstI]
@@ -854,13 +854,15 @@ func (cpu *CPUState) Fetch() (Instruction, error) {
     */
 }
 
-func (cpu *CPUState) Run() error {
-    instruction, err := cpu.Fetch()
+func (cpu *CPUState) Run(table InstructionTable) error {
+    instruction, err := cpu.Fetch(table)
     if err != nil {
         return err
     }
 
-    log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cpu.Cycle)
+    if cpu.Debug > 0 {
+        log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cpu.Cycle)
+    }
     return cpu.Execute(instruction)
 }
 
@@ -2264,7 +2266,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
             if cpu.GetZeroFlag() {
                 /* FIXME: add a cycle for a page crossing only if the branch is taken,
-                 * or should does the extra cycle get used even if the branch is not taken?
+                 * or should the extra cycle get used even if the branch is not taken?
                  */
                 newPC := uint16(int(cpu.PC) + int(int8(value)))
                 page_cross := (newPC >> 8) != (cpu.PC >> 8)

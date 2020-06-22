@@ -133,8 +133,10 @@ func main(){
         log.Fatalf("Error: %v\n", err)
     }
 
+    table := nes.MakeInstructionDescriptiontable()
+
     for _, expected := range golden {
-        instruction, err := cpu.Fetch()
+        instruction, err := cpu.Fetch(table)
         if err != nil {
             log.Fatalf("Error at PC 0x%X: %v\n", cpu.PC, err)
         }

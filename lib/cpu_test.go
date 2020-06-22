@@ -236,7 +236,7 @@ func TestCPUSimpleBranch(test *testing.T){
     cpu.MapMemory(0x5000, bytes)
 
     for i := 0; i < 50; i++ {
-        err = cpu.Run()
+        err = cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
             test.Fatalf("Could not run CPU: %v\n", err)
         }
@@ -288,7 +288,7 @@ func TestInstructions1(testing *testing.T){
     cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 50; i++ {
-        err := cpu.Run()
+        err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -326,7 +326,7 @@ func TestInstructionsZeroPage(testing *testing.T){
     cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 50; i++ {
-        err := cpu.Run()
+        err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -371,7 +371,7 @@ func TestInstructionsIndirectLoad(testing *testing.T){
     cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 50; i++ {
-        err := cpu.Run()
+        err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -424,7 +424,7 @@ func TestStack(testing *testing.T){
     cpu.MapMemory(0x5000, bytes)
     cpu.SetStack(0x1000)
     for i := 0; i < 200; i++ {
-        err := cpu.Run()
+        err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -486,7 +486,7 @@ func TestSubroutine(testing *testing.T){
     cpu.MapMemory(0x5000, bytes)
     cpu.SetStack(0x100)
     for i := 0; i < 200; i++ {
-        err := cpu.Run()
+        err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -532,7 +532,7 @@ func TestBit(testing *testing.T){
     cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 200; i++ {
-        err := cpu.Run()
+        err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -580,7 +580,7 @@ func TestBit(testing *testing.T){
     cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 200; i++ {
-        err := cpu.Run()
+        err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -637,7 +637,7 @@ func TestBit(testing *testing.T){
     cpu.MapMemory(0x0, NewMemory(0x3000))
     cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 200; i++ {
-        err := cpu.Run()
+        err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
@@ -696,7 +696,7 @@ func BenchmarkSimple(benchmark *testing.B){
 
     benchmark.ResetTimer()
     for i := 0; i < benchmark.N; i++ {
-        err := cpu.Run()
+        err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
             benchmark.Fatalf("Could not execute cpu %v\n", err)
         }
