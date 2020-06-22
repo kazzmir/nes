@@ -799,7 +799,12 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             case PPUMASK:
                 cpu.PPU.SetMask(value)
                 return
-
+            case PPUADDR:
+                cpu.PPU.WriteAddress(value)
+                return
+            case PPUDATA:
+                cpu.PPU.WriteData(value)
+                return
         }
 
         log.Printf("Unhandled PPU write to 0x%x\n", address)
