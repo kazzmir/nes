@@ -66,6 +66,7 @@ func readMapper(header []byte) byte {
 
 type NESFile struct {
     ProgramRom []byte
+    CharacterRom []byte
 }
 
 func ParseNesFile(path string) (NESFile, error) {
@@ -121,8 +122,15 @@ func ParseNesFile(path string) (NESFile, error) {
         return NESFile{}, err
     }
 
+    characterRom := make([]byte, chrRomSize)
+    _, err = io.ReadFull(file, characterRom)
+    if err != nil {
+        return NESFile{}, err
+    }
+
     return NESFile{
         ProgramRom: programRom,
+        CharacterRom: characterRom,
     }, nil
 }
 

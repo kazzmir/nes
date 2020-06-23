@@ -37,6 +37,8 @@ func Run(path string, debug bool, maxCycles uint64) error {
         }
     }
 
+    cpu.PPU.CopyCharacterRom(nesFile.CharacterRom)
+
     instructionTable := nes.MakeInstructionDescriptiontable()
 
     if debug {
@@ -78,7 +80,7 @@ func Run(path string, debug bool, maxCycles uint64) error {
         usedCycles := cpu.Cycle
 
         /* ppu runs 3 times faster than cpu */
-        nmi := cpu.PPU.Run((usedCycles - cycles) * 3)
+        nmi := cpu.PPU.Run((usedCycles - cycles) * 3, surface)
 
         if nmi {
             if cpu.Debug > 0 {

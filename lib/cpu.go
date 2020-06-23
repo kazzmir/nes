@@ -795,9 +795,15 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
         switch 0x2000 | use {
             case PPUCTRL:
                 cpu.PPU.SetControllerFlags(value)
+                log.Printf("Set PPUCTRL to 0x%x: %v\n", value, cpu.PPU.ControlString())
                 return
             case PPUMASK:
                 cpu.PPU.SetMask(value)
+                log.Printf("Set PPUMASK to 0x%x: %v\n", value, cpu.PPU.MaskString())
+                return
+            case PPUSCROLL:
+                log.Printf("Write 0x%x to PPUSCROLL\n", value)
+                cpu.PPU.WriteScroll(value)
                 return
             case PPUADDR:
                 cpu.PPU.WriteAddress(value)
@@ -3676,6 +3682,8 @@ func StartupState() CPUState {
     cpu.MapMemory(0x1000, memory)
     cpu.MapMemory(0x1800, memory)
     cpu.SetStack(0x100)
+
+    cpu.PPU = MakePPU()
 
     return cpu
 }
