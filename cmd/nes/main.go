@@ -53,12 +53,15 @@ func Run(path string, debug bool, maxCycles uint64) error {
     }
     defer sdl.Quit()
 
+    /* to resize the window */
+    // | sdl.WINDOW_RESIZABLE
     window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, 640, 480, sdl.WINDOW_SHOWN)
     if err != nil {
         return err
     }
     defer window.Destroy()
 
+    /*
     surface, err := window.GetSurface()
     if err != nil {
         return err
@@ -66,8 +69,33 @@ func Run(path string, debug bool, maxCycles uint64) error {
 
     surface.FillRect(nil, 0)
     window.UpdateSurface()
+    */
 
-    for {
+    softwareRenderer := true
+    // renderer, err := sdl.CreateSoftwareRenderer(surface)
+    renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_SOFTWARE)
+
+    /* Create an accelerated renderer */
+    // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
+
+    if err != nil {
+        return err
+    }
+    defer renderer.Destroy()
+
+    /*
+    texture, err := renderer.CreateTexture(sdl.PIXELFORMAT_RGB888, sdl.TEXTUREACCESS_TARGET, 640, 480)
+    if err != nil {
+        return err
+    }
+
+    // _ = texture
+    // renderer.SetRenderTarget(texture)
+    */
+
+    quit := false
+
+    for !quit {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
             break
         }
@@ -80,13 +108,33 @@ func Run(path string, debug bool, maxCycles uint64) error {
         usedCycles := cpu.Cycle
 
         /* ppu runs 3 times faster than cpu */
-        nmi := cpu.PPU.Run((usedCycles - cycles) * 3, surface)
+        nmi, drawn := cpu.PPU.Run((usedCycles - cycles) * 3, renderer)
+
+        if drawn {
+            if softwareRenderer {
+                window.UpdateSurface()
+            } else {
+                renderer.Present()
+            }
+        }
 
         if nmi {
             if cpu.Debug > 0 {
                 log.Printf("Cycle %v Do NMI\n", cpu.Cycle)
             }
             cpu.NMI()
+        }
+
+        event := sdl.PollEvent()
+        if event != nil {
+            // log.Printf("Event %+v\n", event)
+            switch event.GetType() {
+                case sdl.QUIT: quit = true
+                case sdl.KEYDOWN:
+                    keyboard_event := event.(*sdl.KeyboardEvent)
+                    // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
+                    quit = keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
+            }
         }
     }
 

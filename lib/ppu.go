@@ -3,6 +3,7 @@ package lib
 import (
     "log"
     "fmt"
+    "time"
 
     "github.com/veandco/go-sdl2/sdl"
 )
@@ -191,8 +192,11 @@ func (ppu *PPUState) ReadStatus() byte {
     return out
 }
 
-func (ppu *PPUState) Render(surface *sdl.Surface) {
+func (ppu *PPUState) Render(renderer *sdl.Renderer) {
     if ppu.IsBackgroundEnabled() {
+        renderer.SetDrawColor(0, 0, 0, 255)
+        renderer.Clear()
+        renderer.SetScale(2, 2)
         log.Printf("Render background")
         nametableBase := ppu.GetNameTableBaseAddress()
 
@@ -201,8 +205,15 @@ func (ppu *PPUState) Render(surface *sdl.Surface) {
 
         patternTable := ppu.GetBackgroundPatternTableBase()
 
-        x := 0
-        y := 0
+        palette := [][]uint8{
+            []uint8{255, 255, 255, 255},
+            []uint8{255, 0, 0, 255},
+            []uint8{0, 255, 0, 255},
+            []uint8{0, 0, 255, 255},
+        }
+
+        tile_x := 0
+        tile_y := 0
         for address := uint16(0); address < 0x3c0; address++ {
             // log.Printf("Render nametable 0x%x: 0x%x %v, %v", nametableBase + address, ppu.VideoMemory[nametableBase + address], x, y)
             tileIndex := ppu.VideoMemory[nametableBase + address]
@@ -210,25 +221,53 @@ func (ppu *PPUState) Render(surface *sdl.Surface) {
             leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
             rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
 
-            log.Printf("Render nametable 0x%x: 0x%x %v, %v = %v %v", nametableBase + address, ppu.VideoMemory[nametableBase + address], x, y, leftBytes, rightBytes)
+            _ = leftBytes
+            _ = rightBytes
+            _ = palette
 
-            x += 1
-            if x >= 32 {
-                y += 1
-                x = 0
+            lastColor := byte(0xff)
+            for y := 0; y < 8; y++ {
+                for x := 0; x < 8; x++ {
+                    low := (leftBytes[y] >> (7-x)) & 0x1
+                    high := ((rightBytes[y] >> (7-x)) & 0x1) << 1
+                    colorIndex := high | low
+
+                    _ = colorIndex
+
+                    if colorIndex != lastColor {
+                        /* Calling SetDrawColor seems to be quite slow, so we cache the draw color */
+                        renderer.SetDrawColorArray(palette[colorIndex]...)
+                        // renderer.SetDrawColor(palette[colorIndex][0], palette[colorIndex][1], palette[colorIndex][2], 255)
+                        lastColor = colorIndex
+                    }
+
+                    renderer.DrawPoint(int32(tile_x * 8 + x), int32(tile_y * 8 + y))
+                }
+            }
+
+            // log.Printf("Render nametable 0x%x: 0x%x %v, %v = %v %v", nametableBase + address, ppu.VideoMemory[nametableBase + address], tile_x, tile_y, leftBytes, rightBytes)
+
+            tile_x += 1
+            if tile_x >= 32 {
+                tile_y += 1
+                tile_x = 0
             }
         }
+
+        // renderer.Flush()
+        // renderer.Present()
     }
 }
 
 /* give a number of PPU cycles to process
  * returns whether nmi is set or not
  */
-func (ppu *PPUState) Run(cycles uint64, surface *sdl.Surface) bool {
+func (ppu *PPUState) Run(cycles uint64, renderer *sdl.Renderer) (bool, bool) {
     /* http://wiki.nesdev.com/w/index.php/PPU_rendering */
     ppu.Cycle += cycles
     cyclesPerScanline := uint64(341)
     nmi := false
+    didDraw := false
     for ppu.Cycle > cyclesPerScanline {
         ppu.Scanline += 1
         if ppu.Scanline == 241 {
@@ -242,11 +281,14 @@ func (ppu *PPUState) Run(cycles uint64, surface *sdl.Surface) bool {
             ppu.Scanline = 0
             ppu.SetVerticalBlankFlag(false)
 
-            ppu.Render(surface)
+            start := time.Now()
+            ppu.Render(renderer)
+            log.Printf("Took %v to render", time.Now().Sub(start))
+            didDraw = true
         }
 
         ppu.Cycle -= cyclesPerScanline
     }
 
-    return nmi
+    return nmi, didDraw
 }
