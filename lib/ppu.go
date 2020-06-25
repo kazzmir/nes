@@ -205,11 +205,75 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
 
         patternTable := ppu.GetBackgroundPatternTableBase()
 
+        /*
         palette := [][]uint8{
             []uint8{255, 255, 255, 255},
             []uint8{255, 0, 0, 255},
             []uint8{0, 255, 0, 255},
             []uint8{0, 0, 255, 255},
+        }
+        */
+
+        /* blargg's 2c02 palette
+         *   http://wiki.nesdev.com/w/index.php/PPU_palettes
+         */
+        palette := [][]uint8{
+            []uint8{84, 84, 84}, // 00
+            []uint8{0, 30, 116}, // 01
+            []uint8{8, 16, 144}, // 02
+            []uint8{48, 0, 136}, // 03
+            []uint8{68, 0, 100}, // 04
+            []uint8{92, 0, 48},  // 05
+            []uint8{84, 4, 0},   // 06
+            []uint8{60, 24, 0},  // 07
+            []uint8{32, 42, 0},  // 08
+            []uint8{8, 58, 0},   // 09
+            []uint8{0, 64, 0},   // 0a
+            []uint8{0, 60, 0},   // 0b
+            []uint8{0, 50, 60},  // 0c
+            []uint8{0, 0, 0},    // 0d
+            []uint8{152, 150, 152}, // 0e
+            []uint8{8, 76, 196},   // 0f
+            []uint8{48, 50, 236}, // 10
+            []uint8{92, 30, 228}, // 11
+            []uint8{136, 20, 176},
+            []uint8{160, 20, 100},
+            []uint8{152, 34, 32},
+            []uint8{120, 60, 0},
+            []uint8{84, 90, 0},
+            []uint8{40, 114, 0},
+            []uint8{8, 124, 0},
+            []uint8{0, 118, 40},
+            []uint8{0, 102, 120},
+            []uint8{0, 0, 0},
+            []uint8{236, 238, 236},
+            []uint8{76, 154, 236},
+            []uint8{120, 124, 236},
+            []uint8{176, 98, 236},
+            []uint8{228, 84, 236},
+            []uint8{236, 88, 180},
+            []uint8{236, 106, 100},
+            []uint8{212, 136, 32},
+            []uint8{160, 170, 0},
+            []uint8{116, 196, 0},
+            []uint8{76, 208, 32},
+            []uint8{56, 204, 108},
+            []uint8{56, 180, 204},
+            []uint8{60, 60, 60},
+            []uint8{236, 238, 236},
+            []uint8{168, 204, 236},
+            []uint8{188, 188, 236},
+            []uint8{212, 178, 236},
+            []uint8{236, 174, 236},
+            []uint8{236, 174, 212},
+            []uint8{236, 180, 176},
+            []uint8{228, 196, 144},
+            []uint8{204, 210, 120},
+            []uint8{180, 222, 120},
+            []uint8{168, 226, 144},
+            []uint8{152, 226, 180},
+            []uint8{160, 214, 228},
+            []uint8{160, 162, 160},
         }
 
         tile_x := 0
@@ -225,6 +289,43 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
             _ = rightBytes
             _ = palette
 
+            /* pattern attribute x = tile_x / 4
+             * pattern_attribute y = tile_y / 4
+             */
+
+            pattern_attribute_address := attributeTableBase + uint16(tile_x / 4 + (tile_y / 4) * (32/4))
+            pattern_attribute_value := ppu.VideoMemory[pattern_attribute_address]
+            pattern_attribute_top_left := pattern_attribute_value & 0x3
+            pattern_attribute_top_right := (pattern_attribute_value >> 2) & 0x3
+            pattern_attribute_bottom_left := (pattern_attribute_value >> 4) & 0x3
+            pattern_attribute_bottom_right := (pattern_attribute_value >> 6) & 0x3
+
+            /* x to x+4
+             * top left = x:x+1, y:y+1
+             * top right = x+2:x+3, y:y+1
+             * bottom left = x:x+1, y+2:y+3
+             * bottom right = x+2:x+3, y+2:y+3
+             */
+
+            pattern_x := tile_x & 0x3
+            pattern_y := tile_y & 0x3
+
+            var color_set byte
+            if pattern_x < 2 && pattern_y < 2 {
+                color_set = pattern_attribute_top_left
+            } else if pattern_x < 2 && pattern_y >= 2 {
+                color_set = pattern_attribute_bottom_left
+            } else if pattern_x >= 2 && pattern_y < 2 {
+                color_set = pattern_attribute_top_right
+            } else {
+                color_set = pattern_attribute_bottom_right
+            }
+
+            // log.Printf("Tile %v, %v = color set %v", tile_x, tile_y, color_set)
+
+            /* the actual palette to use */
+            palette_base := 0x3f00 + uint16(color_set) * 4
+
             lastColor := byte(0xff)
             for y := 0; y < 8; y++ {
                 for x := 0; x < 8; x++ {
@@ -236,9 +337,11 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
 
                     if colorIndex != lastColor {
                         /* Calling SetDrawColor seems to be quite slow, so we cache the draw color */
-                        renderer.SetDrawColorArray(palette[colorIndex]...)
+                        palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
+                        // log.Printf("Pixel %v, %v = %v", tile_x*8 + x, tile_y*8 + y, palette_color)
+                        renderer.SetDrawColorArray(palette[palette_color]...)
                         // renderer.SetDrawColor(palette[colorIndex][0], palette[colorIndex][1], palette[colorIndex][2], 255)
-                        lastColor = colorIndex
+                        lastColor = palette_color
                     }
 
                     renderer.DrawPoint(int32(tile_x * 8 + x), int32(tile_y * 8 + y))

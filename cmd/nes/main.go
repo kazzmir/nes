@@ -47,6 +47,9 @@ func Run(path string, debug bool, maxCycles uint64) error {
 
     cpu.Reset()
 
+    // force a software renderer
+    // sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
+
     err = sdl.Init(sdl.INIT_EVERYTHING)
     if err != nil {
         return err
