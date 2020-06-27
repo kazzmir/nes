@@ -5,6 +5,8 @@ import (
     "fmt"
     "log"
     "io"
+
+    "github.com/veandco/go-sdl2/sdl"
 )
 
 /* opcode references
@@ -680,6 +682,50 @@ func dump_instructions(instructions []byte){
     }
 }
 
+const (
+    ButtonIndexA = 0
+    ButtonIndexB = 1
+    ButtonIndexSelect = 2
+    ButtonIndexStart = 3
+    ButtonIndexUp = 4
+    ButtonIndexDown = 5
+    ButtonIndexLeft = 6
+    ButtonIndexRight = 7
+)
+
+type Input struct {
+    Buttons []bool
+    NextRead byte
+}
+
+func (input *Input) Reset() {
+    keyboard := sdl.GetKeyboardState()
+    input.Buttons[ButtonIndexA] = keyboard[sdl.SCANCODE_A] == 1
+    input.Buttons[ButtonIndexB] = keyboard[sdl.SCANCODE_B] == 1
+    input.Buttons[ButtonIndexSelect] = keyboard[sdl.SCANCODE_Q] == 1
+    input.Buttons[ButtonIndexStart] = keyboard[sdl.SCANCODE_RETURN] == 1
+    input.Buttons[ButtonIndexUp] = keyboard[sdl.SCANCODE_UP] == 1
+    input.Buttons[ButtonIndexDown] = keyboard[sdl.SCANCODE_DOWN] == 1
+    input.Buttons[ButtonIndexLeft] = keyboard[sdl.SCANCODE_LEFT] == 1
+    input.Buttons[ButtonIndexRight] = keyboard[sdl.SCANCODE_RIGHT] == 1
+}
+
+func (input *Input) Read() byte {
+    var out byte
+    if input.Buttons[input.NextRead] {
+        out = 1
+    }
+    input.NextRead = (input.NextRead + 1) % 8
+    return out
+}
+
+func MakeInput() *Input {
+    return &Input{
+        Buttons: make([]bool, 8),
+        NextRead: 0,
+    }
+}
+
 type CPUState struct {
     A byte
     X byte
@@ -697,6 +743,7 @@ type CPUState struct {
     Debug uint
 
     BankMemory []byte
+    Input *Input
 }
 
 func (cpu *CPUState) SetBanks(data []byte) {
@@ -765,6 +812,14 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
         return 0
     }
 
+    switch address {
+        case JOYPAD1:
+            return cpu.Input.Read()
+        case JOYPAD2:
+            /* FIXME: handle player 2 input */
+            return 0
+    }
+
     for base, memory := range cpu.Maps {
         // log.Printf("Accessing memory 0x%x check 0x%x to 0x%x\n", address, uint64(base), uint64(base) + uint64(len(memory)))
         if large >= uint64(base) && large < uint64(base) + uint64(len(memory)) {
@@ -788,6 +843,12 @@ const (
     PPUADDR = 0x2006
     PPUDATA = 0x2007
     OAMDMA = 0x4014
+)
+
+const (
+    INPUT_POLL = 0x4016
+    JOYPAD1 = 0x4016
+    JOYPAD2 = 0x4017
 )
 
 func (cpu *CPUState) BankSwitch(bank int) error {
@@ -830,8 +891,14 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
         return
     }
 
+    switch address {
+        case INPUT_POLL:
+            cpu.Input.Reset()
+            return
+    }
+
     if address > 0x8000 {
-        log.Printf("Accessing bank switching register 0x%x with value 0x%x?", address, value)
+        log.Printf("Accessing bank switching register 0x%x with value 0x%x", address, value)
         err := cpu.BankSwitch(int(value))
         if err != nil {
             log.Printf("Warning: could not bank switch to 0x%x: %v\n", value, err)

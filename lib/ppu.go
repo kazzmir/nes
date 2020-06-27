@@ -75,7 +75,6 @@ func (ppu *PPUState) GetBackgroundPatternTableBase() uint16 {
 func (ppu *PPUState) ControlString() string {
     vram_increment_index := (ppu.Flags >> 2) & 0x1 == 0x1
     sprite_table_index := (ppu.Flags >> 3) & 0x1 == 0x1
-    background_table_index := (ppu.Flags >> 4) & 0x1 == 0x1
     sprite_size_index := (ppu.Flags >> 5) & 0x1 == 0x1
     master_slave_index := (ppu.Flags >> 6) & 0x1 == 0x1
     nmi := (ppu.Flags >> 7) & 0x1 == 0x1
@@ -94,11 +93,7 @@ func (ppu *PPUState) ControlString() string {
         case false: sprite_table = 0x0000
     }
 
-    var background_table uint16
-    switch background_table_index {
-        case true: background_table = 0x1000
-        case false: background_table = 0x0000
-    }
+    background_table := ppu.GetBackgroundPatternTableBase()
 
     var sprite_size string
     switch sprite_size_index {
@@ -112,7 +107,7 @@ func (ppu *PPUState) ControlString() string {
         case false: master_slave = "read from ext"
     }
 
-    return fmt.Sprintf("Nametable=0x%x Vram-increment=%v Sprite-table=%v Background-table=%v Sprite-size=%v Master/slave=%v NMI=%v", base_nametable_address, vram_increment, sprite_table, background_table, sprite_size, master_slave, nmi)
+    return fmt.Sprintf("Nametable=0x%x Vram-increment=%v Sprite-table=0x%x Background-table=0x%x Sprite-size=%v Master/slave=%v NMI=%v", base_nametable_address, vram_increment, sprite_table, background_table, sprite_size, master_slave, nmi)
 }
 
 func (ppu *PPUState) CopyCharacterRom(data []byte) {
@@ -339,7 +334,11 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
                         /* Calling SetDrawColor seems to be quite slow, so we cache the draw color */
                         palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
                         // log.Printf("Pixel %v, %v = %v", tile_x*8 + x, tile_y*8 + y, palette_color)
-                        renderer.SetDrawColorArray(palette[palette_color]...)
+
+                        /* FIXME: sometimes palette color is larger than the palette, but why? */
+                        if int(palette_color) < len(palette) {
+                            renderer.SetDrawColorArray(palette[palette_color]...)
+                        }
                         // renderer.SetDrawColor(palette[colorIndex][0], palette[colorIndex][1], palette[colorIndex][2], 255)
                         lastColor = palette_color
                     }

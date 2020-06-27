@@ -60,6 +60,8 @@ func Run(path string, debug bool, maxCycles uint64) error {
 
     cpu.PPU.CopyCharacterRom(nesFile.CharacterRom)
 
+    cpu.Input = nes.MakeInput()
+
     instructionTable := nes.MakeInstructionDescriptiontable()
 
     if debug {
