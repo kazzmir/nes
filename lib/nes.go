@@ -67,6 +67,7 @@ func readMapper(header []byte) byte {
 type NESFile struct {
     ProgramRom []byte
     CharacterRom []byte
+    Mapper uint32
 }
 
 func ParseNesFile(path string) (NESFile, error) {
@@ -131,6 +132,7 @@ func ParseNesFile(path string) (NESFile, error) {
     return NESFile{
         ProgramRom: programRom,
         CharacterRom: characterRom,
+        Mapper: uint32(mapper),
     }, nil
 }
 

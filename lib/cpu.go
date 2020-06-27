@@ -695,6 +695,12 @@ type CPUState struct {
 
     PPU PPUState
     Debug uint
+
+    BankMemory []byte
+}
+
+func (cpu *CPUState) SetBanks(data []byte) {
+    cpu.BankMemory = data
 }
 
 func (cpu *CPUState) Equals(other CPUState) bool {
@@ -767,7 +773,7 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
     }
 
     /* FIXME: return an error? */
-    log.Printf("Warning: accessing unmapped memory at 0x%x\n", address)
+    log.Printf("Warning: loading unmapped memory at 0x%x\n", address)
     return 0
 }
 
@@ -784,6 +790,13 @@ const (
     OAMDMA = 0x4014
 )
 
+func (cpu *CPUState) BankSwitch(bank int) error {
+    /* FIXME: this is all very much hard coded to work with mapper 2 */
+    delete(cpu.Maps, 0x8000)
+    /* map a new 16k block int */
+    base := bank * 16 * 1024
+    return cpu.MapMemory(0x8000, cpu.BankMemory[base:base + 16 * 1024])
+}
 
 func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     large := uint64(address)
@@ -817,6 +830,16 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
         return
     }
 
+    if address > 0x8000 {
+        log.Printf("Accessing bank switching register 0x%x with value 0x%x?", address, value)
+        err := cpu.BankSwitch(int(value))
+        if err != nil {
+            log.Printf("Warning: could not bank switch to 0x%x: %v\n", value, err)
+        }
+        /* FIXME: should we still write to the new location? */
+        return
+    }
+
     for base, memory := range cpu.Maps {
         if large >= uint64(base) && large < uint64(base) + uint64(len(memory)) {
             memory[address-base] = value
@@ -824,7 +847,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
         }
     }
 
-    log.Printf("Warning: could not access unmapped memory at 0x%x\n", address)
+    log.Printf("Warning: could not store into unmapped memory at 0x%x value 0x%x\n", address, value)
 }
 
 func (cpu *CPUState) LoadStack(where byte) byte {
