@@ -231,7 +231,7 @@ func (ppu *PPUState) ReadStatus() byte {
 }
 
 type Sprite struct {
-    tile int
+    tile byte
     x, y byte
     flip_horizontal bool
     flip_vertical bool
@@ -260,7 +260,7 @@ func (ppu *PPUState) GetSprites() []Sprite {
         flip_vertical := (data >> 7) & 0x1 == 0x1
 
         out = append(out, Sprite{
-            tile: int(tile),
+            tile: tile,
             x: x,
             y: y,
             flip_horizontal: flip_horizontal,
@@ -460,56 +460,70 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
 
         patternTable := ppu.GetSpritePatternTableBase()
 
-        size := ppu.GetSpriteSize()
-        _ = size
+        spriteSize := ppu.GetSpriteSize()
 
         for _, sprite := range ppu.GetSprites() {
             /* FIXME: handle 8x16 tiles differently */
             tileIndex := sprite.tile
-            tileAddress := patternTable + uint16(tileIndex) * 16
-            leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
-            rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
 
-            palette_base := 0x3f11 + uint16(sprite.palette) * 4
-
-            lastColor := byte(0xff)
-            for y := 0; y < 8; y++ {
-                for x := 0; x < 8; x++ {
-                    low := (leftBytes[y] >> (7-x)) & 0x1
-                    high := ((rightBytes[y] >> (7-x)) & 0x1) << 1
-                    colorIndex := high | low
-
-                    /* Skip non-opaque pixels */
-                    if colorIndex == 0 {
-                        continue
-                    }
-
-                    if colorIndex != lastColor {
-                        /* Calling SetDrawColor seems to be quite slow, so we cache the draw color */
-                        palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
-                        // log.Printf("Pixel %v, %v = %v", tile_x*8 + x, tile_y*8 + y, palette_color)
-
-                        renderer.SetDrawColorArray(palette[palette_color]...)
-                        // renderer.SetDrawColor(palette[colorIndex][0], palette[colorIndex][1], palette[colorIndex][2], 255)
-                        lastColor = palette_color
-                    }
-
-                    var final_x int
-                    if sprite.flip_horizontal {
-                        final_x = int(sprite.x) + (7-x)
-                    } else {
-                        final_x = int(sprite.x) + x
-                    }
-                    var final_y int
-                    if sprite.flip_vertical {
-                        final_y = int(sprite.y) + (7-y)
-                    } else {
-                        final_y = int(sprite.y) + y
-                    }
-
-                    renderer.DrawPoint(int32(final_x), int32(final_y))
-                }
+            switch spriteSize {
+                case SpriteSize8x8:
+                    tileAddress := patternTable + uint16(tileIndex) * 16
+                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), int(sprite.y), renderer)
+                case SpriteSize8x16:
+                    /* even tiles come from bank 0x0000, and odd tiles come from 0x1000 */
+                    tileAddress := (uint16(tileIndex & 0x1) << 12) | (uint16(tileIndex >> 1) * 32)
+                    /* top tile */
+                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), int(sprite.y), renderer)
+                    /* bottom tile */
+                    ppu.renderSpriteTile(tileAddress+16, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), int(sprite.y+8), renderer)
             }
+        }
+    }
+}
+
+func (ppu *PPUState) renderSpriteTile(tileAddress uint16, paletteIndex byte, palette [][]uint8, flipHorizontal bool, flipVertical bool, spriteX int, spriteY int, renderer *sdl.Renderer){
+
+    leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
+    rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
+    palette_base := 0x3f10 + uint16(paletteIndex) * 4
+
+    lastColor := byte(0xff)
+    for y := 0; y < 8; y++ {
+        for x := 0; x < 8; x++ {
+            low := (leftBytes[y] >> (7-x)) & 0x1
+            high := ((rightBytes[y] >> (7-x)) & 0x1) << 1
+            colorIndex := high | low
+
+            /* Skip non-opaque pixels */
+            if colorIndex == 0 {
+                continue
+            }
+
+            if colorIndex != lastColor {
+                /* Calling SetDrawColor seems to be quite slow, so we cache the draw color */
+                palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
+                // log.Printf("Pixel %v, %v = %v", tile_x*8 + x, tile_y*8 + y, palette_color)
+
+                renderer.SetDrawColorArray(palette[palette_color]...)
+                // renderer.SetDrawColor(palette[colorIndex][0], palette[colorIndex][1], palette[colorIndex][2], 255)
+                lastColor = palette_color
+            }
+
+            var final_x int
+            if flipHorizontal {
+                final_x = spriteX + (7-x)
+            } else {
+                final_x = spriteX + x
+            }
+            var final_y int
+            if flipVertical {
+                final_y = spriteY + (7-y)
+            } else {
+                final_y = spriteY + y
+            }
+
+            renderer.DrawPoint(int32(final_x), int32(final_y))
         }
     }
 }
