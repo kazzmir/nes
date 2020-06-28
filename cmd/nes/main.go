@@ -9,6 +9,9 @@ import (
     nes "github.com/kazzmir/nes/lib"
 
     "github.com/veandco/go-sdl2/sdl"
+
+    "context"
+    "runtime/pprof"
 )
 
 func Run(path string, debug bool, maxCycles uint64) error {
@@ -61,8 +64,6 @@ func Run(path string, debug bool, maxCycles uint64) error {
     cpu.PPU.CopyCharacterRom(nesFile.CharacterRom)
 
     cpu.Input = nes.MakeInput()
-
-    instructionTable := nes.MakeInstructionDescriptiontable()
 
     if debug {
         cpu.Debug = 1
@@ -119,17 +120,60 @@ func Run(path string, debug bool, maxCycles uint64) error {
     // renderer.SetRenderTarget(texture)
     */
 
-    quit := false
+    quit, cancel := context.WithCancel(context.Background())
+    defer cancel()
+    drawn := make(chan bool, 1000)
 
-    for !quit {
+    go func(){
+        for {
+            select {
+                case <-quit.Done():
+                    break
+                case <-drawn:
+                    if softwareRenderer {
+                        window.UpdateSurface()
+                    } else {
+                        renderer.Present()
+                    }
+            }
+        }
+    }()
+
+    go runNES(cpu, maxCycles, quit, drawn, renderer)
+
+    for quit.Err() == nil {
+        event := sdl.WaitEvent()
+        if event != nil {
+            // log.Printf("Event %+v\n", event)
+            switch event.GetType() {
+                case sdl.QUIT: cancel()
+                case sdl.KEYDOWN:
+                    keyboard_event := event.(*sdl.KeyboardEvent)
+                    // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
+                    quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
+                    if quit_pressed {
+                        cancel()
+                    }
+            }
+        }
+    }
+
+    return nil
+}
+
+func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan bool, renderer *sdl.Renderer){
+    instructionTable := nes.MakeInstructionDescriptiontable()
+
+    for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
             break
         }
 
         cycles := cpu.Cycle
-        err = cpu.Run(instructionTable)
+        err := cpu.Run(instructionTable)
         if err != nil {
-            return err
+            log.Fatal(err)
+            return
         }
         usedCycles := cpu.Cycle
 
@@ -137,10 +181,9 @@ func Run(path string, debug bool, maxCycles uint64) error {
         nmi, drawn := cpu.PPU.Run((usedCycles - cycles) * 3, renderer)
 
         if drawn {
-            if softwareRenderer {
-                window.UpdateSurface()
-            } else {
-                renderer.Present()
+            select {
+                case draw <- true:
+                default:
             }
         }
 
@@ -150,21 +193,7 @@ func Run(path string, debug bool, maxCycles uint64) error {
             }
             cpu.NMI()
         }
-
-        event := sdl.PollEvent()
-        if event != nil {
-            // log.Printf("Event %+v\n", event)
-            switch event.GetType() {
-                case sdl.QUIT: quit = true
-                case sdl.KEYDOWN:
-                    keyboard_event := event.(*sdl.KeyboardEvent)
-                    // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
-                    quit = keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
-            }
-        }
     }
-
-    return nil
 }
 
 func main(){
@@ -198,7 +227,13 @@ func main(){
     }
 
     if nesPath != "" {
-        err := Run(nesPath, debug, maxCycles)
+        profile, err := os.Create("profile.cpu")
+        if err != nil {
+            log.Fatal(err)
+        }
+        pprof.StartCPUProfile(profile)
+        defer pprof.StopCPUProfile()
+        err = Run(nesPath, debug, maxCycles)
         if err != nil {
             log.Printf("Error: %v\n", err)
         }
