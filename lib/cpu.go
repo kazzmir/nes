@@ -701,7 +701,7 @@ type Input struct {
 func (input *Input) Reset() {
     keyboard := sdl.GetKeyboardState()
     input.Buttons[ButtonIndexA] = keyboard[sdl.SCANCODE_A] == 1
-    input.Buttons[ButtonIndexB] = keyboard[sdl.SCANCODE_B] == 1
+    input.Buttons[ButtonIndexB] = keyboard[sdl.SCANCODE_S] == 1
     input.Buttons[ButtonIndexSelect] = keyboard[sdl.SCANCODE_Q] == 1
     input.Buttons[ButtonIndexStart] = keyboard[sdl.SCANCODE_RETURN] == 1
     input.Buttons[ButtonIndexUp] = keyboard[sdl.SCANCODE_UP] == 1
@@ -859,6 +859,16 @@ func (cpu *CPUState) BankSwitch(bank int) error {
     return cpu.MapMemory(0x8000, cpu.BankMemory[base:base + 16 * 1024])
 }
 
+func (cpu *CPUState) GetMemoryPage(address uint16) []byte {
+    for base, memory := range cpu.Maps {
+        if uint64(address) >= uint64(base) && uint64(address) < uint64(base) + uint64(len(memory)) {
+            return memory[address:address+256]
+        }
+    }
+
+    return nil
+}
+
 func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     large := uint64(address)
 
@@ -885,6 +895,9 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             case PPUDATA:
                 cpu.PPU.WriteData(value)
                 return
+            case OAMADDR:
+                log.Printf("Write to OAMADDR: 0x%x\n", value)
+                return
         }
 
         log.Printf("Unhandled PPU write to 0x%x\n", address)
@@ -894,6 +907,12 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     switch address {
         case INPUT_POLL:
             cpu.Input.Reset()
+            return
+        case OAMDMA:
+            log.Printf("Setting up OAM dma with 0x%x\n", value)
+            cpu.PPU.CopyOAM(cpu.GetMemoryPage(uint16(value) << 8))
+            /* FIXME: 514 if on an odd cpu cycle */
+            cpu.Cycle += 513
             return
     }
 

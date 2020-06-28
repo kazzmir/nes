@@ -21,11 +21,21 @@ type PPUState struct {
     FineX byte
 
     VideoMemory []byte
+    OAM []byte
 }
 
 func MakePPU() PPUState {
     return PPUState{
         VideoMemory: make([]byte, 64 * 1024),
+        OAM: make([]byte, 256),
+    }
+}
+
+func (ppu *PPUState) CopyOAM(data []byte){
+    if len(data) > len(ppu.OAM){
+        copy(ppu.OAM, data[0:len(ppu.OAM)])
+    } else {
+        copy(ppu.OAM, data)
     }
 }
 
@@ -61,6 +71,16 @@ func (ppu *PPUState) GetNameTableBaseAddress() uint16 {
     return 0x2000
 }
 
+func (ppu *PPUState) GetSpritePatternTableBase() uint16 {
+    index := (ppu.Flags >> 3) & 0x1
+    switch index {
+        case 1: return 0x1000
+        case 0: return 0x0000
+    }
+
+    return 0x0000
+}
+
 func (ppu *PPUState) GetBackgroundPatternTableBase() uint16 {
     background_table_index := (ppu.Flags >> 4) & 0x1 == 0x1
 
@@ -72,10 +92,23 @@ func (ppu *PPUState) GetBackgroundPatternTableBase() uint16 {
     return 0x0000
 }
 
+type SpriteSize int
+const (
+    SpriteSize8x16 = iota
+    SpriteSize8x8
+)
+
+func (ppu *PPUState) GetSpriteSize() SpriteSize {
+    sprite_size_index := (ppu.Flags >> 5) & 0x1 == 0x1
+    if sprite_size_index {
+        return SpriteSize8x16
+    }
+
+    return SpriteSize8x8
+}
+
 func (ppu *PPUState) ControlString() string {
     vram_increment_index := (ppu.Flags >> 2) & 0x1 == 0x1
-    sprite_table_index := (ppu.Flags >> 3) & 0x1 == 0x1
-    sprite_size_index := (ppu.Flags >> 5) & 0x1 == 0x1
     master_slave_index := (ppu.Flags >> 6) & 0x1 == 0x1
     nmi := (ppu.Flags >> 7) & 0x1 == 0x1
 
@@ -87,18 +120,13 @@ func (ppu *PPUState) ControlString() string {
         case false: vram_increment = 1
     }
 
-    var sprite_table uint16
-    switch sprite_table_index {
-        case true: sprite_table = 0x1000
-        case false: sprite_table = 0x0000
-    }
-
+    sprite_table := ppu.GetSpritePatternTableBase()
     background_table := ppu.GetBackgroundPatternTableBase()
 
     var sprite_size string
-    switch sprite_size_index {
-        case true: sprite_size = "8x16"
-        case false: sprite_size = "8x8"
+    switch ppu.GetSpriteSize() {
+        case SpriteSize8x16: sprite_size = "8x16"
+        case SpriteSize8x8: sprite_size = "8x8"
     }
 
     var master_slave string
@@ -120,6 +148,12 @@ func (ppu *PPUState) IsBackgroundEnabled() bool {
     /* FIXME: also include background_leftmost_8? */
     background := (ppu.Mask >> 3) & 0x1 == 0x1
     return background
+}
+
+func (ppu *PPUState) IsSpriteEnabled() bool {
+    /* FIXME: what about sprite_leftmost_8 */
+    sprite := (ppu.Mask >> 4) & 0x1 == 0x1
+    return sprite
 }
 
 func (ppu *PPUState) MaskString() string {
@@ -187,7 +221,112 @@ func (ppu *PPUState) ReadStatus() byte {
     return out
 }
 
+type Sprite struct {
+    tile int
+    x, y byte
+    flip_horizontal bool
+    flip_vertical bool
+    palette byte
+    priority byte
+}
+
+func (ppu *PPUState) GetSprites() []Sprite {
+    var out []Sprite
+    position := 0
+    for position < len(ppu.OAM) {
+        y := ppu.OAM[position]
+        position += 1
+        tile := ppu.OAM[position]
+        position += 1
+
+        data := ppu.OAM[position]
+        position += 1
+
+        x := ppu.OAM[position]
+        position += 1
+
+        palette := data & 0x3
+        priority := (data >> 5) & 0x1
+        flip_horizontal := (data >> 6) & 0x1 == 0x1
+        flip_vertical := (data >> 7) & 0x1 == 0x1
+
+        out = append(out, Sprite{
+            tile: int(tile >> 1),
+            x: x,
+            y: y,
+            flip_horizontal: flip_horizontal,
+            flip_vertical: flip_vertical,
+            palette: palette,
+            priority: priority,
+        })
+    }
+
+    return out
+}
+
 func (ppu *PPUState) Render(renderer *sdl.Renderer) {
+    /* blargg's 2c02 palette
+     *   http://wiki.nesdev.com/w/index.php/PPU_palettes
+     */
+    palette := [][]uint8{
+        []uint8{84, 84, 84}, // 00
+        []uint8{0, 30, 116}, // 01
+        []uint8{8, 16, 144}, // 02
+        []uint8{48, 0, 136}, // 03
+        []uint8{68, 0, 100}, // 04
+        []uint8{92, 0, 48},  // 05
+        []uint8{84, 4, 0},   // 06
+        []uint8{60, 24, 0},  // 07
+        []uint8{32, 42, 0},  // 08
+        []uint8{8, 58, 0},   // 09
+        []uint8{0, 64, 0},   // 0a
+        []uint8{0, 60, 0},   // 0b
+        []uint8{0, 50, 60},  // 0c
+        []uint8{0, 0, 0},    // 0d
+        []uint8{152, 150, 152}, // 0e
+        []uint8{8, 76, 196},   // 0f
+        []uint8{48, 50, 236}, // 10
+        []uint8{92, 30, 228}, // 11
+        []uint8{136, 20, 176},
+        []uint8{160, 20, 100},
+        []uint8{152, 34, 32},
+        []uint8{120, 60, 0},
+        []uint8{84, 90, 0},
+        []uint8{40, 114, 0},
+        []uint8{8, 124, 0},
+        []uint8{0, 118, 40},
+        []uint8{0, 102, 120},
+        []uint8{0, 0, 0},
+        []uint8{236, 238, 236},
+        []uint8{76, 154, 236},
+        []uint8{120, 124, 236},
+        []uint8{176, 98, 236},
+        []uint8{228, 84, 236},
+        []uint8{236, 88, 180},
+        []uint8{236, 106, 100},
+        []uint8{212, 136, 32},
+        []uint8{160, 170, 0},
+        []uint8{116, 196, 0},
+        []uint8{76, 208, 32},
+        []uint8{56, 204, 108},
+        []uint8{56, 180, 204},
+        []uint8{60, 60, 60},
+        []uint8{236, 238, 236},
+        []uint8{168, 204, 236},
+        []uint8{188, 188, 236},
+        []uint8{212, 178, 236},
+        []uint8{236, 174, 236},
+        []uint8{236, 174, 212},
+        []uint8{236, 180, 176},
+        []uint8{228, 196, 144},
+        []uint8{204, 210, 120},
+        []uint8{180, 222, 120},
+        []uint8{168, 226, 144},
+        []uint8{152, 226, 180},
+        []uint8{160, 214, 228},
+        []uint8{160, 162, 160},
+    }
+
     if ppu.IsBackgroundEnabled() {
         renderer.SetDrawColor(0, 0, 0, 255)
         renderer.Clear()
@@ -208,68 +347,6 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
             []uint8{0, 0, 255, 255},
         }
         */
-
-        /* blargg's 2c02 palette
-         *   http://wiki.nesdev.com/w/index.php/PPU_palettes
-         */
-        palette := [][]uint8{
-            []uint8{84, 84, 84}, // 00
-            []uint8{0, 30, 116}, // 01
-            []uint8{8, 16, 144}, // 02
-            []uint8{48, 0, 136}, // 03
-            []uint8{68, 0, 100}, // 04
-            []uint8{92, 0, 48},  // 05
-            []uint8{84, 4, 0},   // 06
-            []uint8{60, 24, 0},  // 07
-            []uint8{32, 42, 0},  // 08
-            []uint8{8, 58, 0},   // 09
-            []uint8{0, 64, 0},   // 0a
-            []uint8{0, 60, 0},   // 0b
-            []uint8{0, 50, 60},  // 0c
-            []uint8{0, 0, 0},    // 0d
-            []uint8{152, 150, 152}, // 0e
-            []uint8{8, 76, 196},   // 0f
-            []uint8{48, 50, 236}, // 10
-            []uint8{92, 30, 228}, // 11
-            []uint8{136, 20, 176},
-            []uint8{160, 20, 100},
-            []uint8{152, 34, 32},
-            []uint8{120, 60, 0},
-            []uint8{84, 90, 0},
-            []uint8{40, 114, 0},
-            []uint8{8, 124, 0},
-            []uint8{0, 118, 40},
-            []uint8{0, 102, 120},
-            []uint8{0, 0, 0},
-            []uint8{236, 238, 236},
-            []uint8{76, 154, 236},
-            []uint8{120, 124, 236},
-            []uint8{176, 98, 236},
-            []uint8{228, 84, 236},
-            []uint8{236, 88, 180},
-            []uint8{236, 106, 100},
-            []uint8{212, 136, 32},
-            []uint8{160, 170, 0},
-            []uint8{116, 196, 0},
-            []uint8{76, 208, 32},
-            []uint8{56, 204, 108},
-            []uint8{56, 180, 204},
-            []uint8{60, 60, 60},
-            []uint8{236, 238, 236},
-            []uint8{168, 204, 236},
-            []uint8{188, 188, 236},
-            []uint8{212, 178, 236},
-            []uint8{236, 174, 236},
-            []uint8{236, 174, 212},
-            []uint8{236, 180, 176},
-            []uint8{228, 196, 144},
-            []uint8{204, 210, 120},
-            []uint8{180, 222, 120},
-            []uint8{168, 226, 144},
-            []uint8{152, 226, 180},
-            []uint8{160, 214, 228},
-            []uint8{160, 162, 160},
-        }
 
         tile_x := 0
         tile_y := 0
@@ -358,6 +435,46 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
 
         // renderer.Flush()
         // renderer.Present()
+    }
+
+    if ppu.IsSpriteEnabled() {
+        /* FIXME: handle sprite priority. 0 = in front, 1 = background */
+
+        patternTable := ppu.GetSpritePatternTableBase()
+
+        for _, sprite := range ppu.GetSprites() {
+            tileIndex := sprite.tile
+            tileAddress := patternTable + uint16(tileIndex) * 16
+            leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
+            rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
+            palette_base := 0x3f11 + uint16(sprite.palette) * 4
+
+            lastColor := byte(0xff)
+            for y := 0; y < 8; y++ {
+                for x := 0; x < 8; x++ {
+                    low := (leftBytes[y] >> (7-x)) & 0x1
+                    high := ((rightBytes[y] >> (7-x)) & 0x1) << 1
+                    colorIndex := high | low
+
+                    _ = colorIndex
+
+                    if colorIndex != lastColor {
+                        /* Calling SetDrawColor seems to be quite slow, so we cache the draw color */
+                        palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
+                        // log.Printf("Pixel %v, %v = %v", tile_x*8 + x, tile_y*8 + y, palette_color)
+
+                        /* FIXME: sometimes palette color is larger than the palette, but why? */
+                        if int(palette_color) < len(palette) {
+                            renderer.SetDrawColorArray(palette[palette_color]...)
+                        }
+                        // renderer.SetDrawColor(palette[colorIndex][0], palette[colorIndex][1], palette[colorIndex][2], 255)
+                        lastColor = palette_color
+                    }
+
+                    renderer.DrawPoint(int32(int(sprite.x) + x), int32(int(sprite.y) + y))
+                }
+            }
+        }
     }
 }
 
