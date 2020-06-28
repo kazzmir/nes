@@ -251,7 +251,7 @@ func (ppu *PPUState) GetSprites() []Sprite {
         flip_vertical := (data >> 7) & 0x1 == 0x1
 
         out = append(out, Sprite{
-            tile: int(tile >> 1),
+            tile: int(tile),
             x: x,
             y: y,
             flip_horizontal: flip_horizontal,
@@ -283,48 +283,60 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
         []uint8{0, 60, 0},   // 0b
         []uint8{0, 50, 60},  // 0c
         []uint8{0, 0, 0},    // 0d
-        []uint8{152, 150, 152}, // 0e
-        []uint8{8, 76, 196},   // 0f
-        []uint8{48, 50, 236}, // 10
-        []uint8{92, 30, 228}, // 11
-        []uint8{136, 20, 176},
-        []uint8{160, 20, 100},
-        []uint8{152, 34, 32},
-        []uint8{120, 60, 0},
-        []uint8{84, 90, 0},
-        []uint8{40, 114, 0},
-        []uint8{8, 124, 0},
-        []uint8{0, 118, 40},
-        []uint8{0, 102, 120},
-        []uint8{0, 0, 0},
-        []uint8{236, 238, 236},
-        []uint8{76, 154, 236},
-        []uint8{120, 124, 236},
-        []uint8{176, 98, 236},
-        []uint8{228, 84, 236},
-        []uint8{236, 88, 180},
-        []uint8{236, 106, 100},
-        []uint8{212, 136, 32},
-        []uint8{160, 170, 0},
-        []uint8{116, 196, 0},
-        []uint8{76, 208, 32},
-        []uint8{56, 204, 108},
-        []uint8{56, 180, 204},
-        []uint8{60, 60, 60},
-        []uint8{236, 238, 236},
-        []uint8{168, 204, 236},
-        []uint8{188, 188, 236},
-        []uint8{212, 178, 236},
-        []uint8{236, 174, 236},
-        []uint8{236, 174, 212},
-        []uint8{236, 180, 176},
-        []uint8{228, 196, 144},
-        []uint8{204, 210, 120},
-        []uint8{180, 222, 120},
-        []uint8{168, 226, 144},
-        []uint8{152, 226, 180},
-        []uint8{160, 214, 228},
-        []uint8{160, 162, 160},
+
+        []uint8{0, 0, 0},    // 0e
+        []uint8{0, 0, 0},    // 0f
+
+        []uint8{152, 150, 152}, // 10
+        []uint8{8, 76, 196},    // 11
+        []uint8{48, 50, 236},   // 12
+        []uint8{92, 30, 228},   // 13
+        []uint8{136, 20, 176},  // 14
+        []uint8{160, 20, 100},  // 15
+        []uint8{152, 34, 32},   // 16
+        []uint8{120, 60, 0},    // 17
+        []uint8{84, 90, 0},     // 18
+        []uint8{40, 114, 0},    // 19
+        []uint8{8, 124, 0},     // 1a
+        []uint8{0, 118, 40},    // 1b
+        []uint8{0, 102, 120},   // 1c
+        []uint8{0, 0, 0},       // 1d
+        []uint8{0, 0, 0},       // 1e
+        []uint8{0, 0, 0},       // 1f
+
+        []uint8{236, 238, 236}, // 20
+        []uint8{76, 154, 236},  // 21
+        []uint8{120, 124, 236}, // 22
+        []uint8{176, 98, 236},  // 23
+        []uint8{228, 84, 236},  // 24
+        []uint8{236, 88, 180},  // 25
+        []uint8{236, 106, 100}, // 26
+        []uint8{212, 136, 32},  // 27
+        []uint8{160, 170, 0},   // 28
+        []uint8{116, 196, 0},   // 29
+        []uint8{76, 208, 32},   // 2a
+        []uint8{56, 204, 108},  // 2b
+        []uint8{56, 180, 204},  // 2c
+        []uint8{60, 60, 60},    // 2d
+        []uint8{0, 0, 0},       // 2e
+        []uint8{0, 0, 0},       // 2f
+
+        []uint8{236, 238, 236}, // 30
+        []uint8{168, 204, 236}, // 31
+        []uint8{188, 188, 236}, // 32
+        []uint8{212, 178, 236}, // 33
+        []uint8{236, 174, 236}, // 34
+        []uint8{236, 174, 212}, // 35
+        []uint8{236, 180, 176}, // 36
+        []uint8{228, 196, 144}, // 37
+        []uint8{204, 210, 120}, // 38
+        []uint8{180, 222, 120}, // 39
+        []uint8{168, 226, 144}, // 3a
+        []uint8{152, 226, 180}, // 3b
+        []uint8{160, 214, 228}, // 3c
+        []uint8{160, 162, 160}, // 3d
+        []uint8{0, 0, 0},       // 3e
+        []uint8{0, 0, 0},       // 3f
     }
 
     if ppu.IsBackgroundEnabled() {
@@ -443,6 +455,7 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
         patternTable := ppu.GetSpritePatternTableBase()
 
         for _, sprite := range ppu.GetSprites() {
+            /* FIXME: handle 8x16 tiles differently */
             tileIndex := sprite.tile
             tileAddress := patternTable + uint16(tileIndex) * 16
             leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
@@ -471,7 +484,20 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
                         lastColor = palette_color
                     }
 
-                    renderer.DrawPoint(int32(int(sprite.x) + x), int32(int(sprite.y) + y))
+                    var final_x int
+                    if sprite.flip_horizontal {
+                        final_x = int(sprite.x) + (7-x)
+                    } else {
+                        final_x = int(sprite.x) + x
+                    }
+                    var final_y int
+                    if sprite.flip_vertical {
+                        final_y = int(sprite.y) + (7-y)
+                    } else {
+                        final_y = int(sprite.y) + y
+                    }
+
+                    renderer.DrawPoint(int32(final_x), int32(final_y))
                 }
             }
         }
