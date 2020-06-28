@@ -473,10 +473,19 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
                 case SpriteSize8x16:
                     /* even tiles come from bank 0x0000, and odd tiles come from 0x1000 */
                     tileAddress := (uint16(tileIndex & 0x1) << 12) | (uint16(tileIndex >> 1) * 32)
+
+                    topY := int(sprite.y)
+                    bottomY := int(sprite.y + 8)
+
+                    if sprite.flip_vertical {
+                        topY = int(sprite.y + 8)
+                        bottomY = int(sprite.y)
+                    }
+
                     /* top tile */
-                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), int(sprite.y), renderer)
+                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), topY, renderer)
                     /* bottom tile */
-                    ppu.renderSpriteTile(tileAddress+16, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), int(sprite.y+8), renderer)
+                    ppu.renderSpriteTile(tileAddress+16, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), bottomY, renderer)
             }
         }
     }
