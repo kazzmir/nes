@@ -896,7 +896,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
                 cpu.PPU.WriteData(value)
                 return
             case OAMADDR:
-                log.Printf("Write to OAMADDR: 0x%x\n", value)
+                cpu.PPU.SetOAMAddress(value)
                 return
         }
 
@@ -917,7 +917,9 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     }
 
     if address > 0x8000 {
-        log.Printf("Accessing bank switching register 0x%x with value 0x%x", address, value)
+        if cpu.Debug > 0 {
+            log.Printf("Accessing bank switching register 0x%x with value 0x%x", address, value)
+        }
         err := cpu.BankSwitch(int(value))
         if err != nil {
             log.Printf("Warning: could not bank switch to 0x%x: %v\n", value, err)

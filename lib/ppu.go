@@ -22,6 +22,7 @@ type PPUState struct {
 
     VideoMemory []byte
     OAM []byte
+    OAMAddress byte
 }
 
 func MakePPU() PPUState {
@@ -31,11 +32,19 @@ func MakePPU() PPUState {
     }
 }
 
+func (ppu *PPUState) SetOAMAddress(value byte){
+    ppu.OAMAddress = value
+}
+
 func (ppu *PPUState) CopyOAM(data []byte){
-    if len(data) > len(ppu.OAM){
-        copy(ppu.OAM, data[0:len(ppu.OAM)])
-    } else {
-        copy(ppu.OAM, data)
+
+    maxOAM := len(ppu.OAM)
+    for i := 0; i < len(data); i++ {
+        address := byte(i) + ppu.OAMAddress
+        if int(address) >= maxOAM {
+            break
+        }
+        ppu.OAM[address] = data[i]
     }
 }
 
@@ -424,10 +433,7 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
                         palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
                         // log.Printf("Pixel %v, %v = %v", tile_x*8 + x, tile_y*8 + y, palette_color)
 
-                        /* FIXME: sometimes palette color is larger than the palette, but why? */
-                        if int(palette_color) < len(palette) {
-                            renderer.SetDrawColorArray(palette[palette_color]...)
-                        }
+                        renderer.SetDrawColorArray(palette[palette_color]...)
                         // renderer.SetDrawColor(palette[colorIndex][0], palette[colorIndex][1], palette[colorIndex][2], 255)
                         lastColor = palette_color
                     }
@@ -454,12 +460,16 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
 
         patternTable := ppu.GetSpritePatternTableBase()
 
+        size := ppu.GetSpriteSize()
+        _ = size
+
         for _, sprite := range ppu.GetSprites() {
             /* FIXME: handle 8x16 tiles differently */
             tileIndex := sprite.tile
             tileAddress := patternTable + uint16(tileIndex) * 16
             leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
             rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
+
             palette_base := 0x3f11 + uint16(sprite.palette) * 4
 
             lastColor := byte(0xff)
@@ -469,17 +479,17 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
                     high := ((rightBytes[y] >> (7-x)) & 0x1) << 1
                     colorIndex := high | low
 
-                    _ = colorIndex
+                    /* Skip non-opaque pixels */
+                    if colorIndex == 0 {
+                        continue
+                    }
 
                     if colorIndex != lastColor {
                         /* Calling SetDrawColor seems to be quite slow, so we cache the draw color */
                         palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
                         // log.Printf("Pixel %v, %v = %v", tile_x*8 + x, tile_y*8 + y, palette_color)
 
-                        /* FIXME: sometimes palette color is larger than the palette, but why? */
-                        if int(palette_color) < len(palette) {
-                            renderer.SetDrawColorArray(palette[palette_color]...)
-                        }
+                        renderer.SetDrawColorArray(palette[palette_color]...)
                         // renderer.SetDrawColor(palette[colorIndex][0], palette[colorIndex][1], palette[colorIndex][2], 255)
                         lastColor = palette_color
                     }
