@@ -287,9 +287,27 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
     /* FIXME: does quitEvent.Timestamp need to be set? */
     defer sdl.PushEvent(&quitEvent)
 
+    var cycleCounter float64
+    /* http://wiki.nesdev.com/w/index.php/Cycle_reference_chart#Clock_rates
+     * NTSC 2c0c clock speed is 21.47~ MHz ÷ 12 = 1.789773 MHz
+     * Every millisecond we should run this many cycles
+     */
+    cycleDiff := (1.789773 * 1000000) / 1000
+
+    cycleTimer := time.NewTicker(1 * time.Millisecond)
+
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
             break
+        }
+
+        for cycleCounter <= 0 {
+            select {
+                case <-quit.Done():
+                    return
+                case <-cycleTimer.C:
+                    cycleCounter += cycleDiff
+            }
         }
 
         cycles := cpu.Cycle
@@ -299,6 +317,8 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
             return
         }
         usedCycles := cpu.Cycle
+
+        cycleCounter -= float64(usedCycles - cycles)
 
         /* ppu runs 3 times faster than cpu */
         nmi, drawn := cpu.PPU.Run((usedCycles - cycles) * 3, screen)

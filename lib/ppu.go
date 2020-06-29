@@ -574,7 +574,9 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
 
             start := time.Now()
             ppu.Render(screen)
-            log.Printf("Took %v to render", time.Now().Sub(start))
+            if ppu.Debug > 0 {
+                log.Printf("Took %v to render", time.Now().Sub(start))
+            }
             didDraw = true
         }
 
