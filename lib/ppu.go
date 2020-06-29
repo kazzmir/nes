@@ -4,8 +4,6 @@ import (
     "log"
     "fmt"
     "time"
-
-    "github.com/veandco/go-sdl2/sdl"
 )
 
 type PPUState struct {
@@ -23,6 +21,8 @@ type PPUState struct {
     VideoMemory []byte
     OAM []byte
     OAMAddress byte
+
+    Debug uint8
 }
 
 func MakePPU() PPUState {
@@ -209,7 +209,7 @@ func (ppu *PPUState) GetVRamIncrement() uint16 {
 }
 
 func (ppu *PPUState) WriteData(value byte){
-    log.Printf("Writing 0x%x to PPU at 0x%x\n", value, ppu.VideoAddress)
+    // log.Printf("Writing 0x%x to PPU at 0x%x\n", value, ppu.VideoAddress)
     ppu.VideoMemory[ppu.VideoAddress] = value
     ppu.VideoAddress += ppu.GetVRamIncrement()
 }
@@ -273,7 +273,10 @@ func (ppu *PPUState) GetSprites() []Sprite {
     return out
 }
 
-func (ppu *PPUState) Render(renderer *sdl.Renderer) {
+func (ppu *PPUState) Render(screen VirtualScreen) {
+    /* FIXME: might not be needed */
+    screen.Clear()
+
     /* blargg's 2c02 palette
      *   http://wiki.nesdev.com/w/index.php/PPU_palettes
      */
@@ -349,25 +352,13 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
     }
 
     if ppu.IsBackgroundEnabled() {
-        renderer.SetDrawColor(0, 0, 0, 255)
-        renderer.Clear()
-        renderer.SetScale(2, 2)
-        log.Printf("Render background")
+        // log.Printf("Render background")
         nametableBase := ppu.GetNameTableBaseAddress()
 
         attributeTableBase := nametableBase + 0x3c0
         _ = attributeTableBase
 
         patternTable := ppu.GetBackgroundPatternTableBase()
-
-        /*
-        palette := [][]uint8{
-            []uint8{255, 255, 255, 255},
-            []uint8{255, 0, 0, 255},
-            []uint8{0, 255, 0, 255},
-            []uint8{0, 0, 255, 255},
-        }
-        */
 
         tile_x := 0
         tile_y := 0
@@ -419,7 +410,6 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
             /* the actual palette to use */
             palette_base := 0x3f00 + uint16(color_set) * 4
 
-            lastColor := byte(0xff)
             for y := 0; y < 8; y++ {
                 for x := 0; x < 8; x++ {
                     low := (leftBytes[y] >> (7-x)) & 0x1
@@ -428,17 +418,8 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
 
                     _ = colorIndex
 
-                    if colorIndex != lastColor {
-                        /* Calling SetDrawColor seems to be quite slow, so we cache the draw color */
-                        palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
-                        // log.Printf("Pixel %v, %v = %v", tile_x*8 + x, tile_y*8 + y, palette_color)
-
-                        renderer.SetDrawColorArray(palette[palette_color]...)
-                        // renderer.SetDrawColor(palette[colorIndex][0], palette[colorIndex][1], palette[colorIndex][2], 255)
-                        lastColor = palette_color
-                    }
-
-                    renderer.DrawPoint(int32(tile_x * 8 + x), int32(tile_y * 8 + y))
+                    palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
+                    screen.DrawPoint(int32(tile_x * 8 + x), int32(tile_y * 8 + y), palette[palette_color])
                 }
             }
 
@@ -450,9 +431,6 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
                 tile_x = 0
             }
         }
-
-        // renderer.Flush()
-        // renderer.Present()
     }
 
     if ppu.IsSpriteEnabled() {
@@ -469,7 +447,7 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
             switch spriteSize {
                 case SpriteSize8x8:
                     tileAddress := patternTable + uint16(tileIndex) * 16
-                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), int(sprite.y), renderer)
+                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), int(sprite.y), screen)
                 case SpriteSize8x16:
                     /* even tiles come from bank 0x0000, and odd tiles come from 0x1000 */
                     tileAddress := (uint16(tileIndex & 0x1) << 12) | (uint16(tileIndex >> 1) * 32)
@@ -483,21 +461,20 @@ func (ppu *PPUState) Render(renderer *sdl.Renderer) {
                     }
 
                     /* top tile */
-                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), topY, renderer)
+                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), topY, screen)
                     /* bottom tile */
-                    ppu.renderSpriteTile(tileAddress+16, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), bottomY, renderer)
+                    ppu.renderSpriteTile(tileAddress+16, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), bottomY, screen)
             }
         }
     }
 }
 
-func (ppu *PPUState) renderSpriteTile(tileAddress uint16, paletteIndex byte, palette [][]uint8, flipHorizontal bool, flipVertical bool, spriteX int, spriteY int, renderer *sdl.Renderer){
+func (ppu *PPUState) renderSpriteTile(tileAddress uint16, paletteIndex byte, palette [][]uint8, flipHorizontal bool, flipVertical bool, spriteX int, spriteY int, screen VirtualScreen){
 
     leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
     rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
     palette_base := 0x3f10 + uint16(paletteIndex) * 4
 
-    lastColor := byte(0xff)
     for y := 0; y < 8; y++ {
         for x := 0; x < 8; x++ {
             low := (leftBytes[y] >> (7-x)) & 0x1
@@ -509,15 +486,7 @@ func (ppu *PPUState) renderSpriteTile(tileAddress uint16, paletteIndex byte, pal
                 continue
             }
 
-            if colorIndex != lastColor {
-                /* Calling SetDrawColor seems to be quite slow, so we cache the draw color */
-                palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
-                // log.Printf("Pixel %v, %v = %v", tile_x*8 + x, tile_y*8 + y, palette_color)
-
-                renderer.SetDrawColorArray(palette[palette_color]...)
-                // renderer.SetDrawColor(palette[colorIndex][0], palette[colorIndex][1], palette[colorIndex][2], 255)
-                lastColor = palette_color
-            }
+            palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
 
             var final_x int
             if flipHorizontal {
@@ -532,15 +501,57 @@ func (ppu *PPUState) renderSpriteTile(tileAddress uint16, paletteIndex byte, pal
                 final_y = spriteY + y
             }
 
-            renderer.DrawPoint(int32(final_x), int32(final_y))
+            screen.DrawPoint(int32(final_x), int32(final_y), palette[palette_color])
         }
+    }
+}
+
+type VirtualScreen struct {
+    Width int
+    Height int
+    Buffer []uint32
+}
+
+func (screen *VirtualScreen) DrawPoint(x int32, y int32, rgb []uint8){
+    if x < 0 || int(x) >= screen.Width || y < 0 || int(y) >= screen.Height {
+        return
+    }
+
+    address := (y * int32(screen.Width)) + x
+    r := uint32(rgb[0])
+    g := uint32(rgb[1])
+    b := uint32(rgb[2])
+    a := uint32(255)
+    /* putpixel with RGBA 8888 */
+    screen.Buffer[address] = (r << 24) | (g << 16) | (b << 8) | a
+}
+
+func (screen *VirtualScreen) Clear() {
+    max := len(screen.Buffer)
+    for i := 0; i < max; i++ {
+        screen.Buffer[i] = 0
+    }
+}
+
+func (screen *VirtualScreen) Copy() VirtualScreen {
+    out := MakeVirtualScreen(screen.Width, screen.Height)
+    copy(out.Buffer, screen.Buffer)
+    return out
+}
+
+func MakeVirtualScreen(width int, height int) VirtualScreen {
+    return VirtualScreen{
+        Width: width,
+        Height: height,
+        /* 300kb of memory */
+        Buffer: make([]uint32, width * height),
     }
 }
 
 /* give a number of PPU cycles to process
  * returns whether nmi is set or not
  */
-func (ppu *PPUState) Run(cycles uint64, renderer *sdl.Renderer) (bool, bool) {
+func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
     /* http://wiki.nesdev.com/w/index.php/PPU_rendering */
     ppu.Cycle += cycles
     cyclesPerScanline := uint64(341)
@@ -550,7 +561,9 @@ func (ppu *PPUState) Run(cycles uint64, renderer *sdl.Renderer) (bool, bool) {
         ppu.Scanline += 1
         if ppu.Scanline == 241 {
             /* FIXME: this happens on the second tick after transitioning to scanline 241 */
-            log.Printf("Set vertical blank to true\n")
+            if ppu.Debug > 0 {
+                log.Printf("Set vertical blank to true\n")
+            }
             ppu.SetVerticalBlankFlag(true)
             /* Only set NMI to true if the bit 7 of PPUCTRL is set */
             nmi = ppu.GetNMIOutput()
@@ -560,7 +573,7 @@ func (ppu *PPUState) Run(cycles uint64, renderer *sdl.Renderer) (bool, bool) {
             ppu.SetVerticalBlankFlag(false)
 
             start := time.Now()
-            ppu.Render(renderer)
+            ppu.Render(screen)
             log.Printf("Took %v to render", time.Now().Sub(start))
             didDraw = true
         }

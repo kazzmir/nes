@@ -1,5 +1,7 @@
 package main
 
+//#include <stdlib.h>
+import "C"
 import (
     "fmt"
     "log"
@@ -10,6 +12,10 @@ import (
 
     "github.com/veandco/go-sdl2/sdl"
 
+    "encoding/binary"
+    "bytes"
+    "time"
+    "sync"
     "context"
     "runtime/pprof"
 )
@@ -82,7 +88,7 @@ func Run(path string, debug bool, maxCycles uint64) error {
 
     /* to resize the window */
     // | sdl.WINDOW_RESIZABLE
-    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, 640, 480, sdl.WINDOW_SHOWN)
+    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, 320 * 3, 240 * 3, sdl.WINDOW_SHOWN)
     if err != nil {
         return err
     }
@@ -99,16 +105,19 @@ func Run(path string, debug bool, maxCycles uint64) error {
     */
 
     softwareRenderer := true
+    _ = softwareRenderer
     // renderer, err := sdl.CreateSoftwareRenderer(surface)
-    renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_SOFTWARE)
+    // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_SOFTWARE)
 
     /* Create an accelerated renderer */
-    // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
+    renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
 
     if err != nil {
         return err
     }
     defer renderer.Destroy()
+
+    // renderer.SetScale(2, 2)
 
     /*
     texture, err := renderer.CreateTexture(sdl.PIXELFORMAT_RGB888, sdl.TEXTUREACCESS_TARGET, 640, 480)
@@ -120,26 +129,94 @@ func Run(path string, debug bool, maxCycles uint64) error {
     // renderer.SetRenderTarget(texture)
     */
 
+    var waiter sync.WaitGroup
+
     quit, cancel := context.WithCancel(context.Background())
     defer cancel()
-    drawn := make(chan bool, 1000)
+    drawn := make(chan nes.VirtualScreen, 1)
+
+    pixelFormat := findPixelFormat()
+
+    /* create a surface from the pixels in one call, then create a texture and render it */
+    doRender := func(screen nes.VirtualScreen, raw_pixels []byte) error {
+        width := int32(320)
+        height := int32(240)
+        depth := 8 * 4 // RGBA8888
+        pitch := int(width) * int(depth) / 8
+
+        for i, pixel := range screen.Buffer {
+            /* red */
+            raw_pixels[i*4+0] = byte(pixel >> 24)
+            /* green */
+            raw_pixels[i*4+1] = byte(pixel >> 16)
+            /* blue */
+            raw_pixels[i*4+2] = byte(pixel >> 8)
+            /* alpha */
+            raw_pixels[i*4+3] = byte(pixel >> 0)
+        }
+
+        pixels := C.CBytes(raw_pixels)
+        defer C.free(pixels)
+
+        // pixelFormat := sdl.PIXELFORMAT_ABGR8888
+
+        /* pixelFormat should be ABGR8888 on little-endian (x86) and
+         * RBGA8888 on big-endian (arm)
+         */
+
+        surface, err := sdl.CreateRGBSurfaceWithFormatFrom(pixels, width, height, int32(depth), int32(pitch), pixelFormat)
+        if err != nil {
+            return fmt.Errorf("Unable to create surface from pixels: %v", err)
+        }
+        if surface == nil {
+            return fmt.Errorf("Did not create a surface somehow")
+        }
+
+        defer surface.Free()
+
+        texture, err := renderer.CreateTextureFromSurface(surface)
+        if err != nil {
+            return fmt.Errorf("Could not create texture: %v", err)
+        }
+
+        defer texture.Destroy()
+
+        // texture_format, access, width, height, err := texture.Query()
+        // log.Printf("Texture format=%v access=%v width=%v height=%v err=%v\n", get_pixel_format(texture_format), access, width, height, err)
+
+        renderer.Clear()
+        renderer.Copy(texture, nil, nil)
+        renderer.Present()
+
+        return nil
+    }
 
     go func(){
+        waiter.Add(1)
+        defer waiter.Done()
+        raw_pixels := make([]byte, 320*240*4)
+        // raw_pixels := make([]byte, 320*240*3)
+        fps := 0
+        timer := time.NewTicker(1 * time.Second)
+        defer timer.Stop()
         for {
             select {
                 case <-quit.Done():
-                    break
-                case <-drawn:
-                    if softwareRenderer {
-                        window.UpdateSurface()
-                    } else {
-                        renderer.Present()
+                    return
+                case screen := <-drawn:
+                    err := doRender(screen, raw_pixels)
+                    fps += 1
+                    if err != nil {
+                        log.Printf("Could not render: %v\n", err)
                     }
+                case <-timer.C:
+                    log.Printf("FPS: %v", fps)
+                    fps = 0
             }
         }
     }()
 
-    go runNES(cpu, maxCycles, quit, drawn, renderer)
+    go runNES(cpu, maxCycles, quit, drawn, &waiter)
 
     for quit.Err() == nil {
         event := sdl.WaitEvent()
@@ -158,11 +235,57 @@ func Run(path string, debug bool, maxCycles uint64) error {
         }
     }
 
+    log.Printf("Waiting to quit..")
+    waiter.Wait()
+
     return nil
 }
 
-func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan bool, renderer *sdl.Renderer){
+/* determine endianness of the host by comparing the least-significant byte of a 32-bit number
+ * versus a little endian byte array
+ * if the first byte in the byte array is the same as the lowest byte of the 32-bit number
+ * then the host is little endian
+ */
+func findPixelFormat() uint32 {
+    red := uint32(32)
+    green := uint32(128)
+    blue := uint32(64)
+    alpha := uint32(96)
+    color := (red << 24) | (green << 16) | (blue << 8) | alpha
+
+    var buffer bytes.Buffer
+    binary.Write(&buffer, binary.LittleEndian, color)
+
+    if buffer.Bytes()[0] == uint8(alpha) {
+        return sdl.PIXELFORMAT_ABGR8888
+    }
+
+    return sdl.PIXELFORMAT_RGBA8888
+}
+
+func get_pixel_format(format uint32) string {
+    switch format {
+        case sdl.PIXELFORMAT_BGR888: return "BGR888"
+        case sdl.PIXELFORMAT_ARGB8888: return "ARGB8888"
+        case sdl.PIXELFORMAT_RGB888: return "RGB888"
+        case sdl.PIXELFORMAT_RGBA8888: return "RGBA8888"
+    }
+
+    return fmt.Sprintf("%v?", format)
+}
+
+func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan nes.VirtualScreen, waiter *sync.WaitGroup){
+    waiter.Add(1)
+    defer waiter.Done()
+
     instructionTable := nes.MakeInstructionDescriptiontable()
+
+    screen := nes.MakeVirtualScreen(320, 240)
+
+    var quitEvent sdl.QuitEvent
+    quitEvent.Type = sdl.QUIT
+    /* FIXME: does quitEvent.Timestamp need to be set? */
+    defer sdl.PushEvent(&quitEvent)
 
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
@@ -178,11 +301,11 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
         usedCycles := cpu.Cycle
 
         /* ppu runs 3 times faster than cpu */
-        nmi, drawn := cpu.PPU.Run((usedCycles - cycles) * 3, renderer)
+        nmi, drawn := cpu.PPU.Run((usedCycles - cycles) * 3, screen)
 
         if drawn {
             select {
-                case draw <- true:
+                case draw <- screen.Copy():
                 default:
             }
         }
@@ -240,4 +363,6 @@ func main(){
     } else {
         fmt.Printf("Give a .nes argument\n")
     }
+
+    log.Printf("Bye")
 }

@@ -879,14 +879,20 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
         switch 0x2000 | use {
             case PPUCTRL:
                 cpu.PPU.SetControllerFlags(value)
-                log.Printf("Set PPUCTRL to 0x%x: %v\n", value, cpu.PPU.ControlString())
+                if cpu.Debug > 0 {
+                    log.Printf("Set PPUCTRL to 0x%x: %v\n", value, cpu.PPU.ControlString())
+                }
                 return
             case PPUMASK:
                 cpu.PPU.SetMask(value)
-                log.Printf("Set PPUMASK to 0x%x: %v\n", value, cpu.PPU.MaskString())
+                if cpu.Debug > 0 {
+                    log.Printf("Set PPUMASK to 0x%x: %v\n", value, cpu.PPU.MaskString())
+                }
                 return
             case PPUSCROLL:
-                log.Printf("Write 0x%x to PPUSCROLL\n", value)
+                if cpu.Debug > 0 {
+                    log.Printf("Write 0x%x to PPUSCROLL\n", value)
+                }
                 cpu.PPU.WriteScroll(value)
                 return
             case PPUADDR:
@@ -909,7 +915,9 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             cpu.Input.Reset()
             return
         case OAMDMA:
-            log.Printf("Setting up OAM dma with 0x%x\n", value)
+            if cpu.Debug > 0 {
+                log.Printf("Setting up OAM dma with 0x%x\n", value)
+            }
             cpu.PPU.CopyOAM(cpu.GetMemoryPage(uint16(value) << 8))
             /* FIXME: 514 if on an odd cpu cycle */
             cpu.Cycle += 513
