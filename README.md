@@ -41,3 +41,7 @@ Showing top 10 nodes out of 50
      490ms  1.73% 75.59%     2350ms  8.30%  github.com/kazzmir/nes/lib.(*CPUState).LoadMemory
      430ms  1.52% 77.11%     1040ms  3.67%  runtime.cgoIsGoPointer
 ```
+
+![good rendering](./pics/contra2.gif)
+
+Colors have been fixed, and rendering uses an in-memory `[]uint32` array, which is uploaded to a texture and rendered to the window using hardware acceleration. 60fps is easily achievable, and at an uncapped NES CPU my machine can render about 250fps.
