@@ -54,6 +54,29 @@ func TestCPUDecode(test *testing.T){
     })
 }
 
+func padPage(data []byte) []byte {
+    if len(data) % 256 == 0 {
+        return data
+    }
+
+    more := 256 - len(data) % 256
+    out := make([]byte, len(data) + more)
+    copy(out, data)
+    return out
+}
+
+func makeTestCPU(pc uint16) CPUState {
+    return CPUState{
+        A: 0,
+        X: 0,
+        Y: 0,
+        SP: 0,
+        PC: pc,
+        Status: 0,
+        Maps: make([][]byte, 256),
+    }
+}
+
 func TestCPUSimple(test *testing.T){
     bytes := []byte{
         0xa9, 0x01,       // lda #$01
@@ -82,17 +105,12 @@ func TestCPUSimple(test *testing.T){
         Instruction_STA_absolute,
     })
 
-    cpu := CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0,
-        PC: 0x100,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
-    }
+    cpu := makeTestCPU(0x100)
 
-    cpu.MapMemory(0x0, NewMemory(0x3000))
+    err = cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        test.Fatalf("Could not map memory: %v\n", err)
+    }
 
     for _, instruction := range instructions {
         err = cpu.Execute(instruction)
@@ -156,17 +174,11 @@ func TestCPUSimple2(test *testing.T){
         Instruction_BRK,
     })
 
-    cpu := CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0,
-        PC: 0x100,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
+    cpu := makeTestCPU(0x100)
+    err = cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        test.Fatalf("Could not map memory: %v\n", err)
     }
-
-    cpu.MapMemory(0x0, NewMemory(0x3000))
 
     for _, instruction := range instructions {
         err = cpu.Execute(instruction)
@@ -222,18 +234,16 @@ func TestCPUSimpleBranch(test *testing.T){
         Instruction_BRK,
     })
 
-    cpu := CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0,
-        PC: 0x5000,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
-    }
+    cpu := makeTestCPU(0x5000)
 
-    cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapMemory(0x5000, bytes)
+    err = cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        test.Fatalf("Could not map memory: %v\n", err)
+    }
+    err = cpu.MapMemory(0x5000, padPage(bytes))
+    if err != nil {
+        test.Fatalf("Could not map memory: %v\n", err)
+    }
 
     for i := 0; i < 50; i++ {
         err = cpu.Run(MakeInstructionDescriptiontable())
@@ -275,18 +285,17 @@ func TestInstructions1(testing *testing.T){
         0x00, // brk
     }
 
-    cpu := CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0,
-        PC: 0x5000,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
+    cpu := makeTestCPU(0x5000)
+
+    err := cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
+    err = cpu.MapMemory(0x5000, padPage(bytes))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
     }
 
-    cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapMemory(0x5000, bytes)
     for i := 0; i < 50; i++ {
         err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
@@ -313,18 +322,16 @@ func TestInstructionsZeroPage(testing *testing.T){
         0x00, // brk
     }
 
-    cpu := CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0,
-        PC: 0x5000,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
-    }
+    cpu := makeTestCPU(0x5000)
 
-    cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapMemory(0x5000, bytes)
+    err := cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
+    err = cpu.MapMemory(0x5000, padPage(bytes))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
     for i := 0; i < 50; i++ {
         err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
@@ -358,18 +365,16 @@ func TestInstructionsIndirectLoad(testing *testing.T){
         0x00, // brk
     }
 
-    cpu := CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0,
-        PC: 0x5000,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
-    }
+    cpu := makeTestCPU(0x5000)
 
-    cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapMemory(0x5000, bytes)
+    err := cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
+    err = cpu.MapMemory(0x5000, padPage(bytes))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
     for i := 0; i < 50; i++ {
         err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
@@ -410,18 +415,17 @@ func TestStack(testing *testing.T){
         0x00, // brk
     }
 
-    cpu := CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0xff,
-        PC: 0x5000,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
-    }
+    cpu := makeTestCPU(0x5000)
+    cpu.SP = 0xff
 
-    cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapMemory(0x5000, bytes)
+    err := cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
+    err = cpu.MapMemory(0x5000, padPage(bytes))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
     cpu.SetStack(0x1000)
     for i := 0; i < 200; i++ {
         err := cpu.Run(MakeInstructionDescriptiontable())
@@ -472,18 +476,17 @@ func TestSubroutine(testing *testing.T){
         0x00, // brk
     }
 
-    cpu := CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0xff,
-        PC: 0x5000,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
-    }
+    cpu := makeTestCPU(0x5000)
+    cpu.SP = 0xff
 
-    cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapMemory(0x5000, bytes)
+    err := cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
+    err = cpu.MapMemory(0x5000, padPage(bytes))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
     cpu.SetStack(0x100)
     for i := 0; i < 200; i++ {
         err := cpu.Run(MakeInstructionDescriptiontable())
@@ -519,18 +522,17 @@ func TestBit(testing *testing.T){
         0x00, // brk
     }
 
-    cpu := CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0xff,
-        PC: 0x5000,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
-    }
+    cpu := makeTestCPU(0x5000)
+    cpu.SP = 0xff
 
-    cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapMemory(0x5000, bytes)
+    err := cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
+    err = cpu.MapMemory(0x5000, padPage(bytes))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
     for i := 0; i < 200; i++ {
         err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
@@ -567,18 +569,17 @@ func TestBit(testing *testing.T){
         0x00, // brk
     }
 
-    cpu = CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0xff,
-        PC: 0x5000,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
-    }
+    cpu = makeTestCPU(0x5000)
+    cpu.SP = 0xff
 
-    cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapMemory(0x5000, bytes)
+    err = cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
+    err = cpu.MapMemory(0x5000, padPage(bytes))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
     for i := 0; i < 200; i++ {
         err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
@@ -624,18 +625,17 @@ func TestBit(testing *testing.T){
         0x00, // brk
     }
 
-    cpu = CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0xff,
-        PC: 0x5000,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
-    }
+    cpu = makeTestCPU(0x5000)
+    cpu.SP = 0xff
 
-    cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapMemory(0x5000, bytes)
+    err = cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
+    err = cpu.MapMemory(0x5000, padPage(bytes))
+    if err != nil {
+        testing.Fatalf("Could not map memory: %v\n", err)
+    }
     for i := 0; i < 200; i++ {
         err := cpu.Run(MakeInstructionDescriptiontable())
         if err != nil {
@@ -681,18 +681,17 @@ func BenchmarkSimple(benchmark *testing.B){
         0x4c, 0x00, 0x06, // jmp #$600
     }
 
-    cpu := CPUState{
-        A: 0,
-        X: 0,
-        Y: 0,
-        SP: 0xff,
-        PC: 0x600,
-        Status: 0,
-        Maps: make(map[uint16][]byte),
-    }
+    cpu := makeTestCPU(0x600)
+    cpu.SP = 0xff
 
-    cpu.MapMemory(0x0, NewMemory(0x3000))
-    cpu.MapMemory(0x600, bytes)
+    err := cpu.MapMemory(0x0, NewMemory(0x3000))
+    if err != nil {
+        benchmark.Fatalf("Could not map memory: %v\n", err)
+    }
+    err = cpu.MapMemory(0x600, bytes)
+    if err != nil {
+        benchmark.Fatalf("Could not map memory: %v\n", err)
+    }
 
     benchmark.ResetTimer()
     for i := 0; i < benchmark.N; i++ {

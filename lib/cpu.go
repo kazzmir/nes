@@ -736,7 +736,7 @@ type CPUState struct {
 
     Cycle uint64
 
-    Maps map[uint16][]byte
+    Maps [][]byte
     StackBase uint16
 
     PPU PPUState
@@ -765,6 +765,28 @@ func (cpu *CPUState) String() string {
 }
 
 func (cpu *CPUState) MapMemory(location uint16, memory []byte) error {
+
+    if location & 0xff != 0 {
+        return fmt.Errorf("Must map on a page boundary: %v", location)
+    }
+
+    if len(memory) % 256 != 0 {
+        return fmt.Errorf("Mapping a non-page aligned memory slice: %v\n", len(memory))
+    }
+
+    // log.Printf("Mapping address 0x%x with 0x%x bytes\n", location, len(memory))
+    base := location >> 8
+    for page := 0; page < len(memory) / 256; page++ {
+        use := base + uint16(page)
+        if cpu.Maps[use] != nil {
+            return fmt.Errorf("Memory is already mapped at page 0x%x\n", use)
+        }
+
+        // log.Printf("Map page 0x%x\n", use)
+        cpu.Maps[use] = memory[page * 256:page*256 + 256]
+    }
+
+    /*
     for base, memory := range cpu.Maps {
         if location >= base && uint64(location) < uint64(base) + uint64(len(memory)) {
             return fmt.Errorf("Overlapping memory map with 0x%x - 0x%x", base, uint64(base) + uint64(len(memory)))
@@ -772,6 +794,7 @@ func (cpu *CPUState) MapMemory(location uint16, memory []byte) error {
     }
 
     cpu.Maps[location] = memory
+    */
     return nil
 }
 
@@ -791,7 +814,7 @@ func (cpu *CPUState) PopStack() byte {
 }
 
 func (cpu *CPUState) LoadMemory(address uint16) byte {
-    large := uint64(address)
+    // large := uint64(address)
 
     page := address >> 8
     if page >= 0x20 && page < 0x40 {
@@ -820,12 +843,21 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
             return 0
     }
 
+    if cpu.Maps[page] == nil {
+        log.Printf("Warning: loading unmapped memory at 0x%x\n", address)
+        return 0
+    }
+
+    return cpu.Maps[page][address & 0xff]
+
+    /*
     for base, memory := range cpu.Maps {
         // log.Printf("Accessing memory 0x%x check 0x%x to 0x%x\n", address, uint64(base), uint64(base) + uint64(len(memory)))
         if large >= uint64(base) && large < uint64(base) + uint64(len(memory)) {
             return memory[address-base]
         }
     }
+    */
 
     /* FIXME: return an error? */
     log.Printf("Warning: loading unmapped memory at 0x%x\n", address)
@@ -853,24 +885,62 @@ const (
 
 func (cpu *CPUState) BankSwitch(bank int) error {
     /* FIXME: this is all very much hard coded to work with mapper 2 */
-    delete(cpu.Maps, 0x8000)
+    // delete(cpu.Maps, 0x8000)
+    err := cpu.UnmapMemory(0x8000, 16 * 1024)
+    if err != nil {
+        return err
+    }
+    /*
+    for page := 0x80; page < 0x80 + 64; page++ {
+        cpu.Maps[page] = nil
+    }
+    */
     /* map a new 16k block int */
     base := bank * 16 * 1024
     return cpu.MapMemory(0x8000, cpu.BankMemory[base:base + 16 * 1024])
 }
 
-func (cpu *CPUState) GetMemoryPage(address uint16) []byte {
-    for base, memory := range cpu.Maps {
-        if uint64(address) >= uint64(base) && uint64(address) < uint64(base) + uint64(len(memory)) {
-            return memory[address:address+256]
-        }
+func (cpu *CPUState) UnmapMemory(address uint16, length uint16) error {
+    if address & 0xff != 0 {
+        return fmt.Errorf("Expected address to be page aligned: %v", address)
+    }
+    page := address >> 8
+
+    if length & 0xff != 0 {
+        return fmt.Errorf("Expected memory length to be page aligned: %v", length)
+    }
+
+    pages := length >> 8
+
+    if page + pages > 0xff {
+        return fmt.Errorf("Cannot unmap pages past 0xff: 0x%x", page + pages)
+    }
+
+    for i := uint16(0); i < pages; i++ {
+        cpu.Maps[page + i] = nil
     }
 
     return nil
 }
 
+func (cpu *CPUState) GetMemoryPage(address uint16) []byte {
+    page := address >> 8
+
+    return cpu.Maps[page]
+
+    /*
+    for base, memory := range cpu.Maps {
+        if uint64(address) >= uint64(base) && uint64(address) < uint64(base) + uint64(len(memory)) {
+            return memory[address:address+256]
+        }
+    }
+    */
+
+    return nil
+}
+
 func (cpu *CPUState) StoreMemory(address uint16, value byte) {
-    large := uint64(address)
+    // large := uint64(address)
 
     page := address >> 8
     if page >= 0x20 && page < 0x40 {
@@ -936,14 +1006,20 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
         return
     }
 
+    if cpu.Maps[page] == nil {
+        log.Printf("Warning: could not store into unmapped memory at 0x%x value 0x%x\n", address, value)
+    } else {
+        cpu.Maps[page][address & 0xff] = value
+    }
+
+    /*
     for base, memory := range cpu.Maps {
         if large >= uint64(base) && large < uint64(base) + uint64(len(memory)) {
             memory[address-base] = value
             return
         }
     }
-
-    log.Printf("Warning: could not store into unmapped memory at 0x%x value 0x%x\n", address, value)
+    */
 }
 
 func (cpu *CPUState) LoadStack(where byte) byte {
@@ -975,13 +1051,6 @@ func (cpu *CPUState) Fetch(table InstructionTable) (Instruction, error) {
     }
 
     return instruction, nil
-
-    /*
-    use := cpu.Code[where:]
-    / * FIXME: dont create a new reader each time * /
-    reader := NewInstructionReader(use)
-    return reader.ReadInstruction()
-    */
 }
 
 func (cpu *CPUState) Run(table InstructionTable) error {
@@ -3791,7 +3860,7 @@ func StartupState() CPUState {
         PC: ResetVector,
         Cycle: 0,
         Status: 0x34, // 110100
-        Maps: make(map[uint16][]byte),
+        Maps: make([][]byte, 256),
     }
 
     /* http://wiki.nesdev.com/w/index.php/CPU_memory_map */

@@ -120,7 +120,10 @@ func main(){
     }
 
     cpu := nes.StartupState()
-    cpu.MapMemory(0xc000, nesFile.ProgramRom)
+    err = cpu.MapMemory(0xc000, nesFile.ProgramRom)
+    if err != nil {
+        log.Fatalf("Could not map memory: %v", err)
+    }
     cpu.Status = 0x24
     cpu.PC = 0xc000
     /* FIXME: initiate the RESET process, which takes 6 clock cycles.
