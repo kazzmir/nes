@@ -216,7 +216,11 @@ func Run(path string, debug bool, maxCycles uint64) error {
         }
     }()
 
-    go runNES(cpu, maxCycles, quit, drawn, &waiter)
+    turbo := make(chan bool, 10)
+
+    go runNES(cpu, maxCycles, quit, drawn, turbo, &waiter)
+
+    var turboKey sdl.Scancode = sdl.SCANCODE_GRAVE
 
     for quit.Err() == nil {
         event := sdl.WaitEvent()
@@ -230,6 +234,19 @@ func Run(path string, debug bool, maxCycles uint64) error {
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
                     if quit_pressed {
                         cancel()
+                    }
+
+                    if keyboard_event.Keysym.Scancode == turboKey {
+                        select {
+                            case turbo <- true:
+                        }
+                    }
+                case sdl.KEYUP:
+                    keyboard_event := event.(*sdl.KeyboardEvent)
+                    if keyboard_event.Keysym.Scancode == turboKey {
+                        select {
+                            case turbo <- false:
+                        }
                     }
             }
         }
@@ -274,7 +291,7 @@ func get_pixel_format(format uint32) string {
     return fmt.Sprintf("%v?", format)
 }
 
-func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan nes.VirtualScreen, waiter *sync.WaitGroup){
+func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan nes.VirtualScreen, turbo <-chan bool, waiter *sync.WaitGroup){
     waiter.Add(1)
     defer waiter.Done()
 
@@ -296,6 +313,8 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
 
     cycleTimer := time.NewTicker(1 * time.Millisecond)
 
+    turboMultiplier := float64(1)
+
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
             break
@@ -303,12 +322,20 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
 
         for cycleCounter <= 0 {
             select {
+                case enable := <-turbo:
+                    if enable {
+                        turboMultiplier = 3
+                    } else {
+                        turboMultiplier = 1
+                    }
                 case <-quit.Done():
                     return
                 case <-cycleTimer.C:
-                    cycleCounter += cycleDiff
+                    cycleCounter += cycleDiff * turboMultiplier
             }
         }
+
+        // log.Printf("Cycle counter %v\n", cycleCounter)
 
         cycles := cpu.Cycle
         err := cpu.Run(instructionTable)
