@@ -45,3 +45,7 @@ Showing top 10 nodes out of 50
 ![good rendering](./pics/contra2.gif)
 
 Colors have been fixed, and rendering uses an in-memory `[]uint32` array, which is uploaded to a texture and rendered to the window using hardware acceleration. 60fps is easily achievable, and at an uncapped NES CPU my machine can render about 250fps.
+
+![final fantasy](./pics/final-fantasy.gif)
+
+7/4/2020: Mapper 1 is implemented so final fantasy and legend of zelda are somewhat playable. Scrolling is still not implemented so a lot of the graphics in final fantasy show up incorrectly. Also none of my characters have a weapon.
