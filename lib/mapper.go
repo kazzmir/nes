@@ -69,7 +69,7 @@ type Mapper1 struct {
 }
 
 func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
-    if cpu.Debug >= 0 {
+    if cpu.Debug > 0 {
         log.Printf("mapper1: Writing bank switching register 0x%x with value 0x%x", address, value)
     }
 
@@ -92,7 +92,9 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
             }
             */
 
-            log.Printf("mapper1: write internal register 0x%x to 0x%x", mapper.register, address)
+            if cpu.Debug > 0 {
+                log.Printf("mapper1: write internal register 0x%x to 0x%x", mapper.register, address)
+            }
 
             /* control */
             if address >= 0x8000 && address <= 0x9fff {
@@ -101,7 +103,9 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                 mapper.prgBankMode = (mapper.register >> 2) & 0x3
                 mapper.chrBankMode = (mapper.register >> 4) & 0x1
 
-                log.Printf("mapper1: set control to chr=0x%x prg=0x%x mirror=0x%x", mapper.chrBankMode, mapper.prgBankMode, mapper.mirror)
+                if cpu.Debug > 0 {
+                    log.Printf("mapper1: set control to chr=0x%x prg=0x%x mirror=0x%x", mapper.chrBankMode, mapper.prgBankMode, mapper.mirror)
+                }
 
                 /* FIXME: I think passing in register here might be incorrect */
                 err := mapper.SetPrgBank(cpu, mapper.register, int(mapper.prgBankMode))
@@ -143,7 +147,9 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
 }
 
 func (mapper *Mapper1) SetPrgBank(cpu *CPUState, bank uint8, setting int) error {
-    log.Printf("mapper1: set prg bank 0x%x setting 0x%x", bank, setting)
+    if cpu.Debug > 0 {
+        log.Printf("mapper1: set prg bank 0x%x setting 0x%x", bank, setting)
+    }
     err := cpu.UnmapMemory(0x8000, 32 * 1024)
     if err != nil {
         return err
@@ -156,7 +162,9 @@ func (mapper *Mapper1) SetPrgBank(cpu *CPUState, bank uint8, setting int) error 
                 return fmt.Errorf("Cannot bank switch more than available PRG: tried to swap in 0x%x-0x%x but maximum is 0x%x", base, base + 0x10000, len(mapper.BankMemory))
             }
 
-            log.Printf("mapper1: set 0x8000 to 32kb starting at bank 0x%x", page)
+            if cpu.Debug > 0 {
+                log.Printf("mapper1: set 0x8000 to 32kb starting at bank 0x%x", page)
+            }
             err := cpu.MapMemory(0x8000, mapper.BankMemory[base:base + 0x10000])
             if err != nil {
                 return err
@@ -172,7 +180,9 @@ func (mapper *Mapper1) SetPrgBank(cpu *CPUState, bank uint8, setting int) error 
             }
         case 3:
             base := uint32(bank) * 0x4000
-            log.Printf("mapper1: map 0x8000 -> 0x%x:0x%x", base, base + 0x4000)
+            if cpu.Debug > 0 {
+                log.Printf("mapper1: map 0x8000 -> 0x%x:0x%x", base, base + 0x4000)
+            }
             if base + 0x4000 > uint32(len(mapper.BankMemory)) {
                 return fmt.Errorf("Could not bank switch 0x%x-0x%x. Maximum is 0x%x", base, base + 0x4000, len(mapper.BankMemory))
             }
