@@ -24,7 +24,7 @@ type PPUState struct {
 
     VideoMemory []byte
     OAM []byte
-    OAMAddress byte
+    OAMAddress int
 
     Debug uint8
 }
@@ -37,14 +37,25 @@ func MakePPU() PPUState {
 }
 
 func (ppu *PPUState) SetOAMAddress(value byte){
-    ppu.OAMAddress = value
+    ppu.OAMAddress = int(value)
+}
+
+func (ppu *PPUState) WriteOAM(value byte){
+    if ppu.OAMAddress < len(ppu.OAM) {
+        ppu.OAM[ppu.OAMAddress] = value
+        ppu.OAMAddress += 1
+    }
+}
+
+func (ppu *PPUState) ReadOAM(address byte) byte {
+    return ppu.OAM[address]
 }
 
 func (ppu *PPUState) CopyOAM(data []byte){
 
     maxOAM := len(ppu.OAM)
     for i := 0; i < len(data); i++ {
-        address := byte(i) + ppu.OAMAddress
+        address := byte(i + ppu.OAMAddress)
         if int(address) >= maxOAM {
             break
         }

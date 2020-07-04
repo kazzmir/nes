@@ -829,6 +829,8 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
                 return 0
             case PPUSTATUS:
                 return cpu.PPU.ReadStatus()
+            case OAMDATA:
+                return cpu.PPU.ReadOAM(byte(address))
         }
 
         log.Printf("Unhandled PPU read to 0x%x\n", address)
@@ -977,6 +979,9 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
                 return
             case OAMADDR:
                 cpu.PPU.SetOAMAddress(value)
+                return
+            case OAMDATA:
+                cpu.PPU.WriteOAM(value)
                 return
         }
 
