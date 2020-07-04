@@ -529,6 +529,11 @@ func (ppu *PPUState) renderSpriteTile(tileAddress uint16, paletteIndex byte, pal
 
             palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
 
+            /* failsafe in case we are reading bogus memory somehow */
+            if int(palette_color) >= len(palette) {
+                continue
+            }
+
             var final_x int
             if flipHorizontal {
                 final_x = spriteX + (7-x)

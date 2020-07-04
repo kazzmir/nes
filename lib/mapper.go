@@ -66,6 +66,9 @@ type Mapper1 struct {
     mirror byte
     prgBankMode byte
     chrBankMode byte
+
+    /* FIXME: this might get mapped from the bank memory, not sure */
+    PRGRam []byte
 }
 
 func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
@@ -207,6 +210,11 @@ func (mapper *Mapper1) SetPrgBank(cpu *CPUState, bank uint8, setting int) error 
 }
 
 func (mapper *Mapper1) Initialize(cpu *CPUState) error {
+    err := cpu.MapMemory(0x6000, mapper.PRGRam)
+    if err != nil {
+        return err
+    }
+
     /* FIXME: what is the default address on startup? */
     return mapper.SetPrgBank(cpu, 0, 3)
 }
@@ -221,6 +229,7 @@ func MakeMapper1(bankMemory []byte) Mapper {
         mirror: 0,
         prgBankMode: 3,
         chrBankMode: 0,
+        PRGRam: make([]byte, 0x8000 - 0x6000),
     }
 }
 
