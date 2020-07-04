@@ -154,7 +154,6 @@ func TestCPUSimple2(test *testing.T){
         0xaa,       // tax
         0xe8,       // inx
         0x69, 0xc4, // adc #$c4
-        0x00,       // brk
     }
 
     reader := NewInstructionReader(bytes)
@@ -171,7 +170,6 @@ func TestCPUSimple2(test *testing.T){
         Instruction_TAX,
         Instruction_INX,
         Instruction_ADC_immediate,
-        Instruction_BRK,
     })
 
     cpu := makeTestCPU(0x100)
@@ -199,8 +197,8 @@ func TestCPUSimple2(test *testing.T){
         test.Fatalf("Y register expected to be 0x0 but was 0x%x\n", cpu.Y)
     }
 
-    if cpu.PC != 0x107 {
-        test.Fatalf("PC register expected to be 0x107 but was 0x%x\n", cpu.PC)
+    if cpu.PC != 0x106 {
+        test.Fatalf("PC register expected to be 0x106 but was 0x%x\n", cpu.PC)
     }
 }
 

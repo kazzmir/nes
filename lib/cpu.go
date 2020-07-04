@@ -20,6 +20,7 @@ import (
 const NMIVector uint16 = 0xfffa
 const ResetVector uint16 = 0xfffc
 const IRQVector uint16 = 0xfffe
+const BRKVector uint16 = 0xfff6
 
 type InstructionReader struct {
     data io.Reader
@@ -700,6 +701,7 @@ type Input struct {
 
 func (input *Input) Reset() {
     keyboard := sdl.GetKeyboardState()
+    /* FIXME: make the keys configurable */
     input.Buttons[ButtonIndexA] = keyboard[sdl.SCANCODE_A] == 1
     input.Buttons[ButtonIndexB] = keyboard[sdl.SCANCODE_S] == 1
     input.Buttons[ButtonIndexSelect] = keyboard[sdl.SCANCODE_Q] == 1
@@ -742,12 +744,10 @@ type CPUState struct {
     PPU PPUState
     Debug uint
 
-    BankMemory []byte
+    /* controller input */
     Input *Input
-}
 
-func (cpu *CPUState) SetBanks(data []byte) {
-    cpu.BankMemory = data
+    Mapper Mapper
 }
 
 func (cpu *CPUState) Equals(other CPUState) bool {
@@ -883,21 +883,9 @@ const (
     JOYPAD2 = 0x4017
 )
 
-func (cpu *CPUState) BankSwitch(bank int) error {
-    /* FIXME: this is all very much hard coded to work with mapper 2 */
-    // delete(cpu.Maps, 0x8000)
-    err := cpu.UnmapMemory(0x8000, 16 * 1024)
-    if err != nil {
-        return err
-    }
-    /*
-    for page := 0x80; page < 0x80 + 64; page++ {
-        cpu.Maps[page] = nil
-    }
-    */
-    /* map a new 16k block int */
-    base := bank * 16 * 1024
-    return cpu.MapMemory(0x8000, cpu.BankMemory[base:base + 16 * 1024])
+func (cpu *CPUState) SetMapper(mapper Mapper) error {
+    cpu.Mapper = mapper
+    return mapper.Initialize(cpu)
 }
 
 func (cpu *CPUState) UnmapMemory(address uint16, length uint16) error {
@@ -912,8 +900,8 @@ func (cpu *CPUState) UnmapMemory(address uint16, length uint16) error {
 
     pages := length >> 8
 
-    if page + pages > 0xff {
-        return fmt.Errorf("Cannot unmap pages past 0xff: 0x%x", page + pages)
+    if page + pages > 0x100 {
+        return fmt.Errorf("Cannot unmap pages past 0x100: 0x%x", page + pages)
     }
 
     for i := uint16(0); i < pages; i++ {
@@ -942,31 +930,44 @@ func (cpu *CPUState) GetMemoryPage(address uint16) []byte {
 func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     // large := uint64(address)
 
+    /* writes to certain ppu register are ignored before this cycle
+     * http://wiki.nesdev.com/w/index.php/PPU_power_up_state
+     */
+    const ignore_ppu_write_cycle = 29658
+
     page := address >> 8
     if page >= 0x20 && page < 0x40 {
         /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
         use := address & 0x7
         switch 0x2000 | use {
             case PPUCTRL:
-                cpu.PPU.SetControllerFlags(value)
-                if cpu.Debug > 0 {
-                    log.Printf("Set PPUCTRL to 0x%x: %v\n", value, cpu.PPU.ControlString())
+                if cpu.Cycle > ignore_ppu_write_cycle {
+                    cpu.PPU.SetControllerFlags(value)
+                    if cpu.Debug > 0 {
+                        log.Printf("Set PPUCTRL to 0x%x: %v\n", value, cpu.PPU.ControlString())
+                    }
                 }
                 return
             case PPUMASK:
-                cpu.PPU.SetMask(value)
-                if cpu.Debug > 0 {
-                    log.Printf("Set PPUMASK to 0x%x: %v\n", value, cpu.PPU.MaskString())
+                if cpu.Cycle > ignore_ppu_write_cycle {
+                    cpu.PPU.SetMask(value)
+                    if cpu.Debug > 0 {
+                        log.Printf("Set PPUMASK to 0x%x: %v\n", value, cpu.PPU.MaskString())
+                    }
                 }
                 return
             case PPUSCROLL:
-                if cpu.Debug > 0 {
-                    log.Printf("Write 0x%x to PPUSCROLL\n", value)
+                if cpu.Cycle > ignore_ppu_write_cycle {
+                    if cpu.Debug > 0 {
+                        log.Printf("Write 0x%x to PPUSCROLL\n", value)
+                    }
+                    cpu.PPU.WriteScroll(value)
                 }
-                cpu.PPU.WriteScroll(value)
                 return
             case PPUADDR:
-                cpu.PPU.WriteAddress(value)
+                if cpu.Cycle > ignore_ppu_write_cycle {
+                    cpu.PPU.WriteAddress(value)
+                }
                 return
             case PPUDATA:
                 cpu.PPU.WriteData(value)
@@ -995,13 +996,11 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     }
 
     if address > 0x8000 {
-        if cpu.Debug > 0 {
-            log.Printf("Accessing bank switching register 0x%x with value 0x%x", address, value)
-        }
-        err := cpu.BankSwitch(int(value))
+        err := cpu.Mapper.Write(cpu, address, value)
         if err != nil {
-            log.Printf("Warning: could not bank switch to 0x%x: %v\n", value, err)
+            log.Printf("Warning: writing to mapper memory: %v", err)
         }
+
         /* FIXME: should we still write to the new location? */
         return
     }
@@ -3819,8 +3818,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.Cycle += 2
             return nil
         case Instruction_BRK:
-            cpu.SetInterruptFlag(true)
-            cpu.PC += instruction.Length()
+            cpu.BRK()
             cpu.Cycle += 7
             return nil
     }
@@ -3836,6 +3834,18 @@ func (cpu *CPUState) Reset() {
     // cpu.PC = (uint16(cpu.LoadMemory(0xfffd)) << 8) | uint16(cpu.LoadMemory(0xfffc))
     cpu.PC = (high<<8) | low
     cpu.SetInterruptFlag(true)
+}
+
+func (cpu *CPUState) BRK() {
+    cpu.PushStack(byte(cpu.PC >> 8))
+    cpu.PushStack(byte(cpu.PC) & 0xff)
+    cpu.PushStack(cpu.Status)
+
+    low := uint16(cpu.LoadMemory(BRKVector))
+    high := uint16(cpu.LoadMemory(BRKVector+1))
+    cpu.PC = (high<<8) | low
+    cpu.SetInterruptFlag(true)
+
 }
 
 /* NMI was set, so jump to the NMI routine */

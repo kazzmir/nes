@@ -29,50 +29,23 @@ func Run(path string, debug bool, maxCycles uint64) error {
     // dump_instructions(prgRom)
 
     cpu := nes.StartupState()
-    /* map code to 0xc000 for NROM-128.
-     * also map to 0x8000, but most games don't seem to care..?
-     * http://wiki.nesdev.com/w/index.php/Programming_NROM
-     */
-    switch nesFile.Mapper {
-        case 0:
-            err = cpu.MapMemory(0x8000, nesFile.ProgramRom)
-            if err != nil {
-                return err
-            }
 
-            /* FIXME: handle this by checking if the nes file uses nrom-256 */
-            /* for a 32k rom, dont map the programrom at 0xc000 */
-            if len(nesFile.ProgramRom) == 16*1024 {
-                err = cpu.MapMemory(0xc000, nesFile.ProgramRom)
-                if err != nil {
-                    return err
-                }
-            }
-        case 2:
-            if len(nesFile.ProgramRom) < 16 * 1024 {
-                return fmt.Errorf("Expected mapper 2 nes file to have at least 16kb of program rom but the given file had %v bytes\n", len(nesFile.ProgramRom))
-            }
-            err = cpu.MapMemory(0x8000, nesFile.ProgramRom[0:8 * 1024])
-            if err != nil {
-                return err
-            }
-            length := len(nesFile.ProgramRom)
-            err = cpu.MapMemory(0xc000, nesFile.ProgramRom[length-16*1024:length])
-            if err != nil {
-                return err
-            }
-
-            cpu.SetBanks(nesFile.ProgramRom)
-        default:
-            return fmt.Errorf("Unhandled mapper %v\n", nesFile.Mapper)
+    mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom)
+    if err != nil {
+        return err
+    }
+    err = cpu.SetMapper(mapper)
+    if err != nil {
+        return err
     }
 
-    cpu.PPU.CopyCharacterRom(nesFile.CharacterRom)
+    cpu.PPU.CopyCharacterRom(0x0000, nesFile.CharacterRom)
 
     cpu.Input = nes.MakeInput()
 
     if debug {
         cpu.Debug = 1
+        cpu.PPU.Debug = 1
     }
 
     cpu.Reset()

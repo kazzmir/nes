@@ -147,9 +147,9 @@ func (ppu *PPUState) ControlString() string {
     return fmt.Sprintf("Nametable=0x%x Vram-increment=%v Sprite-table=0x%x Background-table=0x%x Sprite-size=%v Master/slave=%v NMI=%v", base_nametable_address, vram_increment, sprite_table, background_table, sprite_size, master_slave, nmi)
 }
 
-func (ppu *PPUState) CopyCharacterRom(data []byte) {
-    for i := 0; i < len(data); i++ {
-        ppu.VideoMemory[i] = data[i]
+func (ppu *PPUState) CopyCharacterRom(base uint32, data []byte) {
+    for i := uint32(0); i < uint32(len(data)); i++ {
+        ppu.VideoMemory[base + i] = data[i]
     }
 }
 
