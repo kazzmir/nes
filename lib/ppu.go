@@ -12,11 +12,15 @@ type PPUState struct {
     Status byte
     Scanline int
     Cycle uint64
-    VideoAddress uint16
+    TemporaryVideoAddress uint16 /* the t register */
+    VideoAddress uint16 /* the v register */
     WriteState byte
 
     /* for scrolling */
     FineX byte
+    FineY byte
+    CoarseX byte
+    CoarseY byte
 
     VideoMemory []byte
     OAM []byte
@@ -49,17 +53,31 @@ func (ppu *PPUState) CopyOAM(data []byte){
 }
 
 func (ppu *PPUState) WriteScroll(value byte){
+    /* t: yyy NN YYYYY XXXXX
+     *
+     * $2005 first write (w is 0)
+     * t: ....... ...HGFED = d: HGFED...
+     * x:              CBA = d: .....CBA
+     * w:                  = 1
+     *
+     * $2005 second write (w is 1)
+     * t: CBA..HG FED..... = d: HGFEDCBA
+     * w:                  = 0
+     */
+
     switch ppu.WriteState {
         case 0:
-            courseX := value >> 3
-            ppu.VideoAddress = uint16(courseX)
+            ppu.CoarseX = value >> 3
+            ppu.TemporaryVideoAddress = uint16(ppu.CoarseX)
             /* lowest 3 bits of the value are the fine x */
             ppu.FineX = value & 0x7
+            ppu.WriteState = 1
         case 1:
-            y := value & 0x7
-            ppu.VideoAddress = ppu.VideoAddress | (uint16(y) << 12)
-            coarseY := value >> 3
-            ppu.VideoAddress = ppu.VideoAddress | (uint16(coarseY) << 5)
+            ppu.FineY = value & 0x7
+            ppu.TemporaryVideoAddress = ppu.TemporaryVideoAddress | (uint16(ppu.FineY) << 12)
+            ppu.CoarseY = value >> 3
+            ppu.TemporaryVideoAddress = ppu.TemporaryVideoAddress | (uint16(ppu.CoarseY) << 5)
+            ppu.WriteState = 0
     }
 }
 
@@ -191,11 +209,19 @@ func (ppu *PPUState) WriteAddress(value byte){
         /* write high byte */
         case 0:
             /* highest available page is 3f. after that it is mirrored down */
-            ppu.VideoAddress = uint16(value & 0x3f) << 8
+            ppu.TemporaryVideoAddress = uint16(value & 0x3f) << 8 | (uint16(ppu.TemporaryVideoAddress) & 0xff)
             ppu.WriteState = 1
         case 1:
-            ppu.VideoAddress = ppu.VideoAddress | uint16(value)
+            /* keep upper 8 bits of the temporary address and replace the lower 8 bits with
+             * the value
+             */
+            ppu.TemporaryVideoAddress = (ppu.TemporaryVideoAddress & (uint16(0xff) << 8)) | uint16(value)
             ppu.WriteState = 0
+            ppu.VideoAddress = ppu.TemporaryVideoAddress
+
+            if ppu.Debug > 0 {
+                log.Printf("PPU: Video address is now 0x%x", ppu.VideoAddress)
+            }
     }
 }
 
@@ -209,7 +235,9 @@ func (ppu *PPUState) GetVRamIncrement() uint16 {
 }
 
 func (ppu *PPUState) WriteData(value byte){
-    // log.Printf("Writing 0x%x to PPU at 0x%x\n", value, ppu.VideoAddress)
+    if ppu.Debug > 0 {
+        log.Printf("PPU: Writing 0x%x to video memory at 0x%x\n", value, ppu.VideoAddress)
+    }
     ppu.VideoMemory[ppu.VideoAddress] = value
     ppu.VideoAddress += ppu.GetVRamIncrement()
 }
@@ -352,8 +380,11 @@ func (ppu *PPUState) Render(screen VirtualScreen) {
     }
 
     if ppu.IsBackgroundEnabled() {
-        // log.Printf("Render background")
         nametableBase := ppu.GetNameTableBaseAddress()
+
+        if ppu.Debug > 0 {
+            log.Printf("Render background with nametable 0x%x coarse-y %v fine-y %v coarse-x %v fine-x %v", nametableBase, ppu.CoarseY, ppu.FineY, ppu.CoarseX, ppu.FineX)
+        }
 
         attributeTableBase := nametableBase + 0x3c0
         _ = attributeTableBase
@@ -441,7 +472,6 @@ func (ppu *PPUState) Render(screen VirtualScreen) {
         spriteSize := ppu.GetSpriteSize()
 
         for _, sprite := range ppu.GetSprites() {
-            /* FIXME: handle 8x16 tiles differently */
             tileIndex := sprite.tile
 
             switch spriteSize {

@@ -98,8 +98,8 @@ func ParseNesFile(path string) (NESFile, error) {
 
     mapper := readMapper(header)
 
-    log.Printf("PRG-ROM %v\n", prgRomSize)
-    log.Printf("CHR-ROM %v\n", chrRomSize)
+    log.Printf("PRG-ROM %vkb\n", prgRomSize >> 10)
+    log.Printf("CHR-ROM %vkb\n", chrRomSize >> 10)
     log.Printf("mapper %v\n", mapper)
 
     hasTrainer := (header[6] & 4) == 4

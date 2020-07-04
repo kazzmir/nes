@@ -944,7 +944,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
                 if cpu.Cycle > ignore_ppu_write_cycle {
                     cpu.PPU.SetControllerFlags(value)
                     if cpu.Debug > 0 {
-                        log.Printf("Set PPUCTRL to 0x%x: %v\n", value, cpu.PPU.ControlString())
+                        log.Printf("Set PPUCTRL to 0x%x: %v", value, cpu.PPU.ControlString())
                     }
                 }
                 return
@@ -952,20 +952,23 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
                 if cpu.Cycle > ignore_ppu_write_cycle {
                     cpu.PPU.SetMask(value)
                     if cpu.Debug > 0 {
-                        log.Printf("Set PPUMASK to 0x%x: %v\n", value, cpu.PPU.MaskString())
+                        log.Printf("Set PPUMASK to 0x%x: %v", value, cpu.PPU.MaskString())
                     }
                 }
                 return
             case PPUSCROLL:
                 if cpu.Cycle > ignore_ppu_write_cycle {
                     if cpu.Debug > 0 {
-                        log.Printf("Write 0x%x to PPUSCROLL\n", value)
+                        log.Printf("Write 0x%x to PPUSCROLL", value)
                     }
                     cpu.PPU.WriteScroll(value)
                 }
                 return
             case PPUADDR:
                 if cpu.Cycle > ignore_ppu_write_cycle {
+                    if cpu.Debug > 0 {
+                        log.Printf("Write 0x%x to PPUADDR", value)
+                    }
                     cpu.PPU.WriteAddress(value)
                 }
                 return
