@@ -49,3 +49,7 @@ Colors have been fixed, and rendering uses an in-memory `[]uint32` array, which 
 ![final fantasy](./pics/final-fantasy.gif)
 
 7/4/2020: Mapper 1 is implemented so final fantasy and legend of zelda are somewhat playable. Scrolling is still not implemented so a lot of the graphics in final fantasy show up incorrectly. Also none of my characters have a weapon.
+
+![scrolling](./pics/contra3.gif)
+
+7/5/2020: Scrolling mostly works. The gif here is smaller and shorter in time to keep the file size low. Both vertical and horizontal scrolling work, as tested with the purely vertical scrolling game ice climbers. There are some remaining glitches with scrolling as walking around the map in final fantasy renders the wrong tiles a lot of the time.
