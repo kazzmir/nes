@@ -50,7 +50,7 @@ func setupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     return cpu, nil
 }
 
-func Run(path string, debug bool, maxCycles uint64) error {
+func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) error {
     nesFile, err := nes.ParseNesFile(path)
     if err != nil {
         return err
@@ -67,7 +67,7 @@ func Run(path string, debug bool, maxCycles uint64) error {
 
     /* to resize the window */
     // | sdl.WINDOW_RESIZABLE
-    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, 256 * 3, 240 * 3, sdl.WINDOW_SHOWN)
+    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(256 * windowSizeMultiple), int32(240 * windowSizeMultiple), sdl.WINDOW_SHOWN)
     if err != nil {
         return err
     }
@@ -382,6 +382,7 @@ func main(){
     var nesPath string
     var debug bool
     var maxCycles uint64
+    var windowSizeMultiple int64 = 3
 
     argIndex := 1
     for argIndex < len(os.Args) {
@@ -389,6 +390,16 @@ func main(){
         switch arg {
             case "-debug", "--debug":
                 debug = true
+            case "-size", "--size":
+                var err error
+                argIndex += 1
+                if argIndex >= len(os.Args) {
+                    log.Fatalf("Expected an integer argument for -size")
+                }
+                windowSizeMultiple, err = strconv.ParseInt(os.Args[argIndex], 10, 64)
+                if err != nil {
+                    log.Fatalf("Error reading size argument: %v", err)
+                }
             case "-cycles", "--cycles":
                 var err error
                 argIndex += 1
@@ -413,7 +424,7 @@ func main(){
         }
         pprof.StartCPUProfile(profile)
         defer pprof.StopCPUProfile()
-        err = Run(nesPath, debug, maxCycles)
+        err = Run(nesPath, debug, maxCycles, int(windowSizeMultiple))
         if err != nil {
             log.Printf("Error: %v\n", err)
         }
