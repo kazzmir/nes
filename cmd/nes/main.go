@@ -428,9 +428,8 @@ func main(){
         if err != nil {
             log.Printf("Error: %v\n", err)
         }
+        log.Printf("Bye")
     } else {
         fmt.Printf("Give a .nes argument\n")
     }
-
-    log.Printf("Bye")
 }
