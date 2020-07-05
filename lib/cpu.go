@@ -827,6 +827,8 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
             case PPUMASK:
                 log.Printf("Warning: reading from PPUMASK location is not allowed\n")
                 return 0
+            case PPUDATA:
+                return cpu.PPU.ReadVideoMemory()
             case PPUSTATUS:
                 return cpu.PPU.ReadStatus()
             case OAMDATA:
@@ -975,7 +977,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
                 }
                 return
             case PPUDATA:
-                cpu.PPU.WriteData(value)
+                cpu.PPU.WriteVideoMemory(value)
                 return
             case OAMADDR:
                 cpu.PPU.SetOAMAddress(value)

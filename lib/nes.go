@@ -59,15 +59,31 @@ func readCHR(header []byte) uint64 {
     }
 }
 
+func isDiskDude(header []byte) bool {
+    if len(header) < 16 {
+        return false
+    }
+
+    return bytes.Equal(header[7:16], []byte("DiskDude!"))
+}
+
 func readMapper(header []byte) byte {
-    data := header[6]
-    return data >> 4
+    lowBits := header[6] >> 4
+    var highBits byte
+
+    /* DiskDude seems misuse byte 7 */
+    if !isDiskDude(header){
+        highBits = header[7] >> 4
+    }
+    return (highBits << 4) | lowBits
 }
 
 type NESFile struct {
     ProgramRom []byte
     CharacterRom []byte
     Mapper uint32
+    HorizontalMirror bool
+    VerticalMirror bool
 }
 
 func ParseNesFile(path string) (NESFile, error) {
@@ -102,7 +118,17 @@ func ParseNesFile(path string) (NESFile, error) {
     log.Printf("CHR-ROM %vkb\n", chrRomSize >> 10)
     log.Printf("mapper %v\n", mapper)
 
+    horizontalMirror := (header[6] & 0x1) == 0x0
+    verticalMirror := (header[6] & 0x1) == 0x1
+
+    batteryRam := (header[6] & 0x2) == 0x2
+    _ = batteryRam
+
+    log.Printf("Horizontal mirror: %v", horizontalMirror)
+    log.Printf("Vertical mirror: %v", verticalMirror)
+
     hasTrainer := (header[6] & 4) == 4
+
     log.Printf("Has trainer area %v\n", hasTrainer)
 
     log.Printf("Last 5 bytes: %v\n", header[11:])
@@ -133,6 +159,8 @@ func ParseNesFile(path string) (NESFile, error) {
         ProgramRom: programRom,
         CharacterRom: characterRom,
         Mapper: uint32(mapper),
+        HorizontalMirror: horizontalMirror,
+        VerticalMirror: verticalMirror,
     }, nil
 }
 

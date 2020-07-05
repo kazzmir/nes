@@ -6,6 +6,7 @@ import (
     "fmt"
     "log"
     "strconv"
+    "errors"
     "os"
 
     nes "github.com/kazzmir/nes/lib"
@@ -20,23 +21,19 @@ import (
     "runtime/pprof"
 )
 
-func Run(path string, debug bool, maxCycles uint64) error {
-    nesFile, err := nes.ParseNesFile(path)
-    if err != nil {
-        return err
-    }
-
-    // dump_instructions(prgRom)
-
+func setupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     cpu := nes.StartupState()
+
+    cpu.PPU.SetHorizontalMirror(nesFile.HorizontalMirror)
+    cpu.PPU.SetVerticalMirror(nesFile.VerticalMirror)
 
     mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom)
     if err != nil {
-        return err
+        return cpu, err
     }
     err = cpu.SetMapper(mapper)
     if err != nil {
-        return err
+        return cpu, err
     }
 
     cpu.PPU.CopyCharacterRom(0x0000, nesFile.CharacterRom)
@@ -50,6 +47,15 @@ func Run(path string, debug bool, maxCycles uint64) error {
 
     cpu.Reset()
 
+    return cpu, nil
+}
+
+func Run(path string, debug bool, maxCycles uint64) error {
+    nesFile, err := nes.ParseNesFile(path)
+    if err != nil {
+        return err
+    }
+
     // force a software renderer
     // sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
 
@@ -61,7 +67,7 @@ func Run(path string, debug bool, maxCycles uint64) error {
 
     /* to resize the window */
     // | sdl.WINDOW_RESIZABLE
-    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, 320 * 3, 240 * 3, sdl.WINDOW_SHOWN)
+    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, 256 * 3, 240 * 3, sdl.WINDOW_SHOWN)
     if err != nil {
         return err
     }
@@ -112,7 +118,7 @@ func Run(path string, debug bool, maxCycles uint64) error {
 
     /* create a surface from the pixels in one call, then create a texture and render it */
     doRender := func(screen nes.VirtualScreen, raw_pixels []byte) error {
-        width := int32(320)
+        width := int32(256)
         height := int32(240)
         depth := 8 * 4 // RGBA8888
         pitch := int(width) * int(depth) / 8
@@ -167,8 +173,8 @@ func Run(path string, debug bool, maxCycles uint64) error {
     go func(){
         waiter.Add(1)
         defer waiter.Done()
-        raw_pixels := make([]byte, 320*240*4)
-        // raw_pixels := make([]byte, 320*240*3)
+        raw_pixels := make([]byte, 256*240*4)
+        // raw_pixels := make([]byte, 256*240*3)
         fps := 0
         timer := time.NewTicker(1 * time.Second)
         defer timer.Stop()
@@ -191,9 +197,38 @@ func Run(path string, debug bool, maxCycles uint64) error {
 
     turbo := make(chan bool, 10)
 
-    go runNES(cpu, maxCycles, quit, drawn, turbo, &waiter)
+    startNES := func(quit context.Context){
+        waiter.Add(1)
+        defer waiter.Done()
+
+        cpu, err := setupCPU(nesFile, debug)
+
+        var quitEvent sdl.QuitEvent
+        quitEvent.Type = sdl.QUIT
+        /* FIXME: does quitEvent.Timestamp need to be set? */
+
+        if err != nil {
+            log.Printf("Error: CPU initialization error: %v", err)
+            /* The main loop below is waiting for an event so we push the quit event */
+            sdl.PushEvent(&quitEvent)
+        } else {
+            err = runNES(cpu, maxCycles, quit, drawn, turbo)
+            if err != nil {
+                if err == MaxCyclesReached {
+                } else {
+                    log.Printf("Error running NES: %v", err)
+                }
+
+                sdl.PushEvent(&quitEvent)
+            }
+        }
+    }
+
+    nesQuit, nesCancel := context.WithCancel(quit)
+    go startNES(nesQuit)
 
     var turboKey sdl.Scancode = sdl.SCANCODE_GRAVE
+    var hardResetKey sdl.Scancode = sdl.SCANCODE_R
 
     for quit.Err() == nil {
         event := sdl.WaitEvent()
@@ -213,6 +248,14 @@ func Run(path string, debug bool, maxCycles uint64) error {
                         select {
                             case turbo <- true:
                         }
+                    }
+
+                    if keyboard_event.Keysym.Scancode == hardResetKey {
+                        log.Printf("Hard reset")
+                        nesCancel()
+
+                        nesQuit, nesCancel = context.WithCancel(quit)
+                        go startNES(nesQuit)
                     }
                 case sdl.KEYUP:
                     keyboard_event := event.(*sdl.KeyboardEvent)
@@ -264,18 +307,11 @@ func get_pixel_format(format uint32) string {
     return fmt.Sprintf("%v?", format)
 }
 
-func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan nes.VirtualScreen, turbo <-chan bool, waiter *sync.WaitGroup){
-    waiter.Add(1)
-    defer waiter.Done()
-
+var MaxCyclesReached error = errors.New("maximum cycles reached")
+func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan nes.VirtualScreen, turbo <-chan bool) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
-    screen := nes.MakeVirtualScreen(320, 240)
-
-    var quitEvent sdl.QuitEvent
-    quitEvent.Type = sdl.QUIT
-    /* FIXME: does quitEvent.Timestamp need to be set? */
-    defer sdl.PushEvent(&quitEvent)
+    screen := nes.MakeVirtualScreen(256, 240)
 
     var cycleCounter float64
     /* http://wiki.nesdev.com/w/index.php/Cycle_reference_chart#Clock_rates
@@ -290,7 +326,7 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
 
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
-            break
+            return MaxCyclesReached
         }
 
         for cycleCounter <= 0 {
@@ -302,7 +338,7 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
                         turboMultiplier = 1
                     }
                 case <-quit.Done():
-                    return
+                    return nil
                 case <-cycleTimer.C:
                     cycleCounter += cycleDiff * turboMultiplier
             }
@@ -313,8 +349,7 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
         cycles := cpu.Cycle
         err := cpu.Run(instructionTable)
         if err != nil {
-            log.Fatal(err)
-            return
+            return err
         }
         usedCycles := cpu.Cycle
 
@@ -337,6 +372,8 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
             cpu.NMI()
         }
     }
+
+    return nil
 }
 
 func main(){

@@ -16,6 +16,9 @@ type PPUState struct {
     VideoAddress uint16 /* the v register */
     WriteState byte
 
+    HorizontalNametableMirror bool
+    VerticalNametableMirror bool
+
     /* for scrolling */
     FineX byte
     FineY byte
@@ -34,6 +37,14 @@ func MakePPU() PPUState {
         VideoMemory: make([]byte, 64 * 1024),
         OAM: make([]byte, 256),
     }
+}
+
+func (ppu *PPUState) SetHorizontalMirror(value bool){
+    ppu.HorizontalNametableMirror = value
+}
+
+func (ppu *PPUState) SetVerticalMirror(value bool){
+    ppu.VerticalNametableMirror = value
 }
 
 func (ppu *PPUState) SetOAMAddress(value byte){
@@ -96,10 +107,18 @@ func (ppu *PPUState) SetControllerFlags(value byte) {
     ppu.Flags = value
 }
 
-func (ppu *PPUState) GetNameTableBaseAddress() uint16 {
-    base_nametable_index := ppu.Flags & 0x3
+func (ppu *PPUState) GetNameTableIndex() byte {
+    /* upper left is 0
+     * upper right is 1
+     * lower left is 2
+     * lower right is 3
+     */
+    return ppu.Flags & 0x3
+}
 
-    switch base_nametable_index {
+func (ppu *PPUState) GetNameTableBaseAddress(index byte) uint16 {
+
+    switch index {
         case 0: return 0x2000
         case 1: return 0x2400
         case 2: return 0x2800
@@ -150,7 +169,7 @@ func (ppu *PPUState) ControlString() string {
     master_slave_index := (ppu.Flags >> 6) & 0x1 == 0x1
     nmi := (ppu.Flags >> 7) & 0x1 == 0x1
 
-    base_nametable_address := ppu.GetNameTableBaseAddress()
+    base_nametable_address := ppu.GetNameTableBaseAddress(ppu.GetNameTableIndex())
 
     var vram_increment int
     switch vram_increment_index {
@@ -245,12 +264,23 @@ func (ppu *PPUState) GetVRamIncrement() uint16 {
     return 1
 }
 
-func (ppu *PPUState) WriteData(value byte){
+func (ppu *PPUState) WriteVideoMemory(value byte){
     if ppu.Debug > 0 {
         log.Printf("PPU: Writing 0x%x to video memory at 0x%x\n", value, ppu.VideoAddress)
     }
     ppu.VideoMemory[ppu.VideoAddress] = value
     ppu.VideoAddress += ppu.GetVRamIncrement()
+}
+
+func (ppu *PPUState) ReadVideoMemory() byte {
+    if int(ppu.VideoAddress) >= len(ppu.VideoMemory) {
+        log.Printf("Warning: attemping to read more than available video memory 0x%x at 0x%x", len(ppu.VideoMemory), ppu.VideoAddress)
+        return 0
+    }
+
+    value := ppu.VideoMemory[ppu.VideoAddress]
+    ppu.VideoAddress += ppu.GetVRamIncrement()
+    return value
 }
 
 func (ppu *PPUState) SetVerticalBlankFlag(on bool){
@@ -312,14 +342,11 @@ func (ppu *PPUState) GetSprites() []Sprite {
     return out
 }
 
-func (ppu *PPUState) Render(screen VirtualScreen) {
-    /* FIXME: might not be needed */
-    screen.Clear()
-
+func (ppu *PPUState) Get2c02Palette() [][]uint8 {
     /* blargg's 2c02 palette
      *   http://wiki.nesdev.com/w/index.php/PPU_palettes
      */
-    palette := [][]uint8{
+    return [][]uint8{
         []uint8{84, 84, 84}, // 00
         []uint8{0, 30, 116}, // 01
         []uint8{8, 16, 144}, // 02
@@ -389,9 +416,16 @@ func (ppu *PPUState) Render(screen VirtualScreen) {
         []uint8{0, 0, 0},       // 3e
         []uint8{0, 0, 0},       // 3f
     }
+}
+
+func (ppu *PPUState) Render(screen VirtualScreen) {
+    /* FIXME: might not be needed */
+    screen.Clear()
+
+    palette := ppu.Get2c02Palette()
 
     if ppu.IsBackgroundEnabled() {
-        nametableBase := ppu.GetNameTableBaseAddress()
+        nametableBase := ppu.GetNameTableBaseAddress(ppu.GetNameTableIndex())
 
         if ppu.Debug > 0 {
             log.Printf("Render background with nametable 0x%x coarse-y %v fine-y %v coarse-x %v fine-x %v", nametableBase, ppu.CoarseY, ppu.FineY, ppu.CoarseX, ppu.FineX)
@@ -402,75 +436,104 @@ func (ppu *PPUState) Render(screen VirtualScreen) {
 
         patternTable := ppu.GetBackgroundPatternTableBase()
 
-        tile_x := 0
-        tile_y := 0
-        for address := uint16(0); address < 0x3c0; address++ {
-            // log.Printf("Render nametable 0x%x: 0x%x %v, %v", nametableBase + address, ppu.VideoMemory[nametableBase + address], x, y)
-            tileIndex := ppu.VideoMemory[nametableBase + address]
-            tileAddress := patternTable + uint16(tileIndex) * 16
-            leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
-            rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
+        for tile_y := 0; tile_y < 30; tile_y++ {
+            for tile_x := 0; tile_x < 32; tile_x++ {
 
-            _ = leftBytes
-            _ = rightBytes
-            _ = palette
+                /* FIXME: handle mapper mapped nametable switching/mirroring */
+                nametableBase = ppu.GetNameTableBaseAddress(ppu.GetNameTableIndex())
 
-            /* pattern attribute x = tile_x / 4
-             * pattern_attribute y = tile_y / 4
-             */
+                /* will be 0 for left and 1 for right, aka bit 0 */
+                x_nametable := ppu.GetNameTableIndex() & 0x1
 
-            pattern_attribute_address := attributeTableBase + uint16(tile_x / 4 + (tile_y / 4) * (32/4))
-            pattern_attribute_value := ppu.VideoMemory[pattern_attribute_address]
-            pattern_attribute_top_left := pattern_attribute_value & 0x3
-            pattern_attribute_top_right := (pattern_attribute_value >> 2) & 0x3
-            pattern_attribute_bottom_left := (pattern_attribute_value >> 4) & 0x3
-            pattern_attribute_bottom_right := (pattern_attribute_value >> 6) & 0x3
+                /* 0 for top and 1 for bottom, aka bit 1 */
+                y_nametable := (ppu.GetNameTableIndex() >> 1) & 0x1
 
-            /* x to x+4
-             * top left = x:x+1, y:y+1
-             * top right = x+2:x+3, y:y+1
-             * bottom left = x:x+1, y+2:y+3
-             * bottom right = x+2:x+3, y+2:y+3
-             */
+                real_x := tile_x + int(ppu.CoarseX)
+                real_y := tile_y + int(ppu.CoarseY)
 
-            pattern_x := tile_x & 0x3
-            pattern_y := tile_y & 0x3
-
-            var color_set byte
-            if pattern_x < 2 && pattern_y < 2 {
-                color_set = pattern_attribute_top_left
-            } else if pattern_x < 2 && pattern_y >= 2 {
-                color_set = pattern_attribute_bottom_left
-            } else if pattern_x >= 2 && pattern_y < 2 {
-                color_set = pattern_attribute_top_right
-            } else {
-                color_set = pattern_attribute_bottom_right
-            }
-
-            // log.Printf("Tile %v, %v = color set %v", tile_x, tile_y, color_set)
-
-            /* the actual palette to use */
-            palette_base := 0x3f00 + uint16(color_set) * 4
-
-            for y := 0; y < 8; y++ {
-                for x := 0; x < 8; x++ {
-                    low := (leftBytes[y] >> (7-x)) & 0x1
-                    high := ((rightBytes[y] >> (7-x)) & 0x1) << 1
-                    colorIndex := high | low
-
-                    _ = colorIndex
-
-                    palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
-                    screen.DrawPoint(int32(tile_x * 8 + x), int32(tile_y * 8 + y), palette[palette_color])
+                /* move to the next nametable horizontally */
+                if real_x >= 32 {
+                    if ! ppu.HorizontalNametableMirror {
+                        x_nametable = (x_nametable + 1) & 0x1
+                    }
+                    real_x -= 32
                 }
-            }
 
-            // log.Printf("Render nametable 0x%x: 0x%x %v, %v = %v %v", nametableBase + address, ppu.VideoMemory[nametableBase + address], tile_x, tile_y, leftBytes, rightBytes)
+                /* move to the next nametable vertically */
+                if real_y >= 30 {
+                    if !ppu.VerticalNametableMirror {
+                        y_nametable = (y_nametable + 1) & 0x1
+                    }
+                    real_y -= 30
+                }
 
-            tile_x += 1
-            if tile_x >= 32 {
-                tile_y += 1
-                tile_x = 0
+                nametableBase = ppu.GetNameTableBaseAddress((byte(y_nametable) << 1) | byte(x_nametable))
+
+                attributeTableBase := nametableBase + 0x3c0
+
+                address := uint16(real_y * 32 + real_x)
+
+                // log.Printf("Render nametable 0x%x: 0x%x %v, %v", nametableBase + address, ppu.VideoMemory[nametableBase + address], x, y)
+                tileIndex := ppu.VideoMemory[nametableBase + address]
+                tileAddress := patternTable + uint16(tileIndex) * 16
+                leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
+                rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
+
+                _ = leftBytes
+                _ = rightBytes
+                _ = palette
+
+                pattern_attribute_address := attributeTableBase + uint16(real_x / 4 + (real_y / 4) * (32/4))
+                pattern_attribute_value := ppu.VideoMemory[pattern_attribute_address]
+                pattern_attribute_top_left := pattern_attribute_value & 0x3
+                pattern_attribute_top_right := (pattern_attribute_value >> 2) & 0x3
+                pattern_attribute_bottom_left := (pattern_attribute_value >> 4) & 0x3
+                pattern_attribute_bottom_right := (pattern_attribute_value >> 6) & 0x3
+
+                /* x to x+4
+                 * top left = x:x+1, y:y+1
+                 * top right = x+2:x+3, y:y+1
+                 * bottom left = x:x+1, y+2:y+3
+                 * bottom right = x+2:x+3, y+2:y+3
+                 */
+
+                pattern_x := real_x & 0x3
+                pattern_y := real_y & 0x3
+
+                var color_set byte
+                if pattern_x < 2 && pattern_y < 2 {
+                    color_set = pattern_attribute_top_left
+                } else if pattern_x < 2 && pattern_y >= 2 {
+                    color_set = pattern_attribute_bottom_left
+                } else if pattern_x >= 2 && pattern_y < 2 {
+                    color_set = pattern_attribute_top_right
+                } else {
+                    color_set = pattern_attribute_bottom_right
+                }
+
+                // log.Printf("Tile %v, %v = color set %v", tile_x, tile_y, color_set)
+
+                /* the actual palette to use */
+                palette_base := 0x3f00 + uint16(color_set) * 4
+
+                for y := 0; y < 8; y++ {
+                    for x := 0; x < 8; x++ {
+                        low := (leftBytes[y] >> (7-x)) & 0x1
+                        high := ((rightBytes[y] >> (7-x)) & 0x1) << 1
+                        colorIndex := high | low
+
+                        if colorIndex == 0 {
+                            continue
+                        }
+
+                        _ = colorIndex
+
+                        palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
+                        screen.DrawPoint(int32(tile_x * 8 + x - int(ppu.FineX)), int32(tile_y * 8 + y - int(ppu.FineY)), palette[palette_color])
+                    }
+                }
+
+                // log.Printf("Render nametable 0x%x: 0x%x %v, %v = %v %v", nametableBase + address, ppu.VideoMemory[nametableBase + address], tile_x, tile_y, leftBytes, rightBytes)
             }
         }
     }
@@ -485,10 +548,12 @@ func (ppu *PPUState) Render(screen VirtualScreen) {
         for _, sprite := range ppu.GetSprites() {
             tileIndex := sprite.tile
 
+            offset := 1
+
             switch spriteSize {
                 case SpriteSize8x8:
                     tileAddress := patternTable + uint16(tileIndex) * 16
-                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), int(sprite.y), screen)
+                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), int(sprite.y) + offset, screen)
                 case SpriteSize8x16:
                     /* even tiles come from bank 0x0000, and odd tiles come from 0x1000 */
                     tileAddress := (uint16(tileIndex & 0x1) << 12) | (uint16(tileIndex >> 1) * 32)
@@ -502,9 +567,9 @@ func (ppu *PPUState) Render(screen VirtualScreen) {
                     }
 
                     /* top tile */
-                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), topY, screen)
+                    ppu.renderSpriteTile(tileAddress, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), topY + offset, screen)
                     /* bottom tile */
-                    ppu.renderSpriteTile(tileAddress+16, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), bottomY, screen)
+                    ppu.renderSpriteTile(tileAddress+16, sprite.palette, palette, sprite.flip_horizontal, sprite.flip_vertical, int(sprite.x), bottomY + offset, screen)
             }
         }
     }
@@ -574,8 +639,12 @@ func (screen *VirtualScreen) DrawPoint(x int32, y int32, rgb []uint8){
 
 func (screen *VirtualScreen) Clear() {
     max := len(screen.Buffer)
+    /* for debugging screen glitches */
+
+    // color := (uint32(255) << 24) | (uint32(20) << 16) | (uint32(20) << 8) | uint32(255)
+    var color uint32 = 0
     for i := 0; i < max; i++ {
-        screen.Buffer[i] = 0
+        screen.Buffer[i] = color
     }
 }
 
