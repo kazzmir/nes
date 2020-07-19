@@ -5,6 +5,8 @@ import (
     "math"
 )
 
+var ApuDebug int = 0
+
 type Divider struct {
     /* how many input clocks must pass before an output clock is generated */
     ClockPeriod uint16
@@ -164,6 +166,9 @@ func (sweep *Sweep) Tick(timer *Timer){
             if value < 0 {
                 value = 0
             }
+            if value > 0x800 {
+                value = 0x800
+            }
             timer.SetPeriod(uint16(value))
         }
     }
@@ -236,6 +241,11 @@ func (pulse *Pulse) GenerateSample() byte {
     if pulse.Length.Length == 0 {
         return 0
     }
+
+    if pulse.Timer.Divider.ClockPeriod > 0x7ff || pulse.Timer.Divider.ClockPeriod < 8 {
+        return 0
+    }
+
     return pulse.Sequencer.Value() * pulse.Envelope.Volume()
 }
 
@@ -517,7 +527,9 @@ func (apu *APUState) WritePulse1Duty(value byte){
     length_counter_halt := (value >> 4) & 0x1
     volume := (value & 0xf)
 
-    // log.Printf("APU: write pulse1 duty value=%v duty=%v loop=%v length=%v volume=%v", value, duty, loop_envelope, length_counter_halt, volume)
+    if ApuDebug > 0 {
+        log.Printf("APU: write pulse1 duty value=%v duty=%v loop=%v length=%v volume=%v", value, duty, loop_envelope, length_counter_halt, volume)
+    }
 
     apu.Pulse1.SetDuty(duty)
     apu.Pulse1.Length.Halt = length_counter_halt == 0x1
@@ -525,12 +537,16 @@ func (apu *APUState) WritePulse1Duty(value byte){
 }
 
 func (apu *APUState) WritePulse1Sweep(value byte){
-    // log.Printf("APU: Write pulse1 sweep value=%v", value)
+    if ApuDebug > 0 {
+        log.Printf("APU: Write pulse1 sweep value=%v", value)
+    }
     apu.Pulse1.ParseSweep(value)
 }
 
 func (apu *APUState) WritePulse1Timer(value byte){
-    // log.Printf("APU: write pulse1 timer low %v", value)
+    if ApuDebug > 0 {
+        log.Printf("APU: write pulse1 timer low %v", value)
+    }
     apu.Pulse1.Timer.Low = uint16(value)
     apu.Pulse1.Timer.Reset()
 }
@@ -553,7 +569,9 @@ func (apu *APUState) WritePulse2Duty(value byte){
     length_counter_halt := (value >> 4) & 0x1
     volume := (value & 0xf)
 
-    // log.Printf("APU: write pulse2 duty value=%v duty=%v loop=%v length=%v volume=%v", value, duty, loop_envelope, length_counter_halt, volume)
+    if ApuDebug > 0 {
+        log.Printf("APU: write pulse2 duty value=%v duty=%v loop=%v length=%v volume=%v", value, duty, loop_envelope, length_counter_halt, volume)
+    }
 
     apu.Pulse2.SetDuty(duty)
     apu.Pulse2.Length.Halt = length_counter_halt == 0x1
@@ -561,17 +579,24 @@ func (apu *APUState) WritePulse2Duty(value byte){
 }
 
 func (apu *APUState) WritePulse2Sweep(value byte){
+    if ApuDebug > 0 {
+        log.Printf("APU: write pulse2 sweep %v", value)
+    }
     apu.Pulse2.ParseSweep(value)
 }
 
 func (apu *APUState) WritePulse2Timer(value byte){
-    // log.Printf("APU: write pulse2 timer %v", value)
+    if ApuDebug > 0 {
+        log.Printf("APU: write pulse2 timer %v", value)
+    }
     apu.Pulse2.Timer.Low = uint16(value)
     apu.Pulse2.Timer.Reset()
 }
 
 func (apu *APUState) WritePulse2Length(value byte){
-    // log.Printf("APU: write pulse2 length %v", value)
+    if ApuDebug > 0 {
+        log.Printf("APU: write pulse2 length %v", value)
+    }
 
     apu.Pulse2.Timer.High = uint16(value & 7)
     lengthIndex := value >> 3
@@ -584,20 +609,26 @@ func (apu *APUState) WritePulse2Length(value byte){
 }
 
 func (apu *APUState) WriteTriangleCounter(value byte){
-    // log.Printf("APU: write triangle counter %v", value)
+    if ApuDebug > 0 {
+        log.Printf("APU: write triangle counter %v", value)
+    }
     control := (value >> 7) & 0x1
     apu.Triangle.ControlFlag = control == 1
     apu.Triangle.LinearCounterReload = int(value & 127)
 }
 
 func (apu *APUState) WriteTriangleTimerLow(value byte){
-    // log.Printf("APU: write triangle timer low %v", value)
+    if ApuDebug > 0 {
+        log.Printf("APU: write triangle timer low %v", value)
+    }
     apu.Triangle.Timer.Low = uint16(value)
     apu.Triangle.Timer.Reset()
 }
 
 func (apu *APUState) WriteTriangleTimerHigh(value byte){
-    // log.Printf("APU: write triangle timer high %v", value)
+    if ApuDebug > 0 {
+        log.Printf("APU: write triangle timer high %v", value)
+    }
     apu.Triangle.Timer.High = uint16(value & 7)
     apu.Triangle.Timer.Reset()
     lengthIndex := value >> 3
@@ -634,7 +665,9 @@ func noisePeriod(period byte) uint16 {
 func (apu *APUState) WriteNoiseMode(value byte){
     mode := (value >> 7) & 0x1
     period := value & 0xf
-    // log.Printf("APU: write noise mode value=%v loop=%v period=%v", value, mode, period)
+    if ApuDebug > 0 {
+        log.Printf("APU: write noise mode value=%v loop=%v period=%v", value, mode, period)
+    }
 
     apu.Noise.Mode = mode
     apu.Noise.Timer.SetPeriod(noisePeriod(period))
@@ -668,11 +701,15 @@ func (apu *APUState) WriteChannelEnable(value byte){
     apu.EnablePulse2 = pulse2 == 0x1
     apu.EnablePulse1 = pulse1 == 0x1
 
-    // log.Printf("APU: write channel enable value=%v dmc=%v noise=%v triangle=%v pulse2=%v pulse1=%v", value, dmc, noise, triangle, pulse2, pulse1)
+    if ApuDebug > 0 {
+        log.Printf("APU: write channel enable value=%v dmc=%v noise=%v triangle=%v pulse2=%v pulse1=%v", value, dmc, noise, triangle, pulse2, pulse1)
+    }
 }
 
 func (apu *APUState) WriteFrameCounter(value byte){
     mode := value >> 7
-    // log.Printf("APU: write frame counter value=%v mode=%v", value, mode)
+    if ApuDebug > 0 {
+        log.Printf("APU: write frame counter value=%v mode=%v", value, mode)
+    }
     apu.FrameMode = mode == 0
 }
