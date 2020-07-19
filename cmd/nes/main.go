@@ -147,6 +147,7 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
     toDraw := make(chan nes.VirtualScreen, 1)
     bufferReady := make(chan nes.VirtualScreen, 1)
 
+    desiredFps := 60.0
     pixelFormat := findPixelFormat()
 
     /* create a surface from the pixels in one call, then create a texture and render it */
@@ -209,11 +210,12 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
         bufferReady <- buffer
         defer waiter.Done()
         raw_pixels := make([]byte, 256*240*4)
+        fpsCounter := 2.0
         fps := 0
-        fpsTimer := time.NewTicker(1 * time.Second)
+        fpsTimer := time.NewTicker(time.Duration(fpsCounter) * time.Second)
         defer fpsTimer.Stop()
 
-        renderTimer := time.NewTicker(time.Second / 60)
+        renderTimer := time.NewTicker(time.Second / time.Duration(desiredFps))
         defer renderTimer.Stop()
         canRender := false
         for {
@@ -233,7 +235,7 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
                 case <-renderTimer.C:
                     canRender = true
                 case <-fpsTimer.C:
-                    log.Printf("FPS: %v", fps)
+                    log.Printf("FPS: %v", int(float64(fps) / fpsCounter))
                     fps = 0
             }
         }
