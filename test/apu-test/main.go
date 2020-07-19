@@ -131,6 +131,8 @@ func main(){
         },
     }
 
+    nes.ApuDebug = 0
+
     for i, test := range tests {
         testNum := i + 1
         passed, err := doTest(test.Rom, test.PassAddress, test.FailAddress)
