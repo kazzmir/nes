@@ -424,8 +424,10 @@ func (ppu *PPUState) Render(screen VirtualScreen) {
 
     palette := ppu.Get2c02Palette()
 
+    nametableIndex := ppu.GetNameTableIndex()
+
     if ppu.IsBackgroundEnabled() {
-        nametableBase := ppu.GetNameTableBaseAddress(ppu.GetNameTableIndex())
+        nametableBase := ppu.GetNameTableBaseAddress(nametableIndex)
 
         if ppu.Debug > 0 {
             log.Printf("Render background with nametable 0x%x coarse-y %v fine-y %v coarse-x %v fine-x %v", nametableBase, ppu.CoarseY, ppu.FineY, ppu.CoarseX, ppu.FineX)
@@ -440,13 +442,13 @@ func (ppu *PPUState) Render(screen VirtualScreen) {
             for tile_x := 0; tile_x < 32; tile_x++ {
 
                 /* FIXME: handle mapper mapped nametable switching/mirroring */
-                nametableBase = ppu.GetNameTableBaseAddress(ppu.GetNameTableIndex())
+                nametableBase = ppu.GetNameTableBaseAddress(nametableIndex)
 
                 /* will be 0 for left and 1 for right, aka bit 0 */
-                x_nametable := ppu.GetNameTableIndex() & 0x1
+                x_nametable := nametableIndex & 0x1
 
                 /* 0 for top and 1 for bottom, aka bit 1 */
-                y_nametable := (ppu.GetNameTableIndex() >> 1) & 0x1
+                y_nametable := (nametableIndex >> 1) & 0x1
 
                 real_x := tile_x + int(ppu.CoarseX)
                 real_y := tile_y + int(ppu.CoarseY)

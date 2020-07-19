@@ -742,6 +742,7 @@ type CPUState struct {
     StackBase uint16
 
     PPU PPUState
+    APU APUState
     Debug uint
 
     /* controller input */
@@ -868,7 +869,7 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
     return 0
 }
 
-/* Special memory-mapped locations */
+/* Special PPU memory-mapped locations */
 const (
     PPUCTRL uint16 = 0x2000
     PPUMASK = 0x2001
@@ -881,6 +882,31 @@ const (
     OAMDMA = 0x4014
 )
 
+/* APU memory-mapped locations */
+const (
+    APUPulse1DutyCycle = 0x4000
+    APUPulse1Sweep = 0x4001
+    APUPulse1Timer = 0x4002
+    APUPulse1Length = 0x4003
+    APUPulse2DutyCycle = 0x4004
+    APUPulse2Sweep = 0x4005
+    APUPulse2Timer = 0x4006
+    APUPulse2Length = 0x4007
+    APUTriangleCounter = 0x4008
+    APUTriangleTimerLow = 0x400A
+    APUTriangleTimerHigh = 0x400B
+    APUNoiseEnvelope = 0x400c
+    APUNoiseMode = 0x400e
+    APUNoiseLength = 0x400f
+    APUDMCEnable = 0x4010
+    APUDMCLoad = 0x4011
+    APUDMCAddress = 0x4012
+    APUDMCLength = 0x4013
+    APUChannelEnable = 0x4015
+    APUFrameCounter = 0x4017
+)
+
+/* Input memory-mapped locations */
 const (
     INPUT_POLL = 0x4016
     JOYPAD1 = 0x4016
@@ -992,6 +1018,54 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     }
 
     switch address {
+        case APUPulse1DutyCycle:
+            cpu.APU.WritePulse1Duty(value)
+            return
+        case APUPulse1Sweep:
+            cpu.APU.WritePulse1Sweep(value)
+            return
+        case APUPulse1Timer:
+            cpu.APU.WritePulse1Timer(value)
+            return
+        case APUPulse1Length:
+            cpu.APU.WritePulse1Length(value)
+            return
+        case APUPulse2DutyCycle:
+            cpu.APU.WritePulse2Duty(value)
+            return
+        case APUPulse2Sweep:
+            cpu.APU.WritePulse2Sweep(value)
+            return
+        case APUPulse2Timer:
+            cpu.APU.WritePulse2Timer(value)
+            return
+        case APUPulse2Length:
+            cpu.APU.WritePulse2Length(value)
+            return
+        case APUTriangleCounter:
+            cpu.APU.WriteTriangleCounter(value)
+            return
+        case APUTriangleTimerLow:
+            cpu.APU.WriteTriangleTimerLow(value)
+            return
+        case APUTriangleTimerHigh:
+            cpu.APU.WriteTriangleTimerHigh(value)
+            return
+        case APUNoiseLength:
+            cpu.APU.WriteNoiseLength(value)
+            return
+        case APUNoiseMode:
+            cpu.APU.WriteNoiseMode(value)
+            return
+        case APUNoiseEnvelope:
+            cpu.APU.WriteNoiseEnvelope(value)
+            return
+        case APUChannelEnable:
+            cpu.APU.WriteChannelEnable(value)
+            return
+        case APUFrameCounter:
+            cpu.APU.WriteFrameCounter(value)
+            return
         case INPUT_POLL:
             cpu.Input.Reset()
             return
@@ -3892,6 +3966,7 @@ func StartupState() CPUState {
     cpu.SetStack(0x100)
 
     cpu.PPU = MakePPU()
+    cpu.APU = MakeAPU()
 
     return cpu
 }

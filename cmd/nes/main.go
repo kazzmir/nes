@@ -1,6 +1,8 @@
 package main
 
-//#include <stdlib.h>
+/*
+#include <stdlib.h>
+*/
 import "C"
 import (
     "fmt"
@@ -19,6 +21,8 @@ import (
     "sync"
     "context"
     "runtime/pprof"
+
+    // rdebug "runtime/debug"
 )
 
 func setupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
@@ -48,6 +52,22 @@ func setupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     cpu.Reset()
 
     return cpu, nil
+}
+
+func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
+    var audioSpec sdl.AudioSpec
+    var obtainedSpec sdl.AudioSpec
+
+    audioSpec.Freq = int32(sampleRate)
+    audioSpec.Format = sdl.AUDIO_F32LSB
+    audioSpec.Channels = 1
+    audioSpec.Samples = 1024
+    // audioSpec.Callback = sdl.AudioCallback(C.generate_audio_c)
+    audioSpec.Callback = nil
+    audioSpec.UserData = nil
+
+    device, err := sdl.OpenAudioDevice("", false, &audioSpec, &obtainedSpec, sdl.AUDIO_ALLOW_FORMAT_CHANGE)
+    return device, err
 }
 
 func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) error {
@@ -95,6 +115,18 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
         return err
     }
     defer renderer.Destroy()
+
+    const AudioSampleRate float32 = 44100
+
+    audioDevice, err := setupAudio(AudioSampleRate)
+    if err != nil {
+        log.Printf("Warning: could not set up audio: %v", err)
+        audioDevice = 0
+    } else {
+        defer sdl.CloseAudioDevice(audioDevice)
+        log.Printf("Opened SDL audio device %v", audioDevice)
+        sdl.PauseAudioDevice(audioDevice, false)
+    }
 
     // renderer.SetScale(2, 2)
 
@@ -174,7 +206,6 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
         waiter.Add(1)
         defer waiter.Done()
         raw_pixels := make([]byte, 256*240*4)
-        // raw_pixels := make([]byte, 256*240*3)
         fps := 0
         timer := time.NewTicker(1 * time.Second)
         defer timer.Stop()
@@ -212,7 +243,32 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
             /* The main loop below is waiting for an event so we push the quit event */
             sdl.PushEvent(&quitEvent)
         } else {
-            err = runNES(cpu, maxCycles, quit, drawn, turbo)
+            audio := make(chan []float32, 2)
+            defer close(audio)
+
+            if audioDevice != 0 {
+                /* runNES will generate arrays of samples that we enqueue into the SDL audio system */
+                go func(){
+                    var buffer bytes.Buffer
+                    for samples := range audio {
+                        // log.Printf("Prepare audio to queue")
+                        // log.Printf("Enqueue data %v", samples)
+                        buffer.Reset()
+                        /* convert []float32 into []byte */
+                        for _, sample := range samples {
+                            binary.Write(&buffer, binary.LittleEndian, sample)
+                        }
+                        // log.Printf("Enqueue audio")
+                        err := sdl.QueueAudio(audioDevice, buffer.Bytes())
+                        if err != nil {
+                            log.Printf("Error: could not queue audio data: %v", err)
+                            return
+                        }
+                    }
+                }()
+            }
+
+            err = runNES(&cpu, maxCycles, quit, drawn, audio, turbo, AudioSampleRate)
             if err != nil {
                 if err == MaxCyclesReached {
                 } else {
@@ -308,7 +364,7 @@ func get_pixel_format(format uint32) string {
 }
 
 var MaxCyclesReached error = errors.New("maximum cycles reached")
-func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan nes.VirtualScreen, turbo <-chan bool) error {
+func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, draw chan nes.VirtualScreen, audio chan<-[]float32, turbo <-chan bool, sampleRate float32) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
     screen := nes.MakeVirtualScreen(256, 240)
@@ -318,9 +374,19 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
      * NTSC 2c0c clock speed is 21.47~ MHz ÷ 12 = 1.789773 MHz
      * Every millisecond we should run this many cycles
      */
-    cycleDiff := (1.789773 * 1000000) / 1000
+    cpuSpeed := 1.789773e6
+    /* run the host timer at this frequency (in ms) so that the counter
+     * doesn't tick too fast
+     *
+     * anything higher than 1 seems ok, with 10 probably being an upper limit
+     */
+    hostTickSpeed := 5
+    cycleDiff := cpuSpeed / (1000.0 / float64(hostTickSpeed))
 
-    cycleTimer := time.NewTicker(1 * time.Millisecond)
+    /* about 20.292 */
+    baseCyclesPerSample := cpuSpeed / 2 / float64(sampleRate)
+
+    cycleTimer := time.NewTicker(time.Duration(hostTickSpeed) * time.Millisecond)
 
     turboMultiplier := float64(1)
 
@@ -337,8 +403,6 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
                     } else {
                         turboMultiplier = 1
                     }
-                case <-quit.Done():
-                    return nil
                 case <-cycleTimer.C:
                     cycleCounter += cycleDiff * turboMultiplier
             }
@@ -354,6 +418,17 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
         usedCycles := cpu.Cycle
 
         cycleCounter -= float64(usedCycles - cycles)
+
+        audioData := cpu.APU.Run((float64(usedCycles) - float64(cycles)) / 2.0, turboMultiplier * baseCyclesPerSample)
+
+        if audioData != nil {
+            // log.Printf("Send audio data via channel")
+            select {
+                case audio<- audioData:
+                default:
+                    log.Printf("Warning: audio falling behind")
+            }
+        }
 
         /* ppu runs 3 times faster than cpu */
         nmi, drawn := cpu.PPU.Run((usedCycles - cycles) * 3, screen)
@@ -373,6 +448,8 @@ func runNES(cpu nes.CPUState, maxCycles uint64, quit context.Context, draw chan 
         }
     }
 
+    // log.Printf("CPU cycles %v waited %v nanoseconds out of %v", cpu.Cycle, totalWait, time.Now().Sub(realStart).Nanoseconds())
+
     return nil
 }
 
@@ -383,6 +460,8 @@ func main(){
     var debug bool
     var maxCycles uint64
     var windowSizeMultiple int64 = 3
+    var doCpuProfile bool = true
+    var doMemoryProfile bool = true
 
     argIndex := 1
     for argIndex < len(os.Args) {
@@ -417,18 +496,42 @@ func main(){
         argIndex += 1
     }
 
-    if nesPath != "" {
-        profile, err := os.Create("profile.cpu")
-        if err != nil {
-            log.Fatal(err)
+    /*
+    go func(){
+        var stats rdebug.GCStats
+        for {
+            time.Sleep(2 * time.Second)
+            rdebug.ReadGCStats(&stats)
+            log.Printf("GC stats last=%v gc=%v pause=%v", stats.LastGC, stats.NumGC, stats.PauseTotal)
         }
-        pprof.StartCPUProfile(profile)
-        defer pprof.StopCPUProfile()
-        err = Run(nesPath, debug, maxCycles, int(windowSizeMultiple))
+    }()
+    */
+
+    if nesPath != "" {
+        if doCpuProfile {
+            profile, err := os.Create("profile.cpu")
+            if err != nil {
+                log.Fatal(err)
+            }
+            defer profile.Close()
+            pprof.StartCPUProfile(profile)
+            defer pprof.StopCPUProfile()
+        }
+        err := Run(nesPath, debug, maxCycles, int(windowSizeMultiple))
         if err != nil {
             log.Printf("Error: %v\n", err)
         }
         log.Printf("Bye")
+
+        if doMemoryProfile {
+            file, err := os.Create("profile.memory")
+            if err != nil {
+                log.Fatal(err)
+            }
+            pprof.WriteHeapProfile(file)
+            file.Close()
+            return
+        }
     } else {
         fmt.Printf("Give a .nes argument\n")
     }
