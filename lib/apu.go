@@ -352,6 +352,7 @@ type APUState struct {
      * otherwise if false then apu is in 5-step mode with no interrupts
      */
     FrameMode bool
+    UpdatedFrameCounter bool
 
     SampleCycles float64
     SampleBuffer []float32
@@ -388,6 +389,26 @@ func MakeAPU() APUState {
     }
 }
 
+/* Quarter frame actions: envelope and triangle's linear counter */
+func (apu *APUState) QuarterFrame() {
+    apu.Pulse1.Envelope.Tick()
+    apu.Pulse2.Envelope.Tick()
+    apu.Noise.Envelope.Tick()
+    apu.Noise.Length.Tick()
+    apu.Triangle.TickLinearCounter()
+}
+
+/* Half frame actions: length counters and sweep units */
+func (apu *APUState) HalfFrame() {
+    /* TODO: reset clock length counters and sweep units */
+    apu.Pulse1.Length.Tick()
+    apu.Pulse2.Length.Tick()
+    apu.Pulse1.Sweep.Tick(&apu.Pulse1.Timer)
+    apu.Pulse2.Sweep.Tick(&apu.Pulse2.Timer)
+    apu.Noise.Length.Tick()
+    apu.Triangle.TickLengthCounter()
+}
+
 func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64) []float32 {
     apu.Cycles += apuCycles
 
@@ -395,6 +416,16 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64) []float32 {
     apu.Pulse2.Run(apuCycles)
     apu.Triangle.Run(apuCycles)
     apu.Noise.Run(apuCycles)
+
+    if apu.UpdatedFrameCounter {
+        apu.Cycles = 0
+        apu.UpdatedFrameCounter = false
+
+        if !apu.FrameMode {
+            apu.QuarterFrame()
+            apu.HalfFrame()
+        }
+    }
 
     /* about 240hz on ntsc
      * cpu hz = 1.789773e6
@@ -412,38 +443,20 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64) []float32 {
                 /* TODO: send interrupt to cpu */
             }
             if apu.Clock % 2 == 0 {
-                /* TODO: reset clock length counters and sweep units */
-                apu.Pulse1.Length.Tick()
-                apu.Pulse2.Length.Tick()
-                apu.Pulse1.Sweep.Tick(&apu.Pulse1.Timer)
-                apu.Pulse2.Sweep.Tick(&apu.Pulse2.Timer)
-                apu.Noise.Length.Tick()
-                apu.Triangle.TickLengthCounter()
+                apu.HalfFrame()
             }
 
             /* TOOO: reset clock envelope and triangle linear counter */
-            apu.Pulse1.Envelope.Tick()
-            apu.Pulse2.Envelope.Tick()
-            apu.Noise.Envelope.Tick()
-            apu.Triangle.TickLinearCounter()
+            apu.QuarterFrame()
         } else {
             /* mode 1 - 5 step */
             switch apu.Clock % 5 {
                 case 0, 1, 2, 4:
-                    apu.Pulse1.Envelope.Tick()
-                    apu.Pulse2.Envelope.Tick()
-                    apu.Noise.Envelope.Tick()
-                    apu.Noise.Length.Tick()
-                    apu.Triangle.TickLinearCounter()
+                    apu.QuarterFrame()
             }
             switch apu.Clock % 5 {
                 case 1, 4:
-                    apu.Pulse1.Length.Tick()
-                    apu.Pulse2.Length.Tick()
-                    apu.Pulse1.Sweep.Tick(&apu.Pulse1.Timer)
-                    apu.Pulse2.Sweep.Tick(&apu.Pulse2.Timer)
-                    apu.Noise.Length.Tick()
-                    apu.Triangle.TickLengthCounter()
+                    apu.HalfFrame()
             }
         }
     }
@@ -552,11 +565,14 @@ func (apu *APUState) WritePulse1Timer(value byte){
 }
 
 func (apu *APUState) WritePulse1Length(value byte){
-    // log.Printf("APU: write pulse1 timer high %v", value & 7)
     apu.Pulse1.Timer.High = uint16(value & 7)
     lengthIndex := value >> 3
     apu.Pulse1.Length.SetLength(lengthIndex)
     apu.Pulse1.Sequencer.Position = 0
+
+    if ApuDebug > 0 {
+        log.Printf("APU: write pulse1 timer high %v length %v", apu.Pulse1.Timer.High, apu.Pulse1.Length.Length)
+    }
 
     apu.Pulse1.Timer.Reset()
     // frequency := 1.789773e6 / (16.0 * float32(apu.Pulse1.Timer.Divider.ClockPeriod))
@@ -712,4 +728,30 @@ func (apu *APUState) WriteFrameCounter(value byte){
         log.Printf("APU: write frame counter value=%v mode=%v", value, mode)
     }
     apu.FrameMode = mode == 0
+    apu.UpdatedFrameCounter = true
+}
+
+func bool_to_byte(x bool) byte {
+    if x {
+        return 1
+    }
+
+    return 0
+}
+
+func (apu *APUState) ReadStatus() byte {
+    var dmcInterrupt byte = 0
+    var frameInterrupt byte = 0
+    var dmc byte = 0
+    var noise byte = bool_to_byte(apu.Noise.Length.Length > 0)
+    var triangle byte = bool_to_byte(apu.Triangle.Length.Length > 0)
+    var pulse2 byte = bool_to_byte(apu.Pulse2.Length.Length > 0)
+    var pulse1 byte = bool_to_byte(apu.Pulse1.Length.Length > 0)
+
+    if ApuDebug > 0 {
+        log.Printf("Read status I=%v F=%v D=%v N=%v T=%v 2=%v 1=%v", dmcInterrupt, frameInterrupt, dmc, noise, triangle, pulse2, pulse1)
+    }
+
+    return (dmcInterrupt << 7) | (frameInterrupt << 6) | (dmc << 4) |
+           (noise << 3) | (triangle << 2) | (pulse2 << 1) | (pulse1 << 0)
 }

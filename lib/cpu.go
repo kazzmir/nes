@@ -846,6 +846,8 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
         case JOYPAD2:
             /* FIXME: handle player 2 input */
             return 0
+        case APUStatus:
+            return cpu.APU.ReadStatus()
     }
 
     if cpu.Maps[page] == nil {
@@ -904,6 +906,7 @@ const (
     APUDMCLength = 0x4013
     APUChannelEnable = 0x4015
     APUFrameCounter = 0x4017
+    APUStatus = 0x4015 // for reading
 )
 
 /* Input memory-mapped locations */
