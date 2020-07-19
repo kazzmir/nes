@@ -156,4 +156,6 @@ func main(){
             return
         }
     }
+
+    log.Printf("Test passed!")
 }
