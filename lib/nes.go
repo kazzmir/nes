@@ -86,7 +86,7 @@ type NESFile struct {
     VerticalMirror bool
 }
 
-func ParseNesFile(path string) (NESFile, error) {
+func ParseNesFile(path string, debug bool) (NESFile, error) {
     file, err := os.Open(path)
     if err != nil {
         return NESFile{}, err
@@ -107,16 +107,20 @@ func ParseNesFile(path string) (NESFile, error) {
 
     nes2 := isNes2(header)
 
-    log.Printf("Nes 2.0 %v\n", nes2)
+    if debug {
+        log.Printf("Nes 2.0 %v\n", nes2)
+    }
 
     prgRomSize := readPRG(header)
     chrRomSize := readCHR(header)
 
     mapper := readMapper(header)
 
-    log.Printf("PRG-ROM %vkb\n", prgRomSize >> 10)
-    log.Printf("CHR-ROM %vkb\n", chrRomSize >> 10)
-    log.Printf("mapper %v\n", mapper)
+    if debug {
+        log.Printf("PRG-ROM %vkb\n", prgRomSize >> 10)
+        log.Printf("CHR-ROM %vkb\n", chrRomSize >> 10)
+        log.Printf("mapper %v\n", mapper)
+    }
 
     horizontalMirror := (header[6] & 0x1) == 0x0
     verticalMirror := (header[6] & 0x1) == 0x1
@@ -124,14 +128,17 @@ func ParseNesFile(path string) (NESFile, error) {
     batteryRam := (header[6] & 0x2) == 0x2
     _ = batteryRam
 
-    log.Printf("Horizontal mirror: %v", horizontalMirror)
-    log.Printf("Vertical mirror: %v", verticalMirror)
+    if debug {
+        log.Printf("Horizontal mirror: %v", horizontalMirror)
+        log.Printf("Vertical mirror: %v", verticalMirror)
+    }
 
     hasTrainer := (header[6] & 4) == 4
 
-    log.Printf("Has trainer area %v\n", hasTrainer)
-
-    log.Printf("Last 5 bytes: %v\n", header[11:])
+    if debug {
+        log.Printf("Has trainer area %v\n", hasTrainer)
+        log.Printf("Last 5 bytes: %v\n", header[11:])
+    }
 
     if hasTrainer {
         trainer := make([]byte, 512)
@@ -139,7 +146,9 @@ func ParseNesFile(path string) (NESFile, error) {
         if err != nil {
             return NESFile{}, err
         }
-        log.Printf("Read trainer area\n")
+        if debug {
+            log.Printf("Read trainer area\n")
+        }
     }
 
     programRom := make([]byte, prgRomSize)

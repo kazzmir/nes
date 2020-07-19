@@ -114,7 +114,7 @@ func main(){
     rom := "test-roms/nestest.nes"
     logFile := "test-roms/nestest.log"
 
-    nesFile, err := nes.ParseNesFile(rom)
+    nesFile, err := nes.ParseNesFile(rom, true)
     if err != nil {
         log.Fatalf("Unable to parse %v: %v\n", rom, err)
     }

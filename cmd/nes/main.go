@@ -71,7 +71,7 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
 }
 
 func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) error {
-    nesFile, err := nes.ParseNesFile(path)
+    nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
         return err
     }
