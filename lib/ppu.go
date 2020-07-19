@@ -650,6 +650,10 @@ func (screen *VirtualScreen) Clear() {
     }
 }
 
+func (screen *VirtualScreen) CopyFrom(copyFrom *VirtualScreen){
+    copy(screen.Buffer, copyFrom.Buffer)
+}
+
 func (screen *VirtualScreen) Copy() VirtualScreen {
     out := MakeVirtualScreen(screen.Width, screen.Height)
     copy(out.Buffer, screen.Buffer)

@@ -142,9 +142,10 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
 
     var waiter sync.WaitGroup
 
-    quit, cancel := context.WithCancel(context.Background())
-    defer cancel()
-    drawn := make(chan nes.VirtualScreen, 1)
+    mainQuit, mainCancel := context.WithCancel(context.Background())
+    defer mainCancel()
+    toDraw := make(chan nes.VirtualScreen, 1)
+    bufferReady := make(chan nes.VirtualScreen, 1)
 
     pixelFormat := findPixelFormat()
 
@@ -204,6 +205,8 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
 
     go func(){
         waiter.Add(1)
+        buffer := nes.MakeVirtualScreen(256, 240)
+        bufferReady <- buffer
         defer waiter.Done()
         raw_pixels := make([]byte, 256*240*4)
         fps := 0
@@ -211,14 +214,15 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
         defer timer.Stop()
         for {
             select {
-                case <-quit.Done():
+                case <-mainQuit.Done():
                     return
-                case screen := <-drawn:
+                case screen := <-toDraw:
                     err := doRender(screen, raw_pixels)
                     fps += 1
                     if err != nil {
                         log.Printf("Could not render: %v\n", err)
                     }
+                    bufferReady <- screen
                 case <-timer.C:
                     log.Printf("FPS: %v", fps)
                     fps = 0
@@ -228,7 +232,7 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
 
     turbo := make(chan bool, 10)
 
-    startNES := func(quit context.Context){
+    startNES := func(quit context.Context, waiter *sync.WaitGroup){
         waiter.Add(1)
         defer waiter.Done()
 
@@ -249,6 +253,9 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
             if audioDevice != 0 {
                 /* runNES will generate arrays of samples that we enqueue into the SDL audio system */
                 go func(){
+                    waiter.Add(1)
+                    defer waiter.Done()
+
                     var buffer bytes.Buffer
                     for samples := range audio {
                         // log.Printf("Prepare audio to queue")
@@ -268,7 +275,8 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
                 }()
             }
 
-            err = runNES(&cpu, maxCycles, quit, drawn, audio, turbo, AudioSampleRate)
+            log.Printf("Run NES")
+            err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audio, turbo, AudioSampleRate)
             if err != nil {
                 if err == MaxCyclesReached {
                 } else {
@@ -280,24 +288,25 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
         }
     }
 
-    nesQuit, nesCancel := context.WithCancel(quit)
-    go startNES(nesQuit)
+    var nesWaiter sync.WaitGroup
+    nesQuit, nesCancel := context.WithCancel(mainQuit)
+    go startNES(nesQuit, &nesWaiter)
 
     var turboKey sdl.Scancode = sdl.SCANCODE_GRAVE
     var hardResetKey sdl.Scancode = sdl.SCANCODE_R
 
-    for quit.Err() == nil {
+    for mainQuit.Err() == nil {
         event := sdl.WaitEvent()
         if event != nil {
             // log.Printf("Event %+v\n", event)
             switch event.GetType() {
-                case sdl.QUIT: cancel()
+                case sdl.QUIT: mainCancel()
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
                     if quit_pressed {
-                        cancel()
+                        mainCancel()
                     }
 
                     if keyboard_event.Keysym.Scancode == turboKey {
@@ -310,8 +319,10 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
                         log.Printf("Hard reset")
                         nesCancel()
 
-                        nesQuit, nesCancel = context.WithCancel(quit)
-                        go startNES(nesQuit)
+                        nesWaiter.Wait()
+
+                        nesQuit, nesCancel = context.WithCancel(mainQuit)
+                        go startNES(nesQuit, &nesWaiter)
                     }
                 case sdl.KEYUP:
                     keyboard_event := event.(*sdl.KeyboardEvent)
@@ -325,6 +336,7 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
     }
 
     log.Printf("Waiting to quit..")
+    nesWaiter.Wait()
     waiter.Wait()
 
     return nil
@@ -364,7 +376,7 @@ func get_pixel_format(format uint32) string {
 }
 
 var MaxCyclesReached error = errors.New("maximum cycles reached")
-func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, draw chan nes.VirtualScreen, audio chan<-[]float32, turbo <-chan bool, sampleRate float32) error {
+func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen, bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32, turbo <-chan bool, sampleRate float32) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
     screen := nes.MakeVirtualScreen(256, 240)
@@ -435,7 +447,9 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, draw chan
 
         if drawn {
             select {
-                case draw <- screen.Copy():
+                case buffer := <-bufferReady:
+                    buffer.CopyFrom(&screen)
+                    toDraw <- buffer
                 default:
             }
         }
