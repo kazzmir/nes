@@ -210,20 +210,29 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
         defer waiter.Done()
         raw_pixels := make([]byte, 256*240*4)
         fps := 0
-        timer := time.NewTicker(1 * time.Second)
-        defer timer.Stop()
+        fpsTimer := time.NewTicker(1 * time.Second)
+        defer fpsTimer.Stop()
+
+        renderTimer := time.NewTicker(time.Second / 60)
+        defer renderTimer.Stop()
+        canRender := false
         for {
             select {
                 case <-mainQuit.Done():
                     return
                 case screen := <-toDraw:
-                    err := doRender(screen, raw_pixels)
-                    fps += 1
-                    if err != nil {
-                        log.Printf("Could not render: %v\n", err)
+                    if canRender {
+                        err := doRender(screen, raw_pixels)
+                        fps += 1
+                        if err != nil {
+                            log.Printf("Could not render: %v\n", err)
+                        }
                     }
+                    canRender = false
                     bufferReady <- screen
-                case <-timer.C:
+                case <-renderTimer.C:
+                    canRender = true
+                case <-fpsTimer.C:
                     log.Printf("FPS: %v", fps)
                     fps = 0
             }
@@ -404,6 +413,7 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
 
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
+            log.Printf("Maximum cycles %v reached", maxCycles)
             return MaxCyclesReached
         }
 
