@@ -1,4 +1,4 @@
-package main
+package nestest
 
 import (
     nes "github.com/kazzmir/nes/lib"
@@ -7,6 +7,7 @@ import (
     "os"
     "strings"
     "bufio"
+    "fmt"
 )
 
 type Expected struct {
@@ -110,19 +111,19 @@ func parseLog(path string) ([]Expected, error) {
     return out, nil
 }
 
-func main(){
+func Run(debug bool) (bool, error){
     rom := "test-roms/nestest.nes"
     logFile := "test-roms/nestest.log"
 
-    nesFile, err := nes.ParseNesFile(rom, true)
+    nesFile, err := nes.ParseNesFile(rom, debug)
     if err != nil {
-        log.Fatalf("Unable to parse %v: %v\n", rom, err)
+        return false, err
     }
 
     cpu := nes.StartupState()
     err = cpu.MapMemory(0xc000, nesFile.ProgramRom)
     if err != nil {
-        log.Fatalf("Could not map memory: %v", err)
+        return false, err
     }
     cpu.Status = 0x24
     cpu.PC = 0xc000
@@ -133,7 +134,7 @@ func main(){
 
     golden, err := parseLog(logFile)
     if err != nil {
-        log.Fatalf("Error: %v\n", err)
+        return false, err
     }
 
     table := nes.MakeInstructionDescriptiontable()
@@ -141,21 +142,22 @@ func main(){
     for _, expected := range golden {
         instruction, err := cpu.Fetch(table)
         if err != nil {
-            log.Fatalf("Error at PC 0x%X: %v\n", cpu.PC, err)
+            return false, fmt.Errorf("Error at PC 0x%X: %v\n", cpu.PC, err)
         }
 
-        log.Printf("%X %v %v\n", cpu.PC, instruction.String(), cpu.String())
+        if debug {
+            log.Printf("%X %v %v\n", cpu.PC, instruction.String(), cpu.String())
+        }
 
         if !expected.Compare(instruction, cpu) {
-            log.Fatalf("Error: PC 0x%X Expected %v but had %v\n", cpu.PC, expected.CPU.String(), cpu.String())
+            return false, fmt.Errorf("Error: PC 0x%X Expected %v but had %v", cpu.PC, expected.CPU.String(), cpu.String())
         }
 
         err = cpu.Execute(instruction)
         if err != nil {
-            log.Fatalf("Error: %v\n", err)
-            return
+            return false, err
         }
     }
 
-    log.Printf("Test passed!")
+    return true, nil
 }

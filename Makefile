@@ -3,14 +3,10 @@
 nes:
 	go build ./cmd/nes
 
-nestest:
-	go build ./test/nestest
-
-apu-test:
-	go build ./test/apu-test
-
 test:
 	go test ./lib/...
+	go build ./test/all-test
+	./all-test
 
 count:
 	wc -l ./cmd/nes/*.go ./lib/*.go

@@ -1,4 +1,4 @@
-package main
+package aputest
 
 /* Test files are linked from
  *   http://wiki.nesdev.com/w/index.php/Emulator_tests
@@ -75,9 +75,7 @@ type APUTest struct {
     FailAddress uint16
 }
 
-func main(){
-    log.SetFlags(log.Lshortfile | log.Lmicroseconds)
-
+func Run(debug bool) (bool, error) {
     tests := []APUTest{
         APUTest{
             Rom: "test-roms/apu/test_1.nes",
@@ -138,14 +136,15 @@ func main(){
         passed, err := doTest(test.Rom, test.PassAddress, test.FailAddress)
 
         if err != nil {
-            log.Printf("Error: could not run test: %v", err)
-            continue
+            return false, err
         }
 
         if passed {
-            log.Printf("Test %v passed", testNum)
+            log.Printf("APU test %v passed", testNum)
         } else {
-            log.Printf("Test %v failed", testNum)
+            log.Printf("APU test %v failed", testNum)
         }
     }
+
+    return true, nil
 }
