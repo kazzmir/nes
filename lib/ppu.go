@@ -36,6 +36,7 @@ func MakePPU() PPUState {
     return PPUState{
         VideoMemory: make([]byte, 64 * 1024),
         OAM: make([]byte, 256),
+        Scanline: 0,
     }
 }
 
@@ -292,7 +293,14 @@ func (ppu *PPUState) SetVerticalBlankFlag(on bool){
     }
 }
 
+func (ppu *PPUState) IsVerticalBlankFlagSet() bool {
+    return ppu.Status & (1<<7) == 1<<7
+}
+
 func (ppu *PPUState) ReadStatus() byte {
+    if ppu.Debug > 0 {
+        log.Printf("Read PPU status")
+    }
     out := ppu.Status
     ppu.SetVerticalBlankFlag(false)
     ppu.WriteState = 0
@@ -678,7 +686,9 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
     cyclesPerScanline := uint64(341)
     nmi := false
     didDraw := false
-    for ppu.Cycle > cyclesPerScanline {
+    oldNMI := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
+
+    for ppu.Cycle >= cyclesPerScanline {
         ppu.Scanline += 1
         if ppu.Scanline == 241 {
             /* FIXME: this happens on the second tick after transitioning to scanline 241 */
@@ -686,11 +696,8 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
                 log.Printf("Set vertical blank to true\n")
             }
             ppu.SetVerticalBlankFlag(true)
-            /* Only set NMI to true if the bit 7 of PPUCTRL is set */
-            nmi = ppu.GetNMIOutput()
         }
         if ppu.Scanline == 260 {
-            ppu.Scanline = 0
             ppu.SetVerticalBlankFlag(false)
 
             start := time.Now()
@@ -701,8 +708,17 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
             didDraw = true
         }
 
+        if ppu.Scanline == 262 {
+            ppu.Scanline = 0
+            if ppu.Debug > 0 {
+                log.Printf("PPU frame complete")
+            }
+        }
+
         ppu.Cycle -= cyclesPerScanline
     }
 
-    return nmi, didDraw
+    /* Only set NMI to true if the bit 7 of PPUCTRL is set */
+    nmi = ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
+    return nmi && (oldNMI == false), didDraw
 }

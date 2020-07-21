@@ -3932,7 +3932,7 @@ func (cpu *CPUState) BRK() {
     high := uint16(cpu.LoadMemory(BRKVector+1))
     cpu.PC = (high<<8) | low
     cpu.SetInterruptFlag(true)
-
+    cpu.Cycle += 7
 }
 
 /* NMI was set, so jump to the NMI routine */
@@ -3945,6 +3945,7 @@ func (cpu *CPUState) NMI() {
     high := uint16(cpu.LoadMemory(NMIVector+1))
     cpu.PC = (high<<8) | low
     cpu.SetInterruptFlag(true)
+    cpu.Cycle += 7
 }
 
 /* http://wiki.nesdev.com/w/index.php/CPU_power_up_state */

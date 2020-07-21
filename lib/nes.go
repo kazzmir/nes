@@ -129,6 +129,7 @@ func ParseNesFile(path string, debug bool) (NESFile, error) {
     _ = batteryRam
 
     if debug {
+        log.Printf("Has battery-backed SRAM: %v", batteryRam)
         log.Printf("Horizontal mirror: %v", horizontalMirror)
         log.Printf("Vertical mirror: %v", verticalMirror)
     }

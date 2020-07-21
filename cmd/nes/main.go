@@ -413,6 +413,8 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
 
     turboMultiplier := float64(1)
 
+    lastCpuCycle := cpu.Cycle
+
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
             log.Printf("Maximum cycles %v reached", maxCycles)
@@ -434,16 +436,15 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
 
         // log.Printf("Cycle counter %v\n", cycleCounter)
 
-        cycles := cpu.Cycle
         err := cpu.Run(instructionTable)
         if err != nil {
             return err
         }
         usedCycles := cpu.Cycle
 
-        cycleCounter -= float64(usedCycles - cycles)
+        cycleCounter -= float64(usedCycles - lastCpuCycle)
 
-        audioData := cpu.APU.Run((float64(usedCycles) - float64(cycles)) / 2.0, turboMultiplier * baseCyclesPerSample)
+        audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample)
 
         if audioData != nil {
             // log.Printf("Send audio data via channel")
@@ -455,7 +456,7 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
         }
 
         /* ppu runs 3 times faster than cpu */
-        nmi, drawn := cpu.PPU.Run((usedCycles - cycles) * 3, screen)
+        nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen)
 
         if drawn {
             select {
@@ -465,6 +466,8 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
                 default:
             }
         }
+
+        lastCpuCycle = usedCycles
 
         if nmi {
             if cpu.Debug > 0 {
