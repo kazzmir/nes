@@ -31,7 +31,7 @@ func setupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     cpu.PPU.SetHorizontalMirror(nesFile.HorizontalMirror)
     cpu.PPU.SetVerticalMirror(nesFile.VerticalMirror)
 
-    mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom)
+    mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom, nesFile.CharacterRom)
     if err != nil {
         return cpu, err
     }
@@ -40,7 +40,11 @@ func setupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
         return cpu, err
     }
 
-    cpu.PPU.CopyCharacterRom(0x0000, nesFile.CharacterRom)
+    maxCharacterRomLength := len(nesFile.CharacterRom)
+    if maxCharacterRomLength > 0x2000 {
+        maxCharacterRomLength = 0x2000
+    }
+    cpu.PPU.CopyCharacterRom(0x0000, nesFile.CharacterRom[:maxCharacterRomLength])
 
     cpu.Input = nes.MakeInput()
 

@@ -5,16 +5,60 @@ import (
     "log"
 )
 
+/* Mappers work by replacing a range of memory addressable by the cpu.
+ * For example, the program memory normally used to hold instructions
+ * lives between 0x8000 and 0xffff, which is 32k of memory. If a game
+ * wants to use 64kb worth of instructions then some or all of the range
+ * 0x8000-0xffff must be remapped to a different part of the 64kb.
+ *
+ *  0x8000-0xffff -> [first 32k block]
+ *       ---      -> [second 32k block]
+ *
+ * This diagram shows that the address range is mapped to the first block, and
+ * no address range is mapped to the second block. Each mapper allows writes
+ * to specific address ranges (usually 0x8000 - 0xffff) to allow 'bank switching'
+ * which changes the mapping of the address ranges. In the above diagram, the
+ * first 32k block is 'page 0' and the second 32k block is 'page 1', so to choose
+ * the first block the program can write the value 0 to a mapper register
+ *
+ *  lda 0
+ *  sta #8000
+ *
+ * To choose the second block, the program can write the value 1 to a mapper register.
+ *
+ *  lda 1
+ *  sta #8000
+ *
+ * When a new block of memory is mapped in, the cpu mapping then changes. Suppose
+ * page 1 is mapped in, then the above diagram would change to.
+ *
+ *       ---      -> [first 32k block]
+ *  0x8000-0xffff -> [second 32k block]
+ *
+ * At which point reads from any address within 0x8000-0xffff would come from the second
+ * 32k block rather than the first.
+ *
+ * Note that the size of the range being mapped in defines the size of a page. A memory
+ * range of 0x1000 (4k) means the 0th page is 0x000-0xfff, the 1th page is 0x1000-0x1fff, etc.
+ * A memory range of 0x2000 (8k) means the 0th page is 0x0000-0x1fff, and the 1th page
+ * is 0x2000-0x3fff. Therefore a page is a relative measurement.
+ *
+ * Memory being mapped in can come from either the PRGROM or the CHRROM, and the mapper
+ * definition will specify which. Generally all instruction memory will be in the PRGROM
+ * and sprite information will be in either PRGROM or CHRROM.
+ */
+
 type Mapper interface {
     Write(cpu *CPUState, address uint16, value byte) error
     Initialize(cpu *CPUState) error
 }
 
-func MakeMapper(mapper uint32, bankMemory []byte) (Mapper, error) {
+func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, error) {
     switch mapper {
-        case 0: return MakeMapper0(bankMemory), nil
-        case 1: return MakeMapper1(bankMemory), nil
-        case 2: return MakeMapper2(bankMemory), nil
+        case 0: return MakeMapper0(programRom), nil
+        case 1: return MakeMapper1(programRom), nil
+        case 2: return MakeMapper2(programRom), nil
+        case 3: return MakeMapper3(programRom, chrMemory), nil
         default: return nil, fmt.Errorf("Unimplemented mapper %v", mapper)
     }
 }
@@ -108,6 +152,25 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
 
                 if cpu.Debug > 0 {
                     log.Printf("mapper1: set control to chr=0x%x prg=0x%x mirror=0x%x", mapper.chrBankMode, mapper.prgBankMode, mapper.mirror)
+                }
+
+                switch mapper.mirror {
+                    case 0:
+                        /* FIXME: 1 screen A */
+                        log.Printf("FIXME: mapper1 set mirror to 1 screen A")
+                        break
+                    case 1:
+                        /* FIXME: 1 screen B */
+                        log.Printf("FIXME: mapper1 set mirror to 1 screen B")
+                        break
+                    case 2:
+                        /* vertical */
+                        cpu.PPU.SetHorizontalMirror(false)
+                        cpu.PPU.SetVerticalMirror(true)
+                    case 3:
+                        /* horizontal */
+                        cpu.PPU.SetHorizontalMirror(true)
+                        cpu.PPU.SetVerticalMirror(false)
                 }
 
                 /* FIXME: I think passing in register here might be incorrect */
@@ -282,5 +345,33 @@ func (mapper *Mapper2) Write(cpu *CPUState, address uint16, value byte) error {
 func MakeMapper2(bankMemory []byte) Mapper {
     return &Mapper2{
         BankMemory: bankMemory,
+    }
+}
+
+type Mapper3 struct {
+    ProgramRom []byte
+    BankMemory []byte
+}
+
+func (mapper *Mapper3) Initialize(cpu *CPUState) error {
+    err := cpu.MapMemory(0x8000, mapper.ProgramRom)
+    if err != nil {
+        return err
+    }
+    cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[0:0x2000])
+    return nil
+}
+
+func (mapper *Mapper3) Write(cpu *CPUState, address uint16, value byte) error {
+    use := value & 0x3
+    base := uint16(use) * 0x2000
+    cpu.PPU.CopyCharacterRom(0x000, mapper.BankMemory[base:base+0x2000])
+    return nil
+}
+
+func MakeMapper3(programRom []byte, chrMemory []byte) Mapper {
+    return &Mapper3{
+        ProgramRom: programRom,
+        BankMemory: chrMemory,
     }
 }

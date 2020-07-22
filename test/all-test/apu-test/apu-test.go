@@ -23,7 +23,7 @@ func doTest(rom string, passAddress uint16, failAddress uint16) (bool, error) {
 
     cpu := nes.StartupState()
 
-    mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom)
+    mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom, nesFile.CharacterRom)
     if err != nil {
         return false, err
     }
