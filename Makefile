@@ -9,4 +9,4 @@ test:
 	./all-test
 
 count:
-	wc -l ./cmd/nes/*.go ./lib/*.go
+	wc -l ./cmd/nes/*.go ./lib/*.go `find test -name "*.go"`
