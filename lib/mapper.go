@@ -111,6 +111,7 @@ type Mapper1 struct {
     mirror byte
     prgBankMode byte
     chrBankMode byte
+    prgBank byte
 
     /* FIXME: this might get mapped from the bank memory, not sure */
     PRGRam []byte
@@ -174,8 +175,7 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                         cpu.PPU.SetVerticalMirror(false)
                 }
 
-                /* FIXME: I think passing in register here might be incorrect */
-                err := mapper.SetPrgBank(cpu, mapper.register, int(mapper.prgBankMode))
+                err := mapper.SetPrgBank(cpu, mapper.prgBank, int(mapper.prgBankMode))
                 if err != nil {
                     return err
                 }
@@ -198,7 +198,8 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                 }
             } else if address >= 0xe000 {
                 /* prg bank */
-                err := mapper.SetPrgBank(cpu, mapper.register, int(mapper.prgBankMode))
+                mapper.prgBank = mapper.register
+                err := mapper.SetPrgBank(cpu, mapper.prgBank, int(mapper.prgBankMode))
                 if err != nil {
                     return err
                 }
@@ -217,10 +218,9 @@ func (mapper *Mapper1) SetPrgBank(cpu *CPUState, bank uint8, setting int) error 
     if cpu.Debug > 0 {
         log.Printf("mapper1: set prg bank 0x%x setting 0x%x", bank, setting)
     }
-    err := cpu.UnmapMemory(0x8000, 32 * 1024)
-    if err != nil {
-        return err
-    }
+
+    cpu.UnmapAllProgramMemory()
+
     switch setting {
         case 0, 1:
             page := bank >> 1
@@ -407,10 +407,7 @@ func (mapper *Mapper4) SetPrgBank(cpu *CPUState) error {
     lastPage := byte(pages - 1)
 
     /* unmap everything */
-    err := cpu.UnmapMemory(0x8000, 0x10000 - 0x8000)
-    if err != nil {
-        return err
-    }
+    cpu.UnmapAllProgramMemory()
 
     var order []byte
 
@@ -425,7 +422,7 @@ func (mapper *Mapper4) SetPrgBank(cpu *CPUState) error {
     }
 
     for i, page := range order {
-        err = cpu.MapMemory(0x8000 + uint16(i) * pageSize, mapper.ProgramBlock(page))
+        err := cpu.MapMemory(0x8000 + uint16(i) * pageSize, mapper.ProgramBlock(page))
         if err != nil {
             return err
         }

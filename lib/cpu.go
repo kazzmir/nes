@@ -924,6 +924,14 @@ func (cpu *CPUState) SetMapper(mapper Mapper) error {
     return mapper.Initialize(cpu)
 }
 
+/* unmap the 32k block starting at 0x8000 */
+func (cpu *CPUState) UnmapAllProgramMemory() {
+    err := cpu.UnmapMemory(0x8000, 0x10000 - 0x8000)
+    if err != nil {
+        log.Printf("Warning: internal error could not unmap all memory %v", err)
+    }
+}
+
 func (cpu *CPUState) UnmapMemory(address uint16, length uint16) error {
     if address & 0xff != 0 {
         return fmt.Errorf("Expected address to be page aligned: %v", address)
