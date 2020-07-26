@@ -59,6 +59,7 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
         case 1: return MakeMapper1(programRom), nil
         case 2: return MakeMapper2(programRom), nil
         case 3: return MakeMapper3(programRom, chrMemory), nil
+        case 4: return MakeMapper4(programRom, chrMemory), nil
         default: return nil, fmt.Errorf("Unimplemented mapper %v", mapper)
     }
 }
@@ -373,5 +374,161 @@ func MakeMapper3(programRom []byte, chrMemory []byte) Mapper {
     return &Mapper3{
         ProgramRom: programRom,
         BankMemory: chrMemory,
+    }
+}
+
+type Mapper4 struct {
+    ProgramRom []byte
+    CharacterRom []byte
+
+    chrMode byte
+    prgMode byte
+    /* used to select which of the chrRegister/prgRegister to write to */
+    registerIndex byte
+
+    chrRegister [6]byte
+    prgRegister [2]byte
+}
+
+func (mapper *Mapper4) Initialize(cpu *CPUState) error {
+    return mapper.SetPrgBank(cpu)
+}
+
+func (mapper *Mapper4) ProgramBlock(page byte) []byte {
+    pageSize := uint32(0x2000)
+    base := pageSize * uint32(page)
+
+    return mapper.ProgramRom[base:base+pageSize]
+}
+
+func (mapper *Mapper4) SetPrgBank(cpu *CPUState) error {
+    pageSize := uint16(0x2000)
+    pages := len(mapper.ProgramRom) / int(pageSize)
+    lastPage := byte(pages - 1)
+
+    /* unmap everything */
+    err := cpu.UnmapMemory(0x8000, 0x10000 - 0x8000)
+    if err != nil {
+        return err
+    }
+
+    var order []byte
+
+    /* map every 8k section of memory */
+    switch mapper.prgMode {
+        case 0:
+            order = []byte{mapper.prgRegister[0], mapper.prgRegister[1], lastPage-1, lastPage}
+        case 1:
+            order = []byte{lastPage-1, mapper.prgRegister[1], mapper.prgRegister[0], lastPage}
+        default:
+            return fmt.Errorf("mapper4: unknown prg mode %v", mapper.prgMode)
+    }
+
+    for i, page := range order {
+        err = cpu.MapMemory(0x8000 + uint16(i) * pageSize, mapper.ProgramBlock(page))
+        if err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+
+func (mapper *Mapper4) CharacterBlock(length uint32, page byte) []byte {
+    /* Kind of weird but I guess a page is always 0x400 (1k) bytes */
+    base := uint32(page) * 0x400
+    // log.Printf("mapper4: character rom bank page 0x%x at 0x%x - 0x%x", page, base, base + length)
+    return mapper.CharacterRom[base:base+length]
+}
+
+func (mapper *Mapper4) SetChrBank(ppu *PPUState) error {
+    switch mapper.chrMode {
+        case 0:
+            ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x800, mapper.chrRegister[0]))
+            ppu.CopyCharacterRom(0x0800, mapper.CharacterBlock(0x800, mapper.chrRegister[1]))
+            ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x400, mapper.chrRegister[2]))
+            ppu.CopyCharacterRom(0x1400, mapper.CharacterBlock(0x400, mapper.chrRegister[3]))
+            ppu.CopyCharacterRom(0x1800, mapper.CharacterBlock(0x400, mapper.chrRegister[4]))
+            ppu.CopyCharacterRom(0x1c00, mapper.CharacterBlock(0x400, mapper.chrRegister[5]))
+            return nil
+        case 1:
+            ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x400, mapper.chrRegister[2]))
+            ppu.CopyCharacterRom(0x0400, mapper.CharacterBlock(0x400, mapper.chrRegister[3]))
+            ppu.CopyCharacterRom(0x0800, mapper.CharacterBlock(0x400, mapper.chrRegister[4]))
+            ppu.CopyCharacterRom(0x0c00, mapper.CharacterBlock(0x400, mapper.chrRegister[5]))
+            ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x800, mapper.chrRegister[0]))
+            ppu.CopyCharacterRom(0x1800, mapper.CharacterBlock(0x800, mapper.chrRegister[1]))
+            return nil
+    }
+
+    return fmt.Errorf("mapper4: unknown chr mode %v", mapper.chrMode)
+}
+
+func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
+    // log.Printf("mapper4: write to 0x%x value 0x%x", address, value)
+    switch address {
+        case 0x8000:
+            mapper.chrMode = (value >> 7) & 0x1
+            mapper.prgMode = (value >> 6) & 0x1
+            mapper.registerIndex = value & 0x7
+            mapper.SetChrBank(&cpu.PPU)
+            mapper.SetPrgBank(cpu)
+        case 0x8001:
+            updateChr := false
+            updatePrg := false
+            switch mapper.registerIndex {
+                case 0, 1, 2, 3, 4, 5:
+                    if mapper.registerIndex == 0 || mapper.registerIndex == 1 {
+                        value = value & (^byte(1))
+                    }
+                    mapper.chrRegister[mapper.registerIndex] = value
+                    updateChr = true
+                case 6, 7:
+                    /* only use the first 6 bits, top two are ignored */
+                    mapper.prgRegister[mapper.registerIndex-6] = value & 0x3f
+                    updatePrg = true
+            }
+
+            if updateChr {
+                mapper.SetChrBank(&cpu.PPU)
+            }
+
+            if updatePrg {
+                mapper.SetPrgBank(cpu)
+            }
+        case 0xa000:
+            mirror := value & 0x1
+            /* FIXME: dont set mirroring for nes files that set 4-way mirroring */
+            switch mirror {
+                case 0:
+                    cpu.PPU.SetHorizontalMirror(false)
+                    cpu.PPU.SetVerticalMirror(true)
+                case 1:
+                    cpu.PPU.SetHorizontalMirror(true)
+                    cpu.PPU.SetVerticalMirror(false)
+            }
+        case 0xa001:
+            /* prg ram protect */
+            log.Printf("FIXME: mapper4: implement prg ram protect 0xa001")
+            break
+        case 0xc000:
+            log.Printf("FIXME: mapper4: implement irq reload 0xc000")
+        case 0xc001:
+            log.Printf("FIXME: mapper4: implement irq set to 0 0xc001")
+        case 0xe000:
+            log.Printf("FIXME: mapper4: implement clear irq enable and pending 0xe000")
+        case 0xe001:
+            log.Printf("FIXME: mapper4: implement set irq enable flag 0xe001")
+        default:
+            log.Printf("FIXME: unknown mapper4 write to 0x%x with 0x%x", address, value)
+    }
+
+    return nil
+}
+
+func MakeMapper4(programRom []byte, chrMemory []byte) Mapper {
+    return &Mapper4{
+        ProgramRom: programRom,
+        CharacterRom: chrMemory,
     }
 }

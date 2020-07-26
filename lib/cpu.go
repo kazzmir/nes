@@ -77,7 +77,7 @@ func (instruction *Instruction) OperandWord() (uint16, error) {
 
 func (instruction *Instruction) String() string {
     var out bytes.Buffer
-    out.WriteString(fmt.Sprintf("%X ", instruction.Kind))
+    out.WriteString(fmt.Sprintf("%02X ", instruction.Kind))
     out.WriteString(instruction.Name)
     for _, operand := range instruction.Operands {
         out.WriteRune(' ')
@@ -177,6 +177,7 @@ const (
     Instruction_EOR_zero_x =          0x55
     Instruction_LSR_zero_x =          0x56
     Instruction_SRE_zero_x =          0x57
+    Instruction_CLI =                 0x58
     Instruction_EOR_absolute_y =      0x59
     Instruction_NOP_3 =               0x5a
     Instruction_SRE_absolute_y =      0x5b
@@ -366,6 +367,8 @@ func MakeInstructionDescriptiontable() InstructionTable {
     table[Instruction_AHX_absolute_y] = InstructionDescription{Name: "ahx", Operands: 2}
 
     table[Instruction_XAA] = InstructionDescription{Name: "xaa", Operands: 1}
+
+    table[Instruction_CLI] = InstructionDescription{Name: "cli", Operands: 0}
 
     table[Instruction_KIL_1] = InstructionDescription{Name: "kil", Operands: 0}
     table[Instruction_KIL_2] = InstructionDescription{Name: "kil", Operands: 0}
@@ -928,7 +931,7 @@ func (cpu *CPUState) UnmapMemory(address uint16, length uint16) error {
     page := address >> 8
 
     if length & 0xff != 0 {
-        return fmt.Errorf("Expected memory length to be page aligned: %v", length)
+        return fmt.Errorf("Expected memory length to be page aligned: %v at 0x%x", length, address)
     }
 
     pages := length >> 8
@@ -1082,7 +1085,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             return
     }
 
-    if address > 0x8000 {
+    if address >= 0x8000 {
         err := cpu.Mapper.Write(cpu, address, value)
         if err != nil {
             log.Printf("Warning: writing to mapper memory: %v", err)
@@ -2082,9 +2085,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             return nil
 
         case Instruction_SHY:
-            return fmt.Errorf("shy unimplemented")
+            return fmt.Errorf("cpu instruction SHY unimplemented")
         case Instruction_SHX:
-            return fmt.Errorf("shx unimplemented")
+            return fmt.Errorf("cpu instruction SHX unimplemented")
 
         case Instruction_AHX_indirect_y:
             value, err := instruction.OperandByte()
@@ -2609,6 +2612,11 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             cpu.Cycle += 2
 
+            return nil
+        case Instruction_CLI:
+            cpu.SetInterruptFlag(false)
+            cpu.PC += instruction.Length()
+            cpu.Cycle += 2
             return nil
         case Instruction_KIL_1,
              Instruction_KIL_2,
