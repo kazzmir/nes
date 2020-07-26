@@ -121,10 +121,13 @@ func Run(debug bool) (bool, error){
     }
 
     cpu := nes.StartupState()
-    err = cpu.MapMemory(0xc000, nesFile.ProgramRom)
+
+    mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom, nesFile.CharacterRom)
     if err != nil {
         return false, err
     }
+    cpu.SetMapper(mapper)
+
     cpu.Status = 0x24
     cpu.PC = 0xc000
     /* FIXME: initiate the RESET process, which takes 6 clock cycles.

@@ -28,10 +28,7 @@ func doTest(rom string) (bool, error) {
     if err != nil {
         return false, err
     }
-    err = cpu.SetMapper(mapper)
-    if err != nil {
-        return false, err
-    }
+    cpu.SetMapper(mapper)
 
     cpu.Reset()
 

@@ -859,6 +859,14 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
             return cpu.APU.ReadStatus()
     }
 
+    if page >= 0x60 {
+        if cpu.Mapper == nil {
+            log.Printf("No mapper set, cannot read from mapper memory: 0x%x", address)
+            return 0
+        }
+        return cpu.Mapper.Read(address)
+    }
+
     if cpu.Maps[page] == nil {
         log.Printf("Warning: loading unmapped memory at 0x%x\n", address)
         return 0
@@ -925,9 +933,9 @@ const (
     JOYPAD2 = 0x4017
 )
 
-func (cpu *CPUState) SetMapper(mapper Mapper) error {
+func (cpu *CPUState) SetMapper(mapper Mapper){
     cpu.Mapper = mapper
-    return mapper.Initialize(cpu)
+    // mapper.Initialize(cpu)
 }
 
 /* unmap the 32k block starting at 0x8000 */
@@ -1099,13 +1107,12 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             return
     }
 
-    if address >= 0x8000 {
+    if address >= 0x6000 {
         err := cpu.Mapper.Write(cpu, address, value)
         if err != nil {
             log.Printf("Warning: writing to mapper memory: %v", err)
         }
 
-        /* FIXME: should we still write to the new location? */
         return
     }
 

@@ -27,10 +27,7 @@ func doTest(rom string, passAddress uint16, failAddress uint16) (bool, error) {
     if err != nil {
         return false, err
     }
-    err = cpu.SetMapper(mapper)
-    if err != nil {
-        return false, err
-    }
+    cpu.SetMapper(mapper)
 
     cpu.Reset()
 

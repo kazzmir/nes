@@ -50,7 +50,7 @@ import (
 
 type Mapper interface {
     Write(cpu *CPUState, address uint16, value byte) error
-    Initialize(cpu *CPUState) error
+    Read(address uint16) byte
 }
 
 func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, error) {
@@ -72,26 +72,14 @@ func (mapper *Mapper0) Write(cpu *CPUState, address uint16, value byte) error {
     return fmt.Errorf("mapper0 does not support bank switching at address 0x%x: 0x%x", address, value)
 }
 
-func (mapper *Mapper0) Initialize(cpu *CPUState) error {
-    /* map code to 0xc000 for NROM-128.
-     * also map to 0x8000, but most games don't seem to care..?
-     * http://wiki.nesdev.com/w/index.php/Programming_NROM
-     */
-    err := cpu.MapMemory(0x8000, mapper.BankMemory)
-    if err != nil {
-        return err
-    }
-
-    /* FIXME: handle this by checking if the nes file uses nrom-256 */
-    /* for a 32k rom, dont map the programrom at 0xc000 */
+func (mapper *Mapper0) Read(address uint16) byte {
+    use := address - uint16(0x8000)
     if len(mapper.BankMemory) == 16*1024 {
-        err = cpu.MapMemory(0xc000, mapper.BankMemory)
-        if err != nil {
-            return err
-        }
+        use = use % 0x4000
+        return mapper.BankMemory[use]
+    } else {
+        return mapper.BankMemory[use]
     }
-
-    return nil
 }
 
 func MakeMapper0(bankMemory []byte) Mapper {
@@ -103,6 +91,7 @@ func MakeMapper0(bankMemory []byte) Mapper {
 /* http://wiki.nesdev.com/w/index.php/MMC1 */
 type Mapper1 struct {
     BankMemory []byte
+    last4kBank int
     /* how many bits to left shift the next value */
     shift int
     /* the value to pass to the mmc */
@@ -117,7 +106,57 @@ type Mapper1 struct {
     PRGRam []byte
 }
 
+/* Read at address 'offset' within the 32k bank given by 'bank'.
+ * When bank = 0, the starting address is 0x0000
+ * When bank = 1, the starting address is 0x8000
+ * etc.
+ */
+func (mapper *Mapper1) ReadBank(pageSize uint16, bank int, offset uint16) byte {
+    base := uint32(bank) * uint32(pageSize)
+
+    final := uint32(offset) + base
+
+    if final >= uint32(len(mapper.BankMemory)) {
+        log.Printf("Warning: mapper1: cannot read memory at 0x%x maximum is 0x%x", final, len(mapper.BankMemory))
+        return 0
+    }
+
+    return mapper.BankMemory[final]
+}
+
+func (mapper *Mapper1) Read(address uint16) byte {
+    if address >= 0x6000 && address < 0x8000 {
+        return mapper.PRGRam[address - uint16(0x6000)]
+    }
+
+    baseAddress := address - uint16(0x8000)
+
+    switch mapper.prgBankMode {
+        case 0, 1:
+            return mapper.ReadBank(0x8000, int(mapper.prgBank >> 1), baseAddress)
+        case 2:
+            if address < 0xc000 {
+                return mapper.ReadBank(0x4000, 0, baseAddress)
+            }
+
+            return mapper.ReadBank(0x4000, int(mapper.prgBank), address - 0xc000)
+        case 3:
+            if address < 0xc000 {
+                return mapper.ReadBank(0x4000, int(mapper.prgBank), baseAddress)
+            }
+
+            return mapper.ReadBank(0x4000, mapper.last4kBank, address - 0xc000)
+    }
+
+    return 0
+}
+
 func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
+    if address >= 0x6000 && address < 0x8000 {
+        mapper.PRGRam[address - uint16(0x6000)] = value
+        return nil
+    }
+
     if cpu.Debug > 0 {
         log.Printf("mapper1: Writing bank switching register 0x%x with value 0x%x", address, value)
     }
@@ -134,13 +173,6 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
         mapper.shift += 1
 
         if mapper.shift == 5 {
-            /*
-            err := mapper.BankSwitch(cpu, int(value))
-            if err != nil {
-                return fmt.Errorf("Warning: could not bank switch to 0x%x: %v\n", value, err)
-            }
-            */
-
             if cpu.Debug > 0 {
                 log.Printf("mapper1: write internal register 0x%x to 0x%x", mapper.register, address)
             }
@@ -174,11 +206,6 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                         cpu.PPU.SetHorizontalMirror(true)
                         cpu.PPU.SetVerticalMirror(false)
                 }
-
-                err := mapper.SetPrgBank(cpu, mapper.prgBank, int(mapper.prgBankMode))
-                if err != nil {
-                    return err
-                }
             } else if address >= 0xa000 && address <= 0xbfff {
                 /* chr bank 0 */
                 if mapper.chrBankMode == 1 {
@@ -199,9 +226,8 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
             } else if address >= 0xe000 {
                 /* prg bank */
                 mapper.prgBank = mapper.register
-                err := mapper.SetPrgBank(cpu, mapper.prgBank, int(mapper.prgBankMode))
-                if err != nil {
-                    return err
+                if cpu.Debug > 0 {
+                    log.Printf("mapper1: set prg bank 0x%x setting 0x%x", mapper.prgBank, mapper.prgBankMode)
                 }
             }
 
@@ -214,131 +240,40 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
     return nil
 }
 
-func (mapper *Mapper1) SetPrgBank(cpu *CPUState, bank uint8, setting int) error {
-    if cpu.Debug > 0 {
-        log.Printf("mapper1: set prg bank 0x%x setting 0x%x", bank, setting)
-    }
-
-    cpu.UnmapAllProgramMemory()
-
-    switch setting {
-        case 0, 1:
-            page := bank >> 1
-            base := uint32(page) * 0x8000
-            if base + 0x10000 > uint32(len(mapper.BankMemory)) {
-                return fmt.Errorf("Cannot bank switch more than available PRG: tried to swap in 0x%x-0x%x but maximum is 0x%x", base, base + 0x10000, len(mapper.BankMemory))
-            }
-
-            if cpu.Debug > 0 {
-                log.Printf("mapper1: set 0x8000 to 32kb starting at bank 0x%x", page)
-            }
-            err := cpu.MapMemory(0x8000, mapper.BankMemory[base:base + 0x10000])
-            if err != nil {
-                return err
-            }
-        case 2:
-            base := uint32(0)
-            cpu.MapMemory(0x8000, mapper.BankMemory[base:base + 0x4000])
-
-            base = uint32(bank) * 0x4000
-            err := cpu.MapMemory(0xc000, mapper.BankMemory[base:base + 0x4000])
-            if err != nil {
-                return err
-            }
-        case 3:
-            base := uint32(bank) * 0x4000
-            if cpu.Debug > 0 {
-                log.Printf("mapper1: map 0x8000 -> 0x%x:0x%x", base, base + 0x4000)
-            }
-            if base + 0x4000 > uint32(len(mapper.BankMemory)) {
-                return fmt.Errorf("Could not bank switch 0x%x-0x%x. Maximum is 0x%x", base, base + 0x4000, len(mapper.BankMemory))
-            }
-            err := cpu.MapMemory(0x8000, mapper.BankMemory[base:base + 0x4000])
-            if err != nil {
-                return err
-            }
-            /* FIXME: Disch's mapper 002.txt says to map bank {$0f} to 0xc000
-             * but if a bank is 16k (0x4000) then the 0xf'th bank would be
-             * 0x3c000, which is past the length of the prgrom for .nes files
-             * that use mapper 2 such as zelda with 0x20000. the nesdev wiki
-             * says to map 'the last bank' rather than explicitly mentioning $0f
-             */
-            base = uint32(len(mapper.BankMemory)) - 0x4000
-            err = cpu.MapMemory(0xc000, mapper.BankMemory[base:base + 0x4000])
-            if err != nil {
-                return err
-            }
-    }
-
-    return nil
-}
-
-func (mapper *Mapper1) Initialize(cpu *CPUState) error {
-    err := cpu.MapMemory(0x6000, mapper.PRGRam)
-    if err != nil {
-        return err
-    }
-
-    /* FIXME: what is the default address on startup? */
-    return mapper.SetPrgBank(cpu, 0, 3)
-}
-
-func (mapper *Mapper1) BankSwitch(cpu *CPUState, bank int) error {
-    return fmt.Errorf("mapper1 bankswitch unimplemented")
-}
-
 func MakeMapper1(bankMemory []byte) Mapper {
+    pages := len(bankMemory) / 0x4000
     return &Mapper1{
         BankMemory: bankMemory,
         mirror: 0,
         prgBankMode: 3,
         chrBankMode: 0,
         PRGRam: make([]byte, 0x8000 - 0x6000),
+        last4kBank: pages-1,
     }
 }
 
 type Mapper2 struct {
     BankMemory []byte
+    lastBankAddress uint32
+    bank byte
 }
 
-func (mapper *Mapper2) Initialize(cpu *CPUState) error {
-    if len(mapper.BankMemory) < 16 * 1024 {
-        return fmt.Errorf("Expected mapper 2 nes file to have at least 16kb of program rom but the given file had %v bytes\n", len(mapper.BankMemory))
+func (mapper *Mapper2) Read(address uint16) byte {
+    if address < 0xc000 {
+        offset := uint32(address - 0x8000)
+        return mapper.BankMemory[uint32(mapper.bank) * 0x4000 + offset]
+    } else {
+        offset := uint32(address - 0xc000)
+        return mapper.BankMemory[mapper.lastBankAddress + offset]
     }
-
-    err := cpu.MapMemory(0x8000, mapper.BankMemory[0:8 * 1024])
-    if err != nil {
-        return err
-    }
-
-    length := len(mapper.BankMemory)
-    err = cpu.MapMemory(0xc000, mapper.BankMemory[length-16*1024:length])
-    if err != nil {
-        return err
-    }
-
-    return nil
-}
-
-func (mapper *Mapper2) BankSwitch(cpu *CPUState, bank int) error {
-    err := cpu.UnmapMemory(0x8000, 16 * 1024)
-    if err != nil {
-        return err
-    }
-
-    /* map a new 16k block int */
-    base := bank * 16 * 1024
-    return cpu.MapMemory(0x8000, mapper.BankMemory[base:base + 16 * 1024])
 }
 
 func (mapper *Mapper2) Write(cpu *CPUState, address uint16, value byte) error {
     if cpu.Debug > 0 {
         log.Printf("Accessing bank switching register 0x%x with value 0x%x", address, value)
     }
-    err := mapper.BankSwitch(cpu, int(value))
-    if err != nil {
-        return fmt.Errorf("Warning: could not bank switch to 0x%x: %v\n", value, err)
-    }
+
+    mapper.bank = value
 
     return nil
 }
@@ -346,6 +281,7 @@ func (mapper *Mapper2) Write(cpu *CPUState, address uint16, value byte) error {
 func MakeMapper2(bankMemory []byte) Mapper {
     return &Mapper2{
         BankMemory: bankMemory,
+        lastBankAddress: uint32(len(bankMemory) - 0x4000),
     }
 }
 
@@ -354,13 +290,13 @@ type Mapper3 struct {
     BankMemory []byte
 }
 
-func (mapper *Mapper3) Initialize(cpu *CPUState) error {
-    err := cpu.MapMemory(0x8000, mapper.ProgramRom)
-    if err != nil {
-        return err
+func (mapper *Mapper3) Read(address uint16) byte {
+    if address >= 0x8000 {
+        offset := address - 0x8000
+        return mapper.ProgramRom[offset]
     }
-    cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[0:0x2000])
-    return nil
+
+    return 0
 }
 
 func (mapper *Mapper3) Write(cpu *CPUState, address uint16, value byte) error {
@@ -380,6 +316,9 @@ func MakeMapper3(programRom []byte, chrMemory []byte) Mapper {
 type Mapper4 struct {
     ProgramRom []byte
     CharacterRom []byte
+    SaveRam []byte
+
+    lastBank int
 
     chrMode byte
     prgMode byte
@@ -390,45 +329,54 @@ type Mapper4 struct {
     prgRegister [2]byte
 }
 
-func (mapper *Mapper4) Initialize(cpu *CPUState) error {
-    return mapper.SetPrgBank(cpu)
-}
-
-func (mapper *Mapper4) ProgramBlock(page byte) []byte {
+func (mapper *Mapper4) ProgramBlock(page byte) ([]byte, error) {
     pageSize := uint32(0x2000)
     base := pageSize * uint32(page)
 
-    return mapper.ProgramRom[base:base+pageSize]
+    if base + pageSize > uint32(len(mapper.ProgramRom)) {
+        return nil, fmt.Errorf("mapper4 program cannot get 0x%x-0x%x max is 0x%x", base, base + pageSize, len(mapper.ProgramRom))
+    }
+
+    return mapper.ProgramRom[base:base+pageSize], nil
 }
 
-func (mapper *Mapper4) SetPrgBank(cpu *CPUState) error {
-    pageSize := uint16(0x2000)
-    pages := len(mapper.ProgramRom) / int(pageSize)
-    lastPage := byte(pages - 1)
+func (mapper *Mapper4) ReadBank(offset uint16, bank int) byte {
+    base := bank * 0x2000
+    return mapper.ProgramRom[uint32(base)+uint32(offset)]
+}
 
-    /* unmap everything */
-    cpu.UnmapAllProgramMemory()
+func (mapper *Mapper4) Read(address uint16) byte {
+    if address >= 0x6000 && address < 0x8000 {
+        return mapper.SaveRam[address - 0x6000]
+    }
 
-    var order []byte
-
-    /* map every 8k section of memory */
     switch mapper.prgMode {
         case 0:
-            order = []byte{mapper.prgRegister[0], mapper.prgRegister[1], lastPage-1, lastPage}
+            if address >= 0x8000 && address < 0xa000 {
+                return mapper.ReadBank(address-0x8000, int(mapper.prgRegister[0]))
+            } else if address >= 0xa000 && address < 0xc000 {
+                return mapper.ReadBank(address-0xa000, int(mapper.prgRegister[1]))
+            } else if address >= 0xc000 && address < 0xe000 {
+                return mapper.ReadBank(address-0xc000, mapper.lastBank-1)
+            } else {
+                return mapper.ReadBank(address-0xe000, mapper.lastBank)
+            }
         case 1:
-            order = []byte{lastPage-1, mapper.prgRegister[1], mapper.prgRegister[0], lastPage}
+            if address >= 0x8000 && address < 0xa000 {
+                return mapper.ReadBank(address-0x8000, mapper.lastBank-1)
+            } else if address >= 0xa000 && address < 0xc000 {
+                return mapper.ReadBank(address-0xa000, int(mapper.prgRegister[1]))
+            } else if address >= 0xc000 && address < 0xe000 {
+                return mapper.ReadBank(address-0xc000, int(mapper.prgRegister[0]))
+            } else {
+                return mapper.ReadBank(address-0xe000, mapper.lastBank)
+            }
         default:
-            return fmt.Errorf("mapper4: unknown prg mode %v", mapper.prgMode)
+            log.Printf("mapper4: unknown prg mode %v", mapper.prgMode)
+            return 0
     }
 
-    for i, page := range order {
-        err := cpu.MapMemory(0x8000 + uint16(i) * pageSize, mapper.ProgramBlock(page))
-        if err != nil {
-            return err
-        }
-    }
-
-    return nil
+    return 0
 }
 
 func (mapper *Mapper4) CharacterBlock(length uint32, page byte) []byte {
@@ -462,6 +410,12 @@ func (mapper *Mapper4) SetChrBank(ppu *PPUState) error {
 }
 
 func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
+    if address >= 0x6000 && address < 0x8000 {
+        mapper.SaveRam[address - 0x6000] = value
+        return nil
+    }
+
+
     // log.Printf("mapper4: write to 0x%x value 0x%x", address, value)
     switch address {
         case 0x8000:
@@ -469,29 +423,17 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
             mapper.prgMode = (value >> 6) & 0x1
             mapper.registerIndex = value & 0x7
             mapper.SetChrBank(&cpu.PPU)
-            mapper.SetPrgBank(cpu)
         case 0x8001:
-            updateChr := false
-            updatePrg := false
             switch mapper.registerIndex {
                 case 0, 1, 2, 3, 4, 5:
                     if mapper.registerIndex == 0 || mapper.registerIndex == 1 {
                         value = value & (^byte(1))
                     }
                     mapper.chrRegister[mapper.registerIndex] = value
-                    updateChr = true
+                    mapper.SetChrBank(&cpu.PPU)
                 case 6, 7:
                     /* only use the first 6 bits, top two are ignored */
                     mapper.prgRegister[mapper.registerIndex-6] = value & 0x3f
-                    updatePrg = true
-            }
-
-            if updateChr {
-                mapper.SetChrBank(&cpu.PPU)
-            }
-
-            if updatePrg {
-                mapper.SetPrgBank(cpu)
             }
         case 0xa000:
             mirror := value & 0x1
@@ -524,8 +466,13 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
 }
 
 func MakeMapper4(programRom []byte, chrMemory []byte) Mapper {
+    pageSize := uint16(0x2000)
+    pages := len(programRom) / int(pageSize)
+
     return &Mapper4{
         ProgramRom: programRom,
         CharacterRom: chrMemory,
+        SaveRam: make([]byte, 0x2000),
+        lastBank: pages-1,
     }
 }

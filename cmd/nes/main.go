@@ -35,10 +35,7 @@ func setupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     if err != nil {
         return cpu, err
     }
-    err = cpu.SetMapper(mapper)
-    if err != nil {
-        return cpu, err
-    }
+    cpu.SetMapper(mapper)
 
     maxCharacterRomLength := len(nesFile.CharacterRom)
     if maxCharacterRomLength > 0x2000 {
