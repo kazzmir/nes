@@ -539,6 +539,10 @@ func (ppu *PPUState) Render(screen VirtualScreen) {
                         _ = colorIndex
 
                         palette_color := ppu.VideoMemory[palette_base + uint16(colorIndex)]
+                        if int(palette_color) >= len(palette){
+                            continue
+                        }
+
                         screen.DrawPoint(int32(tile_x * 8 + x - int(ppu.FineX)), int32(tile_y * 8 + y - int(ppu.FineY)), palette[palette_color])
                     }
                 }

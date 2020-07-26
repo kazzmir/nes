@@ -60,6 +60,7 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
         case 2: return MakeMapper2(programRom), nil
         case 3: return MakeMapper3(programRom, chrMemory), nil
         case 4: return MakeMapper4(programRom, chrMemory), nil
+        case 9: return MakeMapper9(programRom, chrMemory), nil
         default: return nil, fmt.Errorf("Unimplemented mapper %v", mapper)
     }
 }
@@ -474,5 +475,94 @@ func MakeMapper4(programRom []byte, chrMemory []byte) Mapper {
         CharacterRom: chrMemory,
         SaveRam: make([]byte, 0x2000),
         lastBank: pages-1,
+    }
+}
+
+type Mapper9 struct {
+    ProgramRom []byte
+    CharacterRom []byte
+    Pages int
+
+    prgRegister byte
+    chrRegister [4]byte
+}
+
+func (mapper *Mapper9) ReadBank(offset uint16, bank int) byte {
+    base := bank * 0x2000
+    return mapper.ProgramRom[uint32(base)+uint32(offset)]
+}
+
+func (mapper *Mapper9) Read(address uint16) byte {
+    if address >= 0x8000 && address < 0xa000 {
+        return mapper.ReadBank(address - 0x8000, int(mapper.prgRegister))
+    } else if address >= 0xa000 && address < 0xc000 {
+        return mapper.ReadBank(address - 0xa000, mapper.Pages-3)
+    } else if address >= 0xc000 && address < 0xe000 {
+        return mapper.ReadBank(address - 0xc000, mapper.Pages-2)
+    } else {
+        return mapper.ReadBank(address - 0xe000, mapper.Pages-1)
+    }
+
+    return 0
+}
+
+func (mapper *Mapper9) CharacterBlock(pageSize uint16, register byte) []byte {
+    base := uint32(register) * uint32(pageSize)
+    return mapper.CharacterRom[base:base+uint32(pageSize)]
+}
+
+func (mapper *Mapper9) SetChrBank(ppu *PPUState) {
+    /* FIXME: Use chrRegister 0 or 2 depending on the ppu latch set at $fd or $fe */
+    ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x1000, mapper.chrRegister[1]))
+    /* FIXME: Use chrRegister 1 or 3 depending on the ppu latch set at $fd or $fe */
+    ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x1000, mapper.chrRegister[2]))
+}
+
+func (mapper *Mapper9) Write(cpu *CPUState, address uint16, value byte) error {
+    page := address >> 12
+    switch page {
+        case 0xa:
+            mapper.prgRegister = value
+            return nil
+        case 0xb:
+            mapper.chrRegister[0] = value
+            mapper.SetChrBank(&cpu.PPU)
+            return nil
+        case 0xc:
+            mapper.chrRegister[1] = value
+            mapper.SetChrBank(&cpu.PPU)
+            return nil
+        case 0xd:
+            mapper.chrRegister[2] = value
+            mapper.SetChrBank(&cpu.PPU)
+            return nil
+        case 0xe:
+            mapper.chrRegister[3] = value
+            mapper.SetChrBank(&cpu.PPU)
+            return nil
+        case 0xf:
+            mirror := value & 0x1
+            switch mirror {
+                case 0:
+                    cpu.PPU.SetHorizontalMirror(false)
+                    cpu.PPU.SetVerticalMirror(true)
+                case 1:
+                    cpu.PPU.SetHorizontalMirror(true)
+                    cpu.PPU.SetVerticalMirror(false)
+            }
+
+            return nil
+    }
+
+    return fmt.Errorf("mapper9: unknown write to address 0x%x", address)
+}
+
+func MakeMapper9(programRom []byte, chrMemory []byte) Mapper {
+    pageSize := uint16(0x2000)
+    pages := len(programRom) / int(pageSize)
+    return &Mapper9{
+        ProgramRom: programRom,
+        CharacterRom: chrMemory,
+        Pages: pages,
     }
 }
