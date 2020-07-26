@@ -5,8 +5,6 @@ import (
     "fmt"
     "log"
     "io"
-
-    "github.com/veandco/go-sdl2/sdl"
 )
 
 /* opcode references
@@ -686,8 +684,9 @@ func dump_instructions(instructions []byte){
     }
 }
 
+type Button int
 const (
-    ButtonIndexA = 0
+    ButtonIndexA Button = 0
     ButtonIndexB = 1
     ButtonIndexSelect = 2
     ButtonIndexStart = 3
@@ -697,22 +696,28 @@ const (
     ButtonIndexRight = 7
 )
 
+type ButtonMapping map[Button]bool
+
+type HostInput interface {
+    Get() ButtonMapping
+}
+
 type Input struct {
     Buttons []bool
     NextRead byte
+    Host HostInput
 }
 
 func (input *Input) Reset() {
-    keyboard := sdl.GetKeyboardState()
-    /* FIXME: make the keys configurable */
-    input.Buttons[ButtonIndexA] = keyboard[sdl.SCANCODE_A] == 1
-    input.Buttons[ButtonIndexB] = keyboard[sdl.SCANCODE_S] == 1
-    input.Buttons[ButtonIndexSelect] = keyboard[sdl.SCANCODE_Q] == 1
-    input.Buttons[ButtonIndexStart] = keyboard[sdl.SCANCODE_RETURN] == 1
-    input.Buttons[ButtonIndexUp] = keyboard[sdl.SCANCODE_UP] == 1
-    input.Buttons[ButtonIndexDown] = keyboard[sdl.SCANCODE_DOWN] == 1
-    input.Buttons[ButtonIndexLeft] = keyboard[sdl.SCANCODE_LEFT] == 1
-    input.Buttons[ButtonIndexRight] = keyboard[sdl.SCANCODE_RIGHT] == 1
+    mapping := input.Host.Get()
+    input.Buttons[ButtonIndexA] = mapping[ButtonIndexA]
+    input.Buttons[ButtonIndexB] = mapping[ButtonIndexB]
+    input.Buttons[ButtonIndexSelect] = mapping[ButtonIndexSelect]
+    input.Buttons[ButtonIndexStart] = mapping[ButtonIndexStart]
+    input.Buttons[ButtonIndexUp] = mapping[ButtonIndexUp]
+    input.Buttons[ButtonIndexDown] = mapping[ButtonIndexDown]
+    input.Buttons[ButtonIndexLeft] = mapping[ButtonIndexLeft]
+    input.Buttons[ButtonIndexRight] = mapping[ButtonIndexRight]
 }
 
 func (input *Input) Read() byte {
@@ -724,10 +729,11 @@ func (input *Input) Read() byte {
     return out
 }
 
-func MakeInput() *Input {
+func MakeInput(host HostInput) *Input {
     return &Input{
         Buttons: make([]bool, 8),
         NextRead: 0,
+        Host: host,
     }
 }
 

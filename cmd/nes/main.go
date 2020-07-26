@@ -46,7 +46,7 @@ func setupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     }
     cpu.PPU.CopyCharacterRom(0x0000, nesFile.CharacterRom[:maxCharacterRomLength])
 
-    cpu.Input = nes.MakeInput()
+    cpu.Input = nes.MakeInput(&SDLButtons{})
 
     if debug {
         cpu.Debug = 1
@@ -72,6 +72,25 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
 
     device, err := sdl.OpenAudioDevice("", false, &audioSpec, &obtainedSpec, sdl.AUDIO_ALLOW_FORMAT_CHANGE)
     return device, err
+}
+
+type SDLButtons struct {
+}
+
+func (buttons *SDLButtons) Get() nes.ButtonMapping {
+    mapping := make(nes.ButtonMapping)
+
+    keyboard := sdl.GetKeyboardState()
+    mapping[nes.ButtonIndexA] = keyboard[sdl.SCANCODE_A] == 1
+    mapping[nes.ButtonIndexB] = keyboard[sdl.SCANCODE_S] == 1
+    mapping[nes.ButtonIndexSelect] = keyboard[sdl.SCANCODE_Q] == 1
+    mapping[nes.ButtonIndexStart] = keyboard[sdl.SCANCODE_RETURN] == 1
+    mapping[nes.ButtonIndexUp] = keyboard[sdl.SCANCODE_UP] == 1
+    mapping[nes.ButtonIndexDown] = keyboard[sdl.SCANCODE_DOWN] == 1
+    mapping[nes.ButtonIndexLeft] = keyboard[sdl.SCANCODE_LEFT] == 1
+    mapping[nes.ButtonIndexRight] = keyboard[sdl.SCANCODE_RIGHT] == 1
+
+    return mapping
 }
 
 func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) error {
