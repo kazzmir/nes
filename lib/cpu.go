@@ -1094,6 +1094,9 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
         case APUFrameCounter:
             cpu.APU.WriteFrameCounter(value)
             return
+        case APUDMCLoad:
+            cpu.APU.WriteDMCLoad(value)
+            return
         case INPUT_POLL:
             cpu.Input.Reset()
             return

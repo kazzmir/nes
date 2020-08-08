@@ -497,6 +497,10 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64) []float32 {
     return out
 }
 
+func (apu *APUState) WriteDMCLoad(value byte){
+    /* FIXME */
+}
+
 func (apu *APUState) GenerateSample() float32 {
     var pulseValue float32
     var pulse byte

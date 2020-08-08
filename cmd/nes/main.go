@@ -90,6 +90,16 @@ func (buttons *SDLButtons) Get() nes.ButtonMapping {
     return mapping
 }
 
+type EmulatorAction int
+const (
+    EmulatorNormal = iota
+    EmulatorTurbo
+    EmulatorSlowDown
+    EmulatorSpeedUp
+    EmulatorTogglePause
+    EmulatorTogglePPUDebug
+)
+
 func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) error {
     nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
@@ -105,9 +115,12 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
     }
     defer sdl.Quit()
 
+    /* Number of pixels on the top and bottom of the screen to hide */
+    overscanPixels := 8
+
     /* to resize the window */
     // | sdl.WINDOW_RESIZABLE
-    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(256 * windowSizeMultiple), int32(240 * windowSizeMultiple), sdl.WINDOW_SHOWN)
+    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(256 * windowSizeMultiple), int32((240 - overscanPixels * 2) * windowSizeMultiple), sdl.WINDOW_SHOWN)
     if err != nil {
         return err
     }
@@ -173,11 +186,14 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
     /* create a surface from the pixels in one call, then create a texture and render it */
     doRender := func(screen nes.VirtualScreen, raw_pixels []byte) error {
         width := int32(256)
-        height := int32(240)
+        height := int32(240 - overscanPixels * 2)
         depth := 8 * 4 // RGBA8888
         pitch := int(width) * int(depth) / 8
 
-        for i, pixel := range screen.Buffer {
+        startPixel := overscanPixels * int(width)
+        endPixel := (240 - overscanPixels) * int(width)
+
+        for i, pixel := range screen.Buffer[startPixel:endPixel] {
             /* red */
             raw_pixels[i*4+0] = byte(pixel >> 24)
             /* green */
@@ -229,7 +245,7 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
         buffer := nes.MakeVirtualScreen(256, 240)
         bufferReady <- buffer
         defer waiter.Done()
-        raw_pixels := make([]byte, 256*240*4)
+        raw_pixels := make([]byte, 256*(240-overscanPixels*2) * 4)
         fpsCounter := 2.0
         fps := 0
         fpsTimer := time.NewTicker(time.Duration(fpsCounter) * time.Second)
@@ -261,7 +277,7 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
         }
     }()
 
-    turbo := make(chan bool, 10)
+    turbo := make(chan EmulatorAction, 10)
 
     startNES := func(quit context.Context, waiter *sync.WaitGroup){
         waiter.Add(1)
@@ -324,7 +340,12 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
     go startNES(nesQuit, &nesWaiter)
 
     var turboKey sdl.Scancode = sdl.SCANCODE_GRAVE
+    var pauseKey sdl.Scancode = sdl.SCANCODE_SPACE
     var hardResetKey sdl.Scancode = sdl.SCANCODE_R
+    var ppuDebugKey sdl.Scancode = sdl.SCANCODE_P
+    var slowDownKey sdl.Scancode = sdl.SCANCODE_MINUS
+    var speedUpKey sdl.Scancode = sdl.SCANCODE_EQUALS
+    var normalKey sdl.Scancode = sdl.SCANCODE_0
 
     for mainQuit.Err() == nil {
         event := sdl.WaitEvent()
@@ -342,7 +363,38 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
 
                     if keyboard_event.Keysym.Scancode == turboKey {
                         select {
-                            case turbo <- true:
+                            case turbo <- EmulatorTurbo:
+                        }
+                    }
+
+                    if keyboard_event.Keysym.Scancode == pauseKey {
+                        log.Printf("Pause/unpause")
+                        select {
+                            case turbo <- EmulatorTogglePause:
+                        }
+                    }
+
+                    if keyboard_event.Keysym.Scancode == ppuDebugKey {
+                        select {
+                            case turbo <- EmulatorTogglePPUDebug:
+                        }
+                    }
+
+                    if keyboard_event.Keysym.Scancode == slowDownKey {
+                        select {
+                            case turbo <- EmulatorSlowDown:
+                        }
+                    }
+
+                    if keyboard_event.Keysym.Scancode == speedUpKey {
+                        select {
+                            case turbo <- EmulatorSpeedUp:
+                        }
+                    }
+
+                    if keyboard_event.Keysym.Scancode == normalKey {
+                        select {
+                            case turbo <- EmulatorNormal:
                         }
                     }
 
@@ -357,9 +409,10 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
                     }
                 case sdl.KEYUP:
                     keyboard_event := event.(*sdl.KeyboardEvent)
-                    if keyboard_event.Keysym.Scancode == turboKey {
+                    scancode := keyboard_event.Keysym.Scancode
+                    if scancode == turboKey || scancode == pauseKey {
                         select {
-                            case turbo <- false:
+                            case turbo <- EmulatorNormal:
                         }
                     }
             }
@@ -407,7 +460,7 @@ func get_pixel_format(format uint32) string {
 }
 
 var MaxCyclesReached error = errors.New("maximum cycles reached")
-func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen, bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32, turbo <-chan bool, sampleRate float32) error {
+func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen, bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32, turbo <-chan EmulatorAction, sampleRate float32) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
     screen := nes.MakeVirtualScreen(256, 240)
@@ -435,6 +488,8 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
 
     lastCpuCycle := cpu.Cycle
 
+    paused := false
+
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
             log.Printf("Maximum cycles %v reached", maxCycles)
@@ -443,14 +498,35 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
 
         for cycleCounter <= 0 {
             select {
-                case enable := <-turbo:
-                    if enable {
-                        turboMultiplier = 3
-                    } else {
-                        turboMultiplier = 1
+                case <-quit.Done():
+                    return nil
+                case action := <-turbo:
+                    switch action {
+                        case EmulatorTurbo:
+                            turboMultiplier = 3
+                        case EmulatorNormal:
+                            turboMultiplier = 1
+                            log.Printf("Emulator speed set to %v", turboMultiplier)
+                        case EmulatorSlowDown:
+                            turboMultiplier -= 0.1
+                            if turboMultiplier < 0.1 {
+                                turboMultiplier = 0.1
+                            }
+                            log.Printf("Emulator speed set to %v", turboMultiplier)
+                        case EmulatorSpeedUp:
+                            turboMultiplier += 0.1
+                            log.Printf("Emulator speed set to %v", turboMultiplier)
+                        case EmulatorTogglePause:
+                            paused = !paused
+                        case EmulatorTogglePPUDebug:
+                            cpu.PPU.ToggleDebug()
                     }
                 case <-cycleTimer.C:
                     cycleCounter += cycleDiff * turboMultiplier
+            }
+
+            if paused {
+                cycleCounter = 0
             }
         }
 

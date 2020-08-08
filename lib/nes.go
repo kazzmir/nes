@@ -36,26 +36,35 @@ func isNes2(nesHeader []byte) bool {
 func readPRG(header []byte) uint64 {
     lsb := header[4]
     /* only use the lowest 4 bits of byte 9 in the header */
-    msb := header[9] & 15
+    msb := header[9] & 0b1111
+
+    if isDiskDude(header){
+        msb = 0
+    }
 
     if msb == 15 {
         low2 := lsb & 3
         exponent := lsb >> 2
         return uint64(math.Pow(2.0, float64(exponent))) * uint64(low2*2 + 1)
     } else {
-        return (uint64(msb << 8) + uint64(lsb)) << 14
+        return ((uint64(msb) << 8) + uint64(lsb)) << 14
     }
 }
 
 func readCHR(header []byte) uint64 {
     lsb := header[5]
     msb := (header[9] >> 4) & 15
+
+    if isDiskDude(header){
+        msb = 0
+    }
+
     if msb == 15 {
         low2 := lsb & 3
         exponent := lsb >> 2
         return uint64(math.Pow(2.0, float64(exponent))) * uint64(low2*2 + 1)
     } else {
-        return (uint64(msb << 8) + uint64(lsb)) << 13
+        return ((uint64(msb) << 8) + uint64(lsb)) << 13
     }
 }
 
@@ -71,7 +80,7 @@ func readMapper(header []byte) byte {
     lowBits := header[6] >> 4
     var highBits byte
 
-    /* DiskDude seems misuse byte 7 */
+    /* DiskDude seems to misuse byte 7 */
     if !isDiskDude(header){
         highBits = header[7] >> 4
     }
@@ -156,13 +165,13 @@ func ParseNesFile(path string, debug bool) (NESFile, error) {
 
     _, err = io.ReadFull(file, programRom)
     if err != nil {
-        return NESFile{}, err
+        return NESFile{}, fmt.Errorf("Could not read program rom size 0x%xkB: %v", prgRomSize >> 10, err)
     }
 
     characterRom := make([]byte, chrRomSize)
     _, err = io.ReadFull(file, characterRom)
     if err != nil {
-        return NESFile{}, err
+        return NESFile{}, fmt.Errorf("Could not read character rom size 0x%xkB: %v", chrRomSize >> 10, err)
     }
 
     return NESFile{
