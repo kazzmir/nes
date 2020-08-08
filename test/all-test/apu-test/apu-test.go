@@ -11,6 +11,7 @@ package aputest
 
 import (
     nes "github.com/kazzmir/nes/lib"
+    test_utils "github.com/kazzmir/nes/test/all-test/utils"
     "log"
     "fmt"
 )
@@ -137,9 +138,9 @@ func Run(debug bool) (bool, error) {
         }
 
         if passed {
-            log.Printf("APU test %v passed", testNum)
+            log.Printf(test_utils.Success(fmt.Sprintf("APU test %v", testNum)))
         } else {
-            log.Printf("APU test %v failed", testNum)
+            log.Printf(test_utils.Failure(fmt.Sprintf("APU test %v", testNum)))
         }
     }
 

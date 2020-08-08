@@ -3,6 +3,7 @@ package branch
 import (
     nes "github.com/kazzmir/nes/lib"
     "log"
+    test_utils "github.com/kazzmir/nes/test/all-test/utils"
 )
 
 /* Run blargg's branch timing tests. Unzip them into 'test-roms' such that 'test-roms/branch_timing_tests' exists.
@@ -73,9 +74,9 @@ func Run(debug bool) (bool, error) {
     }
 
     if test1 {
-        log.Printf("Branch test 1 passed")
+        log.Printf(test_utils.Success("Branch test 1"))
     } else {
-        log.Printf("Branch test 1 failed")
+        log.Printf(test_utils.Failure("Branch test 1"))
     }
 
     test2, err := doTest("test-roms/branch_timing_tests/2.Backward_Branch.nes")
@@ -84,9 +85,9 @@ func Run(debug bool) (bool, error) {
     }
 
     if test2 {
-        log.Printf("Branch test 2 passed")
+        log.Printf(test_utils.Success("Branch test 2"))
     } else {
-        log.Printf("Branch test 2 failed")
+        log.Printf(test_utils.Failure("Branch test 2"))
     }
 
     test3, err := doTest("test-roms/branch_timing_tests/3.Forward_Branch.nes")
@@ -95,9 +96,9 @@ func Run(debug bool) (bool, error) {
     }
 
     if test3 {
-        log.Printf("Branch test 3 passed")
+        log.Printf(test_utils.Success("Branch test 3"))
     } else {
-        log.Printf("Branch test 3 failed")
+        log.Printf(test_utils.Failure("Branch test 3"))
     }
 
     return test1 && test2 && test3, nil

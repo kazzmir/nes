@@ -540,6 +540,22 @@ func (screen *VirtualScreen) Area() int {
     return screen.Width * screen.Height
 }
 
+func (screen *VirtualScreen) GetRGBA(x int, y int) (uint8, uint8, uint8, uint8) {
+    if x < 0 || int(x) >= screen.Width || y < 0 || int(y) >= screen.Height {
+        return 0, 0, 0, 0
+    }
+
+    address := (y * screen.Width) + x
+    pixel := screen.Buffer[address]
+
+    r := uint8((pixel >> 24) & 0xff)
+    g := uint8((pixel >> 16) & 0xff)
+    b := uint8((pixel >> 8) & 0xff)
+    a := uint8((pixel >> 0) & 0xff)
+
+    return r, g, b, a
+}
+
 func (screen *VirtualScreen) DrawPoint(x int32, y int32, rgb []uint8){
     if x < 0 || int(x) >= screen.Width || y < 0 || int(y) >= screen.Height {
         return
