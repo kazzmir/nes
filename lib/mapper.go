@@ -56,7 +56,7 @@ type Mapper interface {
 func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, error) {
     switch mapper {
         case 0: return MakeMapper0(programRom), nil
-        case 1: return MakeMapper1(programRom), nil
+        case 1: return MakeMapper1(programRom, chrMemory), nil
         case 2: return MakeMapper2(programRom), nil
         case 3: return MakeMapper3(programRom, chrMemory), nil
         case 4: return MakeMapper4(programRom, chrMemory), nil
@@ -92,6 +92,7 @@ func MakeMapper0(bankMemory []byte) Mapper {
 /* http://wiki.nesdev.com/w/index.php/MMC1 */
 type Mapper1 struct {
     BankMemory []byte
+    CharacterMemory []byte
     last4kBank int
     /* how many bits to left shift the next value */
     shift int
@@ -211,16 +212,34 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                 /* chr bank 0 */
                 if mapper.chrBankMode == 1 {
                     base := uint16(mapper.register) * 0x1000
-                    cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x1000])
+                    /* FIXME: this is needed for games that have chrrom in the nesfile
+                     * such as bubble bobble and zelda2, but doesn't seem to work
+                     * for ninja gaiden
+                     */
+                    if len(mapper.CharacterMemory) != 0 {
+                        cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x1000])
+                    } else {
+                        cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x1000])
+                    }
                 } else {
                     base := uint16(mapper.register >> 1) * 0x2000
-                    cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x2000])
+                    if len(mapper.CharacterMemory) != 0 {
+                        cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x2000])
+                    } else {
+                        cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x2000])
+                    }
                 }
             } else if address >= 0xc000 && address <= 0xdfff {
                 /* chr bank 1 */
                 if mapper.chrBankMode == 1 {
                     base := uint16(mapper.register) * 0x1000
-                    cpu.PPU.CopyCharacterRom(0x1000, mapper.BankMemory[base:base + 0x1000])
+                    if len(mapper.CharacterMemory) != 0 {
+                        if int(base + 0x1000) < len(mapper.CharacterMemory) {
+                            cpu.PPU.CopyCharacterRom(0x1000, mapper.CharacterMemory[base:base + 0x1000])
+                        }
+                    } else {
+                        cpu.PPU.CopyCharacterRom(0x1000, mapper.BankMemory[base:base + 0x1000])
+                    }
                 } else {
                     /* ignore in 8k mode */
                 }
@@ -241,10 +260,11 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
     return nil
 }
 
-func MakeMapper1(bankMemory []byte) Mapper {
+func MakeMapper1(bankMemory []byte, chrMemory []byte) Mapper {
     pages := len(bankMemory) / 0x4000
     return &Mapper1{
         BankMemory: bankMemory,
+        CharacterMemory: chrMemory,
         mirror: 0,
         prgBankMode: 3,
         chrBankMode: 0,
