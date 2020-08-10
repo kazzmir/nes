@@ -72,7 +72,7 @@ func Run(rom string, maxCycles int64) (nes.VirtualScreen, error) {
 
         totalCycles += int64(cycleDiff)
 
-        audioData := cpu.APU.Run(float64(cycleDiff) / 2.0, baseCyclesPerSample)
+        audioData := cpu.APU.Run(float64(cycleDiff) / 2.0, baseCyclesPerSample, &cpu)
         _ = audioData
 
         nmi, drawn := cpu.PPU.Run(cycleDiff * 3, screen)

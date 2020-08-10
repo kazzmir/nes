@@ -540,7 +540,7 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
 
         cycleCounter -= float64(usedCycles - lastCpuCycle)
 
-        audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample)
+        audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
 
         if audioData != nil {
             // log.Printf("Send audio data via channel")

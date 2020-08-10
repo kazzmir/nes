@@ -753,6 +753,7 @@ type CPUState struct {
     PPU PPUState
     APU APUState
     Debug uint
+    StallCycles int
 
     /* controller input */
     Input *Input
@@ -1089,13 +1090,22 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             cpu.APU.WriteNoiseEnvelope(value)
             return
         case APUChannelEnable:
-            cpu.APU.WriteChannelEnable(value)
+            cpu.APU.WriteChannelEnable(value, cpu)
             return
         case APUFrameCounter:
             cpu.APU.WriteFrameCounter(value)
             return
         case APUDMCLoad:
             cpu.APU.WriteDMCLoad(value)
+            return
+        case APUDMCEnable:
+            cpu.APU.WriteDMCEnable(value)
+            return
+        case APUDMCAddress:
+            cpu.APU.WriteDMCAddress(value)
+            return
+        case APUDMCLength:
+            cpu.APU.WriteDMCLength(value)
             return
         case INPUT_POLL:
             cpu.Input.Reset()
@@ -1166,7 +1176,21 @@ func (cpu *CPUState) Fetch(table InstructionTable) (Instruction, error) {
     return instruction, nil
 }
 
+func (cpu *CPUState) Stall(cycles int){
+    cpu.StallCycles += cycles
+}
+
 func (cpu *CPUState) Run(table InstructionTable) error {
+    if cpu.StallCycles > 0 {
+        cpu.StallCycles -= 1
+        cpu.Cycle += 1
+        return nil
+    }
+
+    if !cpu.GetInterruptDisableFlag() && cpu.IsIRQAsserted() {
+        cpu.Interrupt()
+    }
+
     instruction, err := cpu.Fetch(table)
     if err != nil {
         return err
@@ -1190,11 +1214,11 @@ func (cpu *CPUState) getBit(bit byte) bool {
     return (cpu.Status & bit) == bit
 }
 
-func (cpu *CPUState) GetInterruptFlag() bool {
+func (cpu *CPUState) GetInterruptDisableFlag() bool {
     return cpu.getBit(byte(1<<2))
 }
 
-func (cpu *CPUState) SetInterruptFlag(set bool){
+func (cpu *CPUState) SetInterruptDisableFlag(set bool){
     cpu.setBit(byte(1<<2), set)
 }
 
@@ -2593,7 +2617,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             return nil
         case Instruction_SEI:
-            cpu.SetInterruptFlag(true)
+            cpu.SetInterruptDisableFlag(true)
             cpu.PC += instruction.Length()
             cpu.Cycle += 2
             return nil
@@ -2638,7 +2662,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             return nil
         case Instruction_CLI:
-            cpu.SetInterruptFlag(false)
+            cpu.SetInterruptDisableFlag(false)
             cpu.PC += instruction.Length()
             cpu.Cycle += 2
             return nil
@@ -3945,14 +3969,32 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
     return fmt.Errorf("unable to execute instruction 0x%x: %v at PC 0x%x", instruction.Kind, instruction.String(), cpu.PC)
 }
 
+func (cpu *CPUState) IsIRQAsserted() bool {
+    return cpu.APU.IsIRQAsserted()
+}
+
 func (cpu *CPUState) Reset() {
-    /* https://en.wikipedia.org/wiki/Interrupts_in_65xx_processors */
+    /* https://en.wikipedia.org/wiki/Interrupts_in_65xx_processors
+     *
+     * http://users.telenet.be/kim1-6502/6502/proman.html#90
+     * Cycles   Address Bus   Data Bus    External Operation     Internal Operation
+     *
+     * 1           ?           ?        Don't Care             Hold During Reset
+     * 2         ? + 1         ?        Don't Care             First Start State
+     * 3        0100 + SP      ?        Don't Care             Second Start State
+     * 4        0100 + SP-1    ?        Don't Care             Third Start State
+     * 5        0100 + SP-2    ?        Don't Care             Fourth Start State
+     * 6        FFFC        Start PCL   Fetch First Vector
+     * 7        FFFD        Start PCH   Fetch Second Vector    Hold PCL
+     * 8        PCH PCL     First       Load First OP CODE
+     *                      OP CODE
+     */
     cpu.Cycle += 6
     low := uint16(cpu.LoadMemory(ResetVector))
     high := uint16(cpu.LoadMemory(ResetVector+1))
     // cpu.PC = (uint16(cpu.LoadMemory(0xfffd)) << 8) | uint16(cpu.LoadMemory(0xfffc))
     cpu.PC = (high<<8) | low
-    cpu.SetInterruptFlag(true)
+    cpu.SetInterruptDisableFlag(true)
 }
 
 func (cpu *CPUState) BRK() {
@@ -3963,8 +4005,29 @@ func (cpu *CPUState) BRK() {
     low := uint16(cpu.LoadMemory(BRKVector))
     high := uint16(cpu.LoadMemory(BRKVector+1))
     cpu.PC = (high<<8) | low
-    cpu.SetInterruptFlag(true)
+    cpu.SetInterruptDisableFlag(true)
     cpu.Cycle += 7
+}
+
+func (cpu *CPUState) Interrupt() {
+    cpu.PushStack(byte(cpu.PC >> 8))
+    cpu.PushStack(byte(cpu.PC) & 0xff)
+    cpu.PushStack(cpu.Status)
+
+    /* FIXME: im reasonably sure we should disable the
+     * interrupt flag, but recheck if this is the correct logic at some point.
+     * The current interrupt flag (which must have been true)
+     * will be stored on the stack in cpu.Status
+     * RTI will restore the status flag
+     */
+    cpu.SetInterruptDisableFlag(true)
+
+    low := uint16(cpu.LoadMemory(IRQVector))
+    high := uint16(cpu.LoadMemory(IRQVector+1))
+    cpu.PC = (high<<8) | low
+    cpu.Cycle += 7
+
+    log.Printf("cpu: interrupt at 0x%x", cpu.PC)
 }
 
 /* NMI was set, so jump to the NMI routine */
@@ -3976,7 +4039,7 @@ func (cpu *CPUState) NMI() {
     low := uint16(cpu.LoadMemory(NMIVector))
     high := uint16(cpu.LoadMemory(NMIVector+1))
     cpu.PC = (high<<8) | low
-    cpu.SetInterruptFlag(true)
+    cpu.SetInterruptDisableFlag(true)
     cpu.Cycle += 7
 }
 

@@ -249,7 +249,7 @@ func TestCPUSimpleBranch(test *testing.T){
             test.Fatalf("Could not run CPU: %v\n", err)
         }
 
-        if cpu.GetInterruptFlag() {
+        if cpu.GetInterruptDisableFlag() {
             break
         }
     }
@@ -300,7 +300,7 @@ func TestInstructions1(testing *testing.T){
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
 
-        if cpu.GetInterruptFlag() {
+        if cpu.GetInterruptDisableFlag() {
             break
         }
     }
@@ -336,7 +336,7 @@ func TestInstructionsZeroPage(testing *testing.T){
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
 
-        if cpu.GetInterruptFlag() {
+        if cpu.GetInterruptDisableFlag() {
             break
         }
     }
@@ -379,7 +379,7 @@ func TestInstructionsIndirectLoad(testing *testing.T){
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
 
-        if cpu.GetInterruptFlag() {
+        if cpu.GetInterruptDisableFlag() {
             break
         }
     }
@@ -431,7 +431,7 @@ func TestStack(testing *testing.T){
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
 
-        if cpu.GetInterruptFlag() {
+        if cpu.GetInterruptDisableFlag() {
             break
         }
     }
@@ -492,7 +492,7 @@ func TestSubroutine(testing *testing.T){
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
 
-        if cpu.GetInterruptFlag() {
+        if cpu.GetInterruptDisableFlag() {
             break
         }
     }
@@ -537,7 +537,7 @@ func TestBit(testing *testing.T){
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
 
-        if cpu.GetInterruptFlag() {
+        if cpu.GetInterruptDisableFlag() {
             break
         }
     }
@@ -584,7 +584,7 @@ func TestBit(testing *testing.T){
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
 
-        if cpu.GetInterruptFlag() {
+        if cpu.GetInterruptDisableFlag() {
             break
         }
     }
@@ -640,7 +640,7 @@ func TestBit(testing *testing.T){
             testing.Fatalf("Could not execute cpu %v\n", err)
         }
 
-        if cpu.GetInterruptFlag() {
+        if cpu.GetInterruptDisableFlag() {
             break
         }
     }

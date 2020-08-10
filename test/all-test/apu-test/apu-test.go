@@ -44,7 +44,7 @@ func doTest(rom string, passAddress uint16, failAddress uint16) (bool, error) {
         }
         usedCycles := cpu.Cycle
 
-        audioData := cpu.APU.Run((float64(usedCycles) - float64(cycles)) / 2.0, baseCyclesPerSample)
+        audioData := cpu.APU.Run((float64(usedCycles) - float64(cycles)) / 2.0, baseCyclesPerSample, &cpu)
         _ = audioData
 
         nmi, _ := cpu.PPU.Run((usedCycles - cycles) * 3, screen)
