@@ -1116,7 +1116,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             }
             cpu.PPU.CopyOAM(cpu.GetMemoryPage(uint16(value) << 8))
             /* FIXME: 514 if on an odd cpu cycle */
-            cpu.Cycle += 513
+            cpu.Stall(513)
             return
     }
 
