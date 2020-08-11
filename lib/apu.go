@@ -152,15 +152,16 @@ type Sweep struct {
     ShiftCount byte
 }
 
-func (sweep *Sweep) Tick(timer *Timer){
+func (sweep *Sweep) Tick(pulse1 bool, timer *Timer){
     if sweep.Enabled {
         if sweep.Divider.Clock() {
             shifted := int(timer.Period() >> sweep.ShiftCount)
             if sweep.Negate {
-                /* FIXME: for pulse1 use ones complement, but for pulse2 its two's complement */
-                // for pulse1
-                // shifted = -shifted - 1
-                shifted = -shifted
+                if pulse1 {
+                    shifted = -shifted - 1
+                } else {
+                    shifted = -shifted
+                }
             }
             value := int(timer.Period()) + shifted
             if value < 0 {
@@ -190,6 +191,10 @@ func (length *LengthCounter) SetLength(index byte){
     }
 
     length.Length = table[index]
+}
+
+func (length *LengthCounter) Clear(){
+    length.Length = 0
 }
 
 func (length *LengthCounter) Tick() {
@@ -224,7 +229,9 @@ func (pulse *Pulse) ParseSweep(value byte){
     pulse.Sweep.Divider.Reset()
     pulse.Sweep.Negate = negate == 0x1
     pulse.Sweep.ShiftCount = shift
-    // log.Printf("APU: write %v sweep value=%v enable=%v period=%v negate=%v shift=%v", pulse.Name, value, enable, period, negate, shift)
+    if ApuDebug > 0 {
+        log.Printf("APU: write %v sweep value=%v enable=%v period=%v negate=%v shift=%v", pulse.Name, value, enable, period, negate, shift)
+    }
 }
 
 func (pulse *Pulse) SetDuty(duty byte){
@@ -411,8 +418,8 @@ func (apu *APUState) HalfFrame() {
         log.Printf("Pulse1 length now %v", apu.Pulse1.Length.Length)
     }
     apu.Pulse2.Length.Tick()
-    apu.Pulse1.Sweep.Tick(&apu.Pulse1.Timer)
-    apu.Pulse2.Sweep.Tick(&apu.Pulse2.Timer)
+    apu.Pulse1.Sweep.Tick(true, &apu.Pulse1.Timer)
+    apu.Pulse2.Sweep.Tick(false, &apu.Pulse2.Timer)
     apu.Noise.Length.Tick()
     apu.Triangle.TickLengthCounter()
 }
@@ -454,7 +461,7 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUSta
         apu.Clock += 1
         apu.Cycles -= apuCounter
 
-        if ApuDebug > 0 {
+        if ApuDebug > 1 {
             log.Printf("APU frame counter tick %v", apu.Clock)
         }
 
@@ -767,11 +774,12 @@ func (apu *APUState) WritePulse1Sweep(value byte){
 }
 
 func (apu *APUState) WritePulse1Timer(value byte){
-    if ApuDebug > 0 {
-        log.Printf("APU: write pulse1 timer low %v", value)
-    }
     apu.Pulse1.Timer.Low = uint16(value)
     apu.Pulse1.Timer.Reset()
+
+    if ApuDebug > 0 {
+        log.Printf("APU: write pulse1 timer low %v. Timer is now %v", value, apu.Pulse1.Timer.Period())
+    }
 }
 
 func (apu *APUState) WritePulse1Length(value byte){
@@ -940,6 +948,18 @@ func (apu *APUState) WriteChannelEnable(value byte, cpu *CPUState){
     apu.EnableTriangle = triangle == 0x1
     apu.EnablePulse2 = pulse2 == 0x1
     apu.EnablePulse1 = pulse1 == 0x1
+
+    if !apu.EnablePulse1 {
+        apu.Pulse1.Length.Clear()
+    }
+
+    if !apu.EnablePulse2 {
+        apu.Pulse2.Length.Clear()
+    }
+
+    if !apu.EnableTriangle {
+        apu.Triangle.Length.Clear()
+    }
 
     if ApuDebug > 0 {
         log.Printf("APU: write channel enable value=%v dmc=%v noise=%v triangle=%v pulse2=%v pulse1=%v", value, dmc, noise, triangle, pulse2, pulse1)
