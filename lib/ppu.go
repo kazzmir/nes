@@ -9,10 +9,13 @@ import (
 type PPUState struct {
     Flags byte
     Mask byte
+    /* http://wiki.nesdev.com/w/index.php/PPU_registers#PPUSTATUS */
     Status byte
+
+    /* counts in the y direction during rendering, from 0-262 */
     Scanline int
+    /* counts in the x direction during rendering, from 0-340 */
     ScanlineCycle int
-    // Cycle uint64
     TemporaryVideoAddress uint16 /* the t register */
     VideoAddress uint16 /* the v register */
     WriteState byte /* for writing to the video address or the t register */
@@ -23,18 +26,35 @@ type PPUState struct {
     /* for scrolling */
     FineX byte
 
+    /* maps an nes integer 0-256 to an RGB value */
     Palette [][]uint8
 
+    /* current sprites that will render on this scanline. a bit of a hack */
     CurrentSprites []Sprite
 
     VideoMemory []byte
+
+    /* the 2kb SRAM stored on the NES board.
+     * use nametable mirroring to map addresses to these ranges
+     * Nametable[0:0x400] should appear at 0x2000 and 0x2800 in vertical mirroring
+     * and 0x2000 and 0x2400 in horizontal mirroring.
+     * Nametable[0x400:0x800] should appear at 0x2400 and 0x2c00 in vertical mirroring
+     * and 0x2800 and 0x2c00 in horizontal mirroring.
+     *
+     * http://wiki.nesdev.com/w/index.php/PPU_nametables
+     */
+    NametableMemory []byte
+
+    /* sprite memory */
     OAM []byte
     OAMAddress int
 
+    /* makes the ppu print stuff via log.Printf if set to a value > 0 */
     Debug uint8
 
     InternalVideoBuffer byte
 
+    /* how many times to shift out of the BackgroundPixels before needing to load a new tile */
     Shifts byte
 
     /* each pixel is 4 bits, each tile is 8 pixels
@@ -49,12 +69,14 @@ type PPUState struct {
     BackgroundPixels uint64
     RawBackgroundPixels uint32
 
+    /* not sure if this is needed */
     HasSetSprite0 bool
 }
 
 func MakePPU() PPUState {
     return PPUState{
         VideoMemory: make([]byte, 64 * 1024), // FIXME: video memory is not this large..
+        NametableMemory: make([]byte, 2 * 1024), // 2kb SRAM
         OAM: make([]byte, 256),
         Scanline: 0,
         Palette: get2c02Palette(),
@@ -143,6 +165,11 @@ func (ppu *PPUState) WriteScroll(value byte){
             _, nametable, _, coarseX := deconstructVideoAddress(ppu.TemporaryVideoAddress)
             ppu.TemporaryVideoAddress = ppu.ConstructVideoAddress(fineY, nametable, coarseY, coarseX)
             ppu.WriteState = 0
+
+            if ppu.Debug > 0 {
+                fineY, nametable, coarseY, coarseX := deconstructVideoAddress(ppu.TemporaryVideoAddress)
+                log.Printf("PPU: scroll set finey %v nametable %v coarseY %v coarseX %v t 0x%x", fineY, nametable, coarseY, coarseX, ppu.TemporaryVideoAddress)
+            }
     }
 }
 
@@ -156,7 +183,9 @@ func (ppu *PPUState) SetControllerFlags(value byte) {
     nametableBits := uint16(0b1100_00000000)
     ppu.TemporaryVideoAddress = (ppu.TemporaryVideoAddress & (^nametableBits)) | (uint16(nametable) << 10)
 
-    // log.Printf("PPU temporary video address 0x%x", ppu.TemporaryVideoAddress)
+    if ppu.Debug > 0 {
+        log.Printf("PPU temporary video address 0x%x. Nametable %v", ppu.TemporaryVideoAddress, nametable)
+    }
 
     ppu.Flags = value
 }
@@ -289,7 +318,9 @@ func (ppu *PPUState) GetNMIOutput() bool {
 }
 
 func (ppu *PPUState) WriteAddress(value byte){
-    // log.Printf("PPU: Write video address 0x%x write state %v scanline %v cycle %v", value, ppu.WriteState, ppu.Scanline, ppu.ScanlineCycle)
+    if ppu.Debug > 0 {
+        log.Printf("PPU: Write video address 0x%x write state %v scanline %v cycle %v", value, ppu.WriteState, ppu.Scanline, ppu.ScanlineCycle)
+    }
     switch ppu.WriteState {
         /* write high byte */
         case 0:
@@ -320,9 +351,6 @@ func (ppu *PPUState) GetVRamIncrement() uint16 {
 }
 
 func (ppu *PPUState) WriteVideoMemory(value byte){
-    if ppu.Debug > 0 {
-        log.Printf("PPU: Writing 0x%x to video memory at 0x%x at scanline %v and cycle %v\n", value, ppu.VideoAddress, ppu.Scanline, ppu.ScanlineCycle)
-    }
     actualAddress := ppu.VideoAddress
 
     /* Mirror writes to the universal background color */
@@ -332,8 +360,6 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
         actualAddress = 0x3f00
     }
 
-    actualAddress = ppu.MirrorAddress(actualAddress)
-
     /*
     if (ppu.VideoAddress >= 0x2400 && ppu.VideoAddress <= 0x2800) || (ppu.VideoAddress >= 0x2c00 && ppu.VideoAddress < 0x3000) {
         log.Printf("Writing to mirrored video memory at 0x%x", ppu.VideoAddress)
@@ -342,7 +368,15 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
 
     // log.Printf("PPU Writing 0x%x at video memory 0x%x", value, ppu.VideoAddress)
 
-    ppu.VideoMemory[actualAddress] = value
+    if ppu.Debug > 0 {
+        log.Printf("PPU: Writing 0x%x to video memory at 0x%x actual 0x%x at scanline %v and cycle %v\n", value, ppu.VideoAddress, actualAddress, ppu.Scanline, ppu.ScanlineCycle)
+    }
+
+    if actualAddress >= 0x2000 && actualAddress < 0x3000 {
+        ppu.StoreNametableMemory(actualAddress, value)
+    } else {
+        ppu.VideoMemory[actualAddress] = value
+    }
     ppu.VideoAddress += ppu.GetVRamIncrement()
 }
 
@@ -352,7 +386,17 @@ func (ppu *PPUState) ReadVideoMemory() byte {
         return 0
     }
 
-    value := ppu.VideoMemory[ppu.VideoAddress]
+    var value byte
+
+    if ppu.VideoAddress >= 0x2000 && ppu.VideoAddress < 0x3000 {
+        value = ppu.LoadNametableMemory(ppu.VideoAddress)
+    } else {
+        value = ppu.VideoMemory[ppu.VideoAddress]
+    }
+
+    if ppu.Debug > 0 {
+        log.Printf("PPU: read from video memory 0x%x = 0x%x", ppu.VideoAddress, value)
+    }
 
     /* for reading from palette memory we don't do a dummy read
      * Reading palette data from $3F00-$3FFF works differently. The palette data is placed immediately on the data bus, and hence no dummy read is required. Reading the palettes still updates the internal buffer though, but the data placed in it is the mirrored nametable data that would appear "underneath" the palette. (Checking the PPU memory map should make this clearer.)
@@ -930,6 +974,10 @@ func (ppu *PPUState) IncrementVerticalPosition(){
         }
     }
 
+    if ppu.Debug > 0 {
+        log.Printf("PPU: increment vertical. finey %v nametable %v coarseY %v coarseX %v = 0x%x", fineY, nametable, coarseY, coarseX, ppu.ConstructVideoAddress(fineY, nametable, coarseY, coarseX))
+    }
+
     ppu.VideoAddress = ppu.ConstructVideoAddress(fineY, nametable, coarseY, coarseX)
 }
 
@@ -939,6 +987,11 @@ func (ppu *PPUState) ResetHorizontalPosition(){
      */
     mask := uint16(0b100_00011111)
     ppu.VideoAddress = (ppu.VideoAddress & (^mask)) | (ppu.TemporaryVideoAddress & mask)
+
+    if ppu.Debug > 0 {
+        fineY, nametable, coarseY, coarseX := deconstructVideoAddress(ppu.VideoAddress)
+        log.Printf("PPU: reset horizontal fineY %v nametable %v coarseY %v coarseX %v", fineY, nametable, coarseY, coarseX)
+    }
 }
 
 func deconstructVideoAddress(address uint16) (byte, byte, byte, byte){
@@ -975,20 +1028,73 @@ func (ppu *PPUState) IncrementHorizontalAddress(){
     ppu.VideoAddress = ppu.ConstructVideoAddress(fineY, nametable, coarseY, coarseX)
 }
 
-func (ppu *PPUState) MirrorAddress(address uint16) uint16 {
-    if address >= 0x2800 && address < 0x3000 && ppu.VerticalNametableMirror {
-        address = address ^ 0x800
+func isNametable1(address uint16) bool {
+    return address >= 0x2000 && address < 0x2400
+}
+
+func isNametable2(address uint16) bool {
+    return address >= 0x2400 && address < 0x2800
+}
+
+func isNametable3(address uint16) bool {
+    return address >= 0x2800 && address < 0x2c00
+}
+
+func isNametable4(address uint16) bool {
+    return address >= 0x2c00 && address < 0x3000
+}
+
+func (ppu *PPUState) nametableMirrorAddress(address uint16) uint16 {
+    /*
+    * Nametable1 should appear at 0x2000 and 0x2800 in vertical mirroring
+     * and 0x2000 and 0x2400 in horizontal mirroring.
+     * Nametable2 should appear at 0x2400 and 0x2c00 in vertical mirroring
+     * and 0x2800 and 0x2c00 in horizontal mirroring.
+     */
+
+    if ppu.HorizontalNametableMirror {
+        if isNametable1(address){
+            return address & 0xfff
+        }
+
+        if isNametable2(address){
+            return (address - 0x400) & 0xfff
+        }
+
+        if isNametable3(address){
+            return (address - 0x400) & 0xfff
+        }
+
+        if isNametable4(address){
+            return (address - 0x800) & 0xfff
+        }
+    } else if ppu.VerticalNametableMirror {
+        if isNametable1(address){
+            return address & 0xfff
+        }
+
+        if isNametable2(address){
+            return address & 0xfff
+        }
+
+        if isNametable3(address){
+            return (address - 0x800) & 0xfff
+        }
+
+        if isNametable4(address){
+            return (address - 0x800) & 0xfff
+        }
     }
 
-    if ppu.HorizontalNametableMirror && ((address >= 0x2400 && address < 0x2800) || (address >= 0x2c00 && address < 0x3000)) {
-        address = address ^ 0x400
-    }
-
-    return address
+    return 0x0
 }
 
 func (ppu *PPUState) LoadNametableMemory(address uint16) byte {
-    return ppu.VideoMemory[ppu.MirrorAddress(address)]
+    return ppu.NametableMemory[ppu.nametableMirrorAddress(address)]
+}
+
+func (ppu *PPUState) StoreNametableMemory(address uint16, value byte) {
+    ppu.NametableMemory[ppu.nametableMirrorAddress(address)] = value
 }
 
 func (ppu *PPUState) LoadBackgroundTile() {
@@ -1031,11 +1137,10 @@ func (ppu *PPUState) LoadBackgroundTile() {
     /* the actual palette to use */
     palette_base := uint16(color_set) * 4
 
-    /*
-    if coarseX == 5 && coarseY == 5 {
+    // if coarseX == 0 && coarseY == 20 && ppu.Debug > 0 {
+    if ppu.Debug > 0 {
         log.Printf("Scanline %v cycle %v X %v Y %v fineX %v fineY %v nametable %v Tile address 0x%x tile 0x%x pattern address 0x%x attribute 0x%x Video address 0x%x Attribute value 0x%x color set %v", ppu.Scanline, ppu.ScanlineCycle, coarseX, coarseY, ppu.FineX, fineY, nametable, tileAddress, tileIndex, patternTileAddress, attributeAddress, ppu.VideoAddress, patternAttributeValue, color_set)
     }
-    */
 
     var rawPixel uint16
     var pixel uint32

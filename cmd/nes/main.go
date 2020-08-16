@@ -98,6 +98,7 @@ const (
     EmulatorSpeedUp
     EmulatorTogglePause
     EmulatorTogglePPUDebug
+    EmulatorStepFrame
 )
 
 func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) error {
@@ -346,6 +347,7 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
     var slowDownKey sdl.Scancode = sdl.SCANCODE_MINUS
     var speedUpKey sdl.Scancode = sdl.SCANCODE_EQUALS
     var normalKey sdl.Scancode = sdl.SCANCODE_0
+    var stepFrameKey sdl.Scancode = sdl.SCANCODE_O
 
     for mainQuit.Err() == nil {
         event := sdl.WaitEvent()
@@ -364,6 +366,12 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
                     if keyboard_event.Keysym.Scancode == turboKey {
                         select {
                             case turbo <- EmulatorTurbo:
+                        }
+                    }
+
+                    if keyboard_event.Keysym.Scancode == stepFrameKey {
+                        select {
+                            case turbo <- EmulatorStepFrame:
                         }
                     }
 
@@ -490,6 +498,8 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
 
     paused := false
 
+    stepFrame := false
+
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
             log.Printf("Maximum cycles %v reached", maxCycles)
@@ -513,6 +523,9 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
                                 turboMultiplier = 0.1
                             }
                             log.Printf("Emulator speed set to %v", turboMultiplier)
+                        case EmulatorStepFrame:
+                            stepFrame = !stepFrame
+                            log.Printf("Emulator step frame is %v", stepFrame)
                         case EmulatorSpeedUp:
                             turboMultiplier += 0.1
                             log.Printf("Emulator speed set to %v", turboMultiplier)
@@ -559,6 +572,9 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
                 case buffer := <-bufferReady:
                     buffer.CopyFrom(&screen)
                     toDraw <- buffer
+                    if stepFrame {
+                        paused = true
+                    }
                 default:
             }
         }

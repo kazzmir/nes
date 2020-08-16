@@ -194,16 +194,16 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                     case 0:
                         /* FIXME: 1 screen A */
                         log.Printf("FIXME: mapper1 set mirror to 1 screen A")
-                        break
                     case 1:
                         /* FIXME: 1 screen B */
                         log.Printf("FIXME: mapper1 set mirror to 1 screen B")
-                        break
                     case 2:
+                        // log.Printf("mapper1: set vertical mirror")
                         /* vertical */
                         cpu.PPU.SetHorizontalMirror(false)
                         cpu.PPU.SetVerticalMirror(true)
                     case 3:
+                        // log.Printf("mapper1: set horizontal mirror")
                         /* horizontal */
                         cpu.PPU.SetHorizontalMirror(true)
                         cpu.PPU.SetVerticalMirror(false)
