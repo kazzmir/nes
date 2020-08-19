@@ -10,6 +10,9 @@ import (
     "strconv"
     "errors"
     "os"
+    "os/exec"
+    "path/filepath"
+    "io"
 
     nes "github.com/kazzmir/nes/lib"
 
@@ -21,6 +24,7 @@ import (
     "sync"
     "context"
     "runtime/pprof"
+    "syscall"
 
     // rdebug "runtime/debug"
 )
@@ -101,7 +105,308 @@ const (
     EmulatorStepFrame
 )
 
-func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) error {
+func stripExtension(path string) string {
+    extension := filepath.Ext(path)
+    if len(extension) > 0 {
+        return path[0:len(path) - len(extension)]
+    }
+
+    return path
+}
+
+/* Returns the absolute path to ffmpeg, or an error if not found
+ */
+func findFfmpegBinary() (string, error) {
+    return exec.LookPath("ffmpeg")
+}
+
+func waitForProcess(process *os.Process, timeout int){
+    done := time.Now().Add(time.Second * time.Duration(timeout))
+    dead := false
+    for time.Now().Before(done) {
+        err := os.Signal(syscall.Signal(0)) // on linux sending signal 0 will have no impact, but will fail
+                            // if the process doesn't exist (or we don't own it)
+        if err == nil {
+            time.Sleep(time.Millisecond * 100)
+        } else {
+            dead = true
+            break
+        }
+    }
+    if !dead {
+        /* Didn't die on its own, so we forcifully kill it */
+        log.Printf("Killing pid %v", process.Pid)
+        process.Kill()
+    }
+    process.Wait()
+}
+
+func niceSize(path string) string {
+    info, err := os.Stat(path)
+    if err != nil {
+        return ""
+    }
+
+    size := float64(info.Size())
+    suffixes := []string{"b", "kb", "mb", "gb"}
+    suffix := 0
+
+    for size > 1024 && suffix < len(suffixes) - 1 {
+        size /= 1024
+        suffix += 1
+    }
+
+    return fmt.Sprintf("%.2f%v", size, suffixes[suffix])
+}
+
+func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleRate int, screenListeners *ScreenListeners) error {
+    ffmpeg_binary_path, err := findFfmpegBinary()
+
+    if err != nil {
+        return err
+    }
+
+    video_channel := make(chan nes.VirtualScreen, 2)
+    audio_channel := make(chan []float32, 2)
+
+    video_reader, video_writer, err := os.Pipe()
+    if err != nil {
+        return err
+    }
+
+    audio_reader, audio_writer, err := os.Pipe()
+    if err != nil {
+        return err
+    }
+
+    mp4Path := fmt.Sprintf("%v-%v.mp4", romName, time.Now().Format("2006-01-02-15:04:05"))
+
+    scaleFactor := 3
+
+    log.Printf("Launching ffmpeg")
+    ffmpeg_process := exec.Command(ffmpeg_binary_path,
+        "-use_wallclock_as_timestamps", "1", // treat the incoming data as a live stream
+        "-f", "rawvideo", // video is raw pixels, as opposed to compressed like jpg/png
+        "-pixel_format", "rgb24", // 3 bytes per pixel, 1 byte per color
+        "-video_size", "256x224", // size of the nes screen
+        "-i", "pipe:3", // video is passed as fd 3
+        "-f", "f32le", // audio is uncompressed pcm in float32 format
+        "-ar", strconv.Itoa(sampleRate), // sample rate
+        "-ac", "1", // 1 channel mono
+        "-i", "pipe:4", // audio is passed as fd 4
+        "-vf", fmt.Sprintf("scale=iw*%v:ih*%v", scaleFactor, scaleFactor), // upscale the video
+        "-vsync", "vfr", // allow for variable frame rate video
+        "-r", "45", // maximum of 45fps
+
+        "-movflags", "empty_moov", // write an empty moov frame at the start
+        "-frag_duration", "100000", // write moov atoms every 100ms
+        "-profile:v", "main", // h264 main profile
+        "-pix_fmt", "yuv420p", // default is yuv444 that some decoders can't handle
+
+        "-tune", "zerolatency", // fast encoding
+        "-acodec", "mp3", // mp3 for audio. this is arbitrary but aac sounds bad
+        // "-filter:a", "volume=10dB", // increase volume a bit
+        "-y", // overwrite output if the file already exists
+        mp4Path)
+
+    // ffmpeg_process.Stdin = reader
+
+    /* FIXME: figure out a solution for windows */
+    ffmpeg_process.ExtraFiles = []*os.File{video_reader, audio_reader}
+
+    stdout, err := ffmpeg_process.StdoutPipe()
+    if err != nil {
+        log.Printf("Could not get ffmpeg stdout: %v", err)
+        return err
+    }
+
+    stderr, err := ffmpeg_process.StderrPipe()
+    if err != nil {
+        log.Printf("Could not get ffmpeg stderr: %v", err)
+        return err
+    }
+
+    err = ffmpeg_process.Start()
+    if err != nil {
+        return err
+    }
+
+    go func(stdout io.ReadCloser){
+        buffer := make([]byte, 4096)
+        for {
+            count, err := stdout.Read(buffer)
+            if err != nil {
+                log.Printf("Could not read ffmpeg stdout: %v", err)
+                return
+            }
+            _ = count
+            // log.Printf("ffmpeg: %v", string(buffer[0:count]))
+        }
+    }(stdout)
+
+    go func(stdout io.ReadCloser){
+        buffer := make([]byte, 4096)
+        for {
+            count, err := stdout.Read(buffer)
+            if err != nil {
+                log.Printf("Could not read ffmpeg stdout: %v", err)
+                return
+            }
+            _ = count
+            // log.Printf("ffmpeg: %v", string(buffer[0:count]))
+        }
+    }(stderr)
+
+    log.Printf("Recording to %v", mp4Path)
+
+    screenListeners.AddVideoListener(video_channel)
+    screenListeners.AddAudioListener(audio_channel)
+
+    go func(){
+        startTime := time.Now()
+        <-stop.Done()
+        /* ffmpeg will normally close on its own if its input is closed */
+        video_writer.Close()
+        audio_writer.Close()
+        /* we can send SIGINT to it as well, which also usually stops it */
+        ffmpeg_process.Process.Signal(os.Interrupt)
+        waitForProcess(ffmpeg_process.Process, 10)
+        log.Printf("Recording has ended. Saved '%v' for %v size %v", mp4Path, time.Now().Sub(startTime), niceSize(mp4Path))
+    }()
+
+    go func(){
+        defer close(audio_channel)
+        defer audio_reader.Close()
+        defer screenListeners.RemoveAudioListener(audio_channel)
+
+        var output bytes.Buffer
+        for {
+            select {
+                case <-stop.Done():
+                    return
+                case buffer := <-audio_channel:
+                    output.Reset()
+                    for _, sample := range buffer {
+                        binary.Write(&output, binary.LittleEndian, sample)
+                    }
+
+                    // log.Printf("Writing audio samples to ffmpeg")
+                    audio_writer.Write(output.Bytes())
+            }
+        }
+    }()
+
+    /* video reader */
+    go func(){
+        defer close(video_channel)
+        defer video_reader.Close()
+        defer screenListeners.RemoveVideoListener(video_channel)
+        var output bytes.Buffer
+        for {
+            select {
+                case <-stop.Done():
+                    return
+                case buffer := <-video_channel:
+                    output.Reset()
+                    for y := overscanPixels; y < buffer.Height - overscanPixels; y++ {
+                        for x := 0; x < buffer.Width; x++ {
+                            r, g, b, _ := buffer.GetRGBA(x, y)
+                            output.Write([]byte{r, g, b})
+                        }
+                    }
+
+                    video_writer.Write(output.Bytes())
+            }
+        }
+    }()
+
+    return nil
+}
+
+type ScreenListeners struct {
+    VideoListeners []chan nes.VirtualScreen
+    AudioListeners []chan []float32
+    Lock sync.Mutex
+}
+
+func (listeners *ScreenListeners) ObserveVideo(screen nes.VirtualScreen){
+    listeners.Lock.Lock()
+    defer listeners.Lock.Unlock()
+
+    if len(listeners.VideoListeners) == 0 {
+        return
+    }
+
+    buffer := screen.Copy()
+
+    for _, listener := range listeners.VideoListeners {
+        select {
+            case listener<- buffer:
+            default:
+        }
+    }
+}
+
+func (listeners *ScreenListeners) AddVideoListener(listener chan nes.VirtualScreen){
+    listeners.Lock.Lock()
+    defer listeners.Lock.Unlock()
+
+    listeners.VideoListeners = append(listeners.VideoListeners, listener)
+}
+
+func (listeners *ScreenListeners) RemoveVideoListener(remove chan nes.VirtualScreen){
+    listeners.Lock.Lock()
+    defer listeners.Lock.Unlock()
+
+    var out []chan nes.VirtualScreen
+    for _, listener := range listeners.VideoListeners {
+        if listener != remove {
+            out = append(out, listener)
+        }
+    }
+
+    listeners.VideoListeners = out
+}
+
+func (listeners *ScreenListeners) ObserveAudio(pcm []float32){
+    listeners.Lock.Lock()
+    defer listeners.Lock.Unlock()
+
+    if len(listeners.AudioListeners) == 0 {
+        return
+    }
+
+    for _, listener := range listeners.AudioListeners {
+        select {
+            case listener<- pcm:
+            default:
+                log.Printf("Cannot observe audio")
+        }
+    }
+}
+
+func (listeners *ScreenListeners) AddAudioListener(listener chan []float32){
+    listeners.Lock.Lock()
+    defer listeners.Lock.Unlock()
+
+    listeners.AudioListeners = append(listeners.AudioListeners, listener)
+}
+
+func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
+    listeners.Lock.Lock()
+    defer listeners.Lock.Unlock()
+
+    var out []chan []float32
+    for _, listener := range listeners.AudioListeners {
+        if listener != remove {
+            out = append(out, listener)
+        }
+    }
+
+    listeners.AudioListeners = out
+}
+
+func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
     nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
         return err
@@ -278,7 +583,9 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
         }
     }()
 
-    turbo := make(chan EmulatorAction, 10)
+    emulatorActions := make(chan EmulatorAction, 50)
+
+    var screenListeners ScreenListeners
 
     startNES := func(quit context.Context, waiter *sync.WaitGroup){
         waiter.Add(1)
@@ -324,7 +631,7 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
             }
 
             log.Printf("Run NES")
-            err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audio, turbo, AudioSampleRate)
+            err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audio, emulatorActions, &screenListeners, AudioSampleRate)
             if err != nil {
                 if err == MaxCyclesReached {
                 } else {
@@ -348,6 +655,17 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
     var speedUpKey sdl.Scancode = sdl.SCANCODE_EQUALS
     var normalKey sdl.Scancode = sdl.SCANCODE_0
     var stepFrameKey sdl.Scancode = sdl.SCANCODE_O
+    var recordKey sdl.Scancode = sdl.SCANCODE_M
+
+    recordQuit, recordCancel := context.WithCancel(mainQuit)
+    if recordOnStart {
+        err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), overscanPixels, int(AudioSampleRate), &screenListeners)
+        if err != nil {
+            log.Printf("Error: could not record: %v", err)
+        }
+    } else {
+        recordCancel()
+    }
 
     for mainQuit.Err() == nil {
         event := sdl.WaitEvent()
@@ -365,44 +683,62 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
 
                     if keyboard_event.Keysym.Scancode == turboKey {
                         select {
-                            case turbo <- EmulatorTurbo:
+                            case emulatorActions <- EmulatorTurbo:
+                            default:
                         }
                     }
 
                     if keyboard_event.Keysym.Scancode == stepFrameKey {
                         select {
-                            case turbo <- EmulatorStepFrame:
+                            case emulatorActions <- EmulatorStepFrame:
+                        }
+                    }
+
+                    if keyboard_event.Keysym.Scancode == recordKey {
+                        if recordQuit.Err() == nil {
+                            recordCancel()
+                        } else {
+                            recordQuit, recordCancel = context.WithCancel(mainQuit)
+                            err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), overscanPixels, int(AudioSampleRate), &screenListeners)
+                            if err != nil {
+                                log.Printf("Could not record video: %v", err)
+                            }
                         }
                     }
 
                     if keyboard_event.Keysym.Scancode == pauseKey {
                         log.Printf("Pause/unpause")
                         select {
-                            case turbo <- EmulatorTogglePause:
+                            case emulatorActions <- EmulatorTogglePause:
+                            default:
                         }
                     }
 
                     if keyboard_event.Keysym.Scancode == ppuDebugKey {
                         select {
-                            case turbo <- EmulatorTogglePPUDebug:
+                            case emulatorActions <- EmulatorTogglePPUDebug:
+                            default:
                         }
                     }
 
                     if keyboard_event.Keysym.Scancode == slowDownKey {
                         select {
-                            case turbo <- EmulatorSlowDown:
+                            case emulatorActions <- EmulatorSlowDown:
+                            default:
                         }
                     }
 
                     if keyboard_event.Keysym.Scancode == speedUpKey {
                         select {
-                            case turbo <- EmulatorSpeedUp:
+                            case emulatorActions <- EmulatorSpeedUp:
+                            default:
                         }
                     }
 
                     if keyboard_event.Keysym.Scancode == normalKey {
                         select {
-                            case turbo <- EmulatorNormal:
+                            case emulatorActions <- EmulatorNormal:
+                            default:
                         }
                     }
 
@@ -420,7 +756,8 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int) erro
                     scancode := keyboard_event.Keysym.Scancode
                     if scancode == turboKey || scancode == pauseKey {
                         select {
-                            case turbo <- EmulatorNormal:
+                            case emulatorActions <- EmulatorNormal:
+                            default:
                         }
                     }
             }
@@ -468,7 +805,10 @@ func get_pixel_format(format uint32) string {
 }
 
 var MaxCyclesReached error = errors.New("maximum cycles reached")
-func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen, bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32, turbo <-chan EmulatorAction, sampleRate float32) error {
+func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen,
+            bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32,
+            emulatorActions <-chan EmulatorAction, screenListeners *ScreenListeners,
+            sampleRate float32) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
     screen := nes.MakeVirtualScreen(256, 240)
@@ -510,7 +850,7 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
             select {
                 case <-quit.Done():
                     return nil
-                case action := <-turbo:
+                case action := <-emulatorActions:
                     switch action {
                         case EmulatorTurbo:
                             turboMultiplier = 3
@@ -556,6 +896,8 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
         audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
 
         if audioData != nil {
+            screenListeners.ObserveAudio(audioData)
+
             // log.Printf("Send audio data via channel")
             select {
                 case audio<- audioData:
@@ -568,6 +910,8 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
         nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen)
 
         if drawn {
+            screenListeners.ObserveVideo(screen)
+
             select {
                 case buffer := <-bufferReady:
                     buffer.CopyFrom(&screen)
@@ -603,6 +947,7 @@ func main(){
     var windowSizeMultiple int64 = 3
     var doCpuProfile bool = true
     var doMemoryProfile bool = true
+    var doRecord bool = false
 
     argIndex := 1
     for argIndex < len(os.Args) {
@@ -620,6 +965,8 @@ func main(){
                 if err != nil {
                     log.Fatalf("Error reading size argument: %v", err)
                 }
+            case "-record":
+                doRecord = true
             case "-cycles", "--cycles":
                 var err error
                 argIndex += 1
@@ -658,7 +1005,7 @@ func main(){
             pprof.StartCPUProfile(profile)
             defer pprof.StopCPUProfile()
         }
-        err := Run(nesPath, debug, maxCycles, int(windowSizeMultiple))
+        err := Run(nesPath, debug, maxCycles, int(windowSizeMultiple), doRecord)
         if err != nil {
             log.Printf("Error: %v\n", err)
         }
