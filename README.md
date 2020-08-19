@@ -6,6 +6,40 @@ Resources:
 
 * Another nes emulator in go https://github.com/fogleman/nes
 
+Usage:
+
+$ ./nes somerom.nes
+
+Keys:
+up arrow = up
+down arrow = down
+left arrow = left
+right arrow = right
+enter = start
+Q = select
+A = a
+S = b
+
+Other keys:
+~ = speed up emulator by 3x
+- = slow down emulator by 0.1
+= = speed up emulator by 0.1
+0 = set emulator speed back to normal (1)
+space = pause/unpase emulator
+R = restart emulator
+P = enable ppu debugging
+O = stop the emulator after each frame, press O repeatedly
+
+Build instructions:
+
+Get go 1.14.x, currently 1.15 has a bug such that the compiler will crash (https://github.com/golang/go/issues/40746)
+
+Using make
+$ make
+
+Or pure go
+$ go build ./cmd/nes
+
 Log:
 
 6/20/2020: cpu is mostly complete
@@ -53,3 +87,7 @@ Colors have been fixed, and rendering uses an in-memory `[]uint32` array, which 
 ![scrolling](./pics/contra3.gif)
 
 7/5/2020: Scrolling mostly works. The gif here is smaller and shorter in time to keep the file size low. Both vertical and horizontal scrolling work, as tested with the purely vertical scrolling game ice climbers. There are some remaining glitches with scrolling as walking around the map in final fantasy renders the wrong tiles a lot of the time.
+
+8/18/2020: Audio, scrolling, and tons of other stuff is working much better. I added the ability to directly record a video from the emulator using ffmpeg. Here is a video showing off a few games that work well.
+
+[![nes video](https://img.youtube.com/vi/X8OQhbjnr9o/0.jpg)](https://youtube.com/watch?v=X8OQhbjnr9o)
