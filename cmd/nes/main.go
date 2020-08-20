@@ -814,21 +814,17 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
     screen := nes.MakeVirtualScreen(256, 240)
 
     var cycleCounter float64
-    /* http://wiki.nesdev.com/w/index.php/Cycle_reference_chart#Clock_rates
-     * NTSC 2c0c clock speed is 21.47~ MHz ÷ 12 = 1.789773 MHz
-     * Every millisecond we should run this many cycles
-     */
-    cpuSpeed := 1.789773e6
+
     /* run the host timer at this frequency (in ms) so that the counter
      * doesn't tick too fast
      *
      * anything higher than 1 seems ok, with 10 probably being an upper limit
      */
     hostTickSpeed := 5
-    cycleDiff := cpuSpeed / (1000.0 / float64(hostTickSpeed))
+    cycleDiff := nes.CPUSpeed / (1000.0 / float64(hostTickSpeed))
 
     /* about 20.292 */
-    baseCyclesPerSample := cpuSpeed / 2 / float64(sampleRate)
+    baseCyclesPerSample := nes.CPUSpeed / 2 / float64(sampleRate)
 
     cycleTimer := time.NewTicker(time.Duration(hostTickSpeed) * time.Millisecond)
 
