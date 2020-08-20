@@ -170,7 +170,7 @@ func run(path string) error {
 
     /* jsr INIT
      * jsr PLAY
-     * kil
+     * jmp $here
      */
 
     cpu.StoreMemory(0x0, nes.Instruction_JSR)
