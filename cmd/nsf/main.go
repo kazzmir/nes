@@ -176,11 +176,19 @@ func run(path string) error {
     cpu.StoreMemory(0x0, nes.Instruction_JSR)
     cpu.StoreMemory(0x1, byte(nsf.InitAddress & 0xff))
     cpu.StoreMemory(0x2, byte(nsf.InitAddress >> 8))
+
+    /* the address of the jsr instruction that jumps to the $play address */
+    var playJSR uint16 = 0x3
     cpu.StoreMemory(0x3, nes.Instruction_JSR)
     cpu.StoreMemory(0x4, byte(nsf.PlayAddress & 0xff))
     cpu.StoreMemory(0x5, byte(nsf.PlayAddress >> 8))
 
-    cpu.StoreMemory(0x6, nes.Instruction_KIL_1)
+    /* jmp in place until the jsr $play instruction is run again */
+    cpu.StoreMemory(0x6, nes.Instruction_JMP_absolute)
+    cpu.StoreMemory(0x7, 0x6)
+    cpu.StoreMemory(0x8, 0x0)
+
+    // cpu.StoreMemory(0x6, nes.Instruction_KIL_1)
     /* Jump back to the JSR $play instruction */
     /*
     cpu.StoreMemory(0x6, nes.Instruction_JMP_absolute)
@@ -215,8 +223,7 @@ func run(path string) error {
 
     // nes.ApuDebug = 1
 
-    turboMultiplier := 1.0/60
-    turboMultiplier = 1
+    turboMultiplier := 1.0
 
     cycleTimer := time.NewTicker(time.Duration(hostTickSpeed) * time.Millisecond)
 
@@ -248,10 +255,27 @@ func run(path string) error {
         sdl.PauseAudioDevice(audioDevice, false)
     }
 
+    atPlay := false
+
     var audioBuffer bytes.Buffer
     for quit.Err() == nil {
-        if cpu.PC == 0x3 {
-            log.Printf("Play routine")
+
+        /* the cpu will be executing init for a while, so dont force a jump to $play
+         * until the cpu has executed the jsr $play instruction at least once
+         */
+        if cpu.PC == playJSR {
+            // log.Printf("Play routine")
+            atPlay = true
+        }
+
+        if atPlay {
+            select {
+                /* every $period hz jump back to the play routine
+                 */
+                case <-playTimer.C:
+                    cpu.PC = playJSR
+                default:
+            }
         }
 
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
@@ -272,12 +296,9 @@ func run(path string) error {
             }
         }
 
-        // log.Printf("Cycle counter %v\n", cycleCounter)
-
         err := cpu.Run(instructionTable)
         if err != nil {
-            <-playTimer.C
-            cpu.PC = 0x3
+            return err
         }
         usedCycles := cpu.Cycle
 
@@ -286,17 +307,6 @@ func run(path string) error {
         audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
 
         if audioData != nil {
-            // log.Printf("Send audio data via channel")
-            /*
-            select {
-                case audio<- audioData:
-                default:
-                    log.Printf("Warning: audio falling behind")
-            }
-            */
-                // log.Printf("Prepare audio to queue")
-                // log.Printf("Enqueue data %v", samples)
-
             audioBuffer.Reset()
             /* convert []float32 into []byte */
             for _, sample := range audioData {
