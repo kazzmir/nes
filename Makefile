@@ -1,7 +1,10 @@
-.PHONY: nes test nestest apu-test make-screenshot
+.PHONY: nes nsf test nestest apu-test make-screenshot
 
 nes:
 	go build ./cmd/nes
+
+nsf:
+	go build ./cmd/nsf
 
 test:
 	go test ./lib/...
