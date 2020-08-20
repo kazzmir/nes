@@ -16,6 +16,7 @@ import (
 )
 
 type NSFFile struct {
+    LoadAddress uint16
     InitAddress uint16
     PlayAddress uint16
     TotalSongs byte
@@ -92,7 +93,7 @@ func loadNSF(path string) (NSFFile, error) {
     _ = totalSongs
     _ = startingSong
 
-    programData := make([]byte, uint32(0x10000) - uint32(loadAddress))
+    programData := make([]byte, 0x10000 - uint32(loadAddress))
     read, err := io.ReadFull(file, programData)
     if err != nil {
         log.Printf("Could only read 0x%x bytes", read)
@@ -101,6 +102,7 @@ func loadNSF(path string) (NSFFile, error) {
     }
 
     return NSFFile{
+        LoadAddress: loadAddress,
         InitAddress: initAddress,
         PlayAddress: playAddress,
         TotalSongs: totalSongs,
@@ -112,6 +114,7 @@ func loadNSF(path string) (NSFFile, error) {
 
 type NSFMapper struct {
     Data []byte
+    LoadAddress uint16
 }
 
 func (mapper *NSFMapper) Write(cpu *nes.CPUState, address uint16, value byte) error {
@@ -119,12 +122,20 @@ func (mapper *NSFMapper) Write(cpu *nes.CPUState, address uint16, value byte) er
 }
 
 func (mapper *NSFMapper) Read(address uint16) byte {
-    return mapper.Data[address - 0x8000]
+    use := int(address) - int(mapper.LoadAddress)
+    if use >= len(mapper.Data) {
+        return 0
+    }
+    if use < 0 {
+        return 0
+    }
+    return mapper.Data[use]
 }
 
-func MakeNSFMapper(data []byte) nes.Mapper {
+func MakeNSFMapper(data []byte, loadAddress uint16) nes.Mapper {
     return &NSFMapper{
         Data: data,
+        LoadAddress: loadAddress,
     }
 }
 
@@ -162,7 +173,7 @@ func run(path string) error {
     _ = nsf
 
     cpu := nes.StartupState()
-    cpu.SetMapper(MakeNSFMapper(nsf.Data))
+    cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress))
     cpu.Input = nes.MakeInput(&NoInput{})
 
     cpu.A = nsf.StartingSong - 1
