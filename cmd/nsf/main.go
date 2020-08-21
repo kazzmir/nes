@@ -198,8 +198,8 @@ func playNSF(nsf NSFFile, track byte, audioDevice sdl.AudioDeviceID, sampleRate 
     /* jmp in place until the jsr $play instruction is run again */
     jmpSelf := playJSR + 3
     cpu.StoreMemory(jmpSelf, nes.Instruction_JMP_absolute)
-    cpu.StoreMemory(jmpSelf, 0x6)
-    cpu.StoreMemory(jmpSelf, 0x0)
+    cpu.StoreMemory(jmpSelf + 1, 0x6)
+    cpu.StoreMemory(jmpSelf + 2, 0x0)
 
     // cpu.StoreMemory(0x6, nes.Instruction_KIL_1)
     /* Jump back to the JSR $play instruction */
