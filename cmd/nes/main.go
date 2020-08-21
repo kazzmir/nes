@@ -827,6 +827,7 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
     baseCyclesPerSample := nes.CPUSpeed / 2 / float64(sampleRate)
 
     cycleTimer := time.NewTicker(time.Duration(hostTickSpeed) * time.Millisecond)
+    defer cycleTimer.Stop()
 
     turboMultiplier := float64(1)
 

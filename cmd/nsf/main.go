@@ -13,6 +13,8 @@ import (
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/veandco/go-sdl2/sdl"
+
+    "github.com/jroimartin/gocui"
 )
 
 type NSFFile struct {
@@ -164,40 +166,40 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     return device, err
 }
 
-func run(path string) error {
-    nsf, err := loadNSF(path)
-    if err != nil {
-        return err
-    }
-
-    _ = nsf
-
+func playNSF(nsf NSFFile, track byte, audioDevice sdl.AudioDeviceID, sampleRate float32, mainQuit context.Context) error {
     cpu := nes.StartupState()
     cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress))
     cpu.Input = nes.MakeInput(&NoInput{})
 
-    cpu.A = nsf.StartingSong - 1
-    cpu.X = 0
+    cpu.A = track
+    cpu.X = 0 // ntsc or pal
 
     /* jsr INIT
      * jsr PLAY
      * jmp $here
      */
 
-    cpu.StoreMemory(0x0, nes.Instruction_JSR)
-    cpu.StoreMemory(0x1, byte(nsf.InitAddress & 0xff))
-    cpu.StoreMemory(0x2, byte(nsf.InitAddress >> 8))
+    /* FIXME: supposedly NSF files can write to memory 0-0x1ef, but are unlikely
+     * to use the interrupt vectors from 0xfffa-0xffff, so this code could be
+     * moved to the interrupt vectors
+     */
+    initJSR := uint16(0)
+
+    cpu.StoreMemory(initJSR, nes.Instruction_JSR)
+    cpu.StoreMemory(initJSR + 1, byte(nsf.InitAddress & 0xff))
+    cpu.StoreMemory(initJSR + 2, byte(nsf.InitAddress >> 8))
 
     /* the address of the jsr instruction that jumps to the $play address */
-    var playJSR uint16 = 0x3
-    cpu.StoreMemory(0x3, nes.Instruction_JSR)
-    cpu.StoreMemory(0x4, byte(nsf.PlayAddress & 0xff))
-    cpu.StoreMemory(0x5, byte(nsf.PlayAddress >> 8))
+    var playJSR uint16 = initJSR + 3
+    cpu.StoreMemory(playJSR, nes.Instruction_JSR)
+    cpu.StoreMemory(playJSR + 1, byte(nsf.PlayAddress & 0xff))
+    cpu.StoreMemory(playJSR + 2, byte(nsf.PlayAddress >> 8))
 
     /* jmp in place until the jsr $play instruction is run again */
-    cpu.StoreMemory(0x6, nes.Instruction_JMP_absolute)
-    cpu.StoreMemory(0x7, 0x6)
-    cpu.StoreMemory(0x8, 0x0)
+    jmpSelf := playJSR + 3
+    cpu.StoreMemory(jmpSelf, nes.Instruction_JMP_absolute)
+    cpu.StoreMemory(jmpSelf, 0x6)
+    cpu.StoreMemory(jmpSelf, 0x0)
 
     // cpu.StoreMemory(0x6, nes.Instruction_KIL_1)
     /* Jump back to the JSR $play instruction */
@@ -216,7 +218,6 @@ func run(path string) error {
     cpu.PC = 0
     cpu.Debug = 0
 
-    sampleRate := float32(44100)
     instructionTable := nes.MakeInstructionDescriptiontable()
 
     var cycleCounter float64
@@ -237,37 +238,21 @@ func run(path string) error {
     turboMultiplier := 1.0
 
     cycleTimer := time.NewTicker(time.Duration(hostTickSpeed) * time.Millisecond)
+    defer cycleTimer.Stop()
 
     playRate := 1000000.0 / float32(nsf.NTSCSpeed)
 
     playTimer := time.NewTicker(time.Duration(1.0/playRate * 1000 * 1000) * time.Microsecond)
+    defer playTimer.Stop()
 
     lastCpuCycle := cpu.Cycle
     var maxCycles uint64 = 0
 
-    quit, cancel := context.WithCancel(context.Background())
+    quit, cancel := context.WithCancel(mainQuit)
     paused := false
-
     _ = cancel
 
-    err = sdl.Init(sdl.INIT_AUDIO)
-    if err != nil {
-        return err
-    }
-    defer sdl.Quit()
-
-    audioDevice, err := setupAudio(sampleRate)
-    if err != nil {
-        log.Printf("Warning: could not set up audio: %v", err)
-        audioDevice = 0
-    } else {
-        defer sdl.CloseAudioDevice(audioDevice)
-        log.Printf("Opened SDL audio device %v", audioDevice)
-        sdl.PauseAudioDevice(audioDevice, false)
-    }
-
     atPlay := false
-
     var audioBuffer bytes.Buffer
     for quit.Err() == nil {
 
@@ -332,6 +317,142 @@ func run(path string) error {
 
         lastCpuCycle = usedCycles
     }
+
+    return nil
+}
+
+type PlayerAction int
+const (
+    PlayerNextTrack = iota
+    PlayerPreviousTrack
+    PlayerQuit
+)
+
+func run(path string) error {
+    nsf, err := loadNSF(path)
+    if err != nil {
+        return err
+    }
+
+    _ = nsf
+
+    err = sdl.Init(sdl.INIT_AUDIO)
+    if err != nil {
+        return err
+    }
+    defer sdl.Quit()
+
+    sampleRate := float32(44100)
+
+    audioDevice, err := setupAudio(sampleRate)
+    if err != nil {
+        log.Printf("Warning: could not set up audio: %v", err)
+        audioDevice = 0
+    } else {
+        defer sdl.CloseAudioDevice(audioDevice)
+        log.Printf("Opened SDL audio device %v", audioDevice)
+        sdl.PauseAudioDevice(audioDevice, false)
+    }
+
+    quit, cancel := context.WithCancel(context.Background())
+
+    gui, err := gocui.NewGui(gocui.OutputNormal)
+    if err != nil {
+        return err
+    }
+
+    defer gui.Close()
+
+    gui.InputEsc = true
+
+    var mainView *gocui.View
+
+    gui.Update(func (gui *gocui.Gui) error {
+        var err error
+        mainView, err = gui.SetView("main", 0, 0, 30, 30)
+        if err != nil && err != gocui.ErrUnknownView {
+            return err
+        }
+        fmt.Fprintf(mainView, "this is a view %v", os.Getpid())
+
+        return nil
+    })
+
+    playerActions := make(chan PlayerAction)
+
+    err = gui.SetKeybinding("", gocui.KeyEsc, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
+        return gocui.ErrQuit
+    })
+
+    if err != nil {
+        log.Printf("Failed to bind esc in the gui: %v", err)
+        return err
+    }
+
+    err = gui.SetKeybinding("", gocui.KeyArrowLeft, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
+        playerActions <- PlayerPreviousTrack
+        return nil
+    })
+
+    if err != nil {
+        return err
+    }
+
+    err = gui.SetKeybinding("", gocui.KeyArrowRight, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
+        playerActions <- PlayerNextTrack
+        return nil
+    })
+
+    if err != nil {
+        return err
+    }
+
+    go func(){
+        err := gui.MainLoop()
+        if err != nil && err != gocui.ErrQuit {
+            log.Printf("Error from gocui: %v", err)
+        }
+
+        cancel()
+    }()
+
+    track := byte(0)
+
+    runPlayer := func(track byte) (context.Context, context.CancelFunc) {
+        playQuit, playCancel := context.WithCancel(quit)
+        go func(){
+            err := playNSF(nsf, track, audioDevice, sampleRate, playQuit)
+            if err != nil {
+                log.Printf("Unable to play: %v", err)
+            }
+        }()
+
+        return playQuit, playCancel
+    }
+
+    playQuit, playCancel := runPlayer(track)
+    for quit.Err() == nil {
+        select {
+            case action := <-playerActions:
+                switch action {
+                    case PlayerPreviousTrack:
+                        if track > 0 {
+                            track -= 1
+                            playCancel()
+                            playQuit, playCancel = runPlayer(track)
+                        }
+                    case PlayerNextTrack:
+                        if track < nsf.TotalSongs - 1 {
+                            track += 1
+                            playCancel()
+                            playQuit, playCancel = runPlayer(track)
+                        }
+                }
+            case <-quit.Done():
+        }
+    }
+
+    <-playQuit.Done()
 
     return nil
 }
