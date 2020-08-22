@@ -378,7 +378,7 @@ func run(path string) error {
         if err != nil && err != gocui.ErrUnknownView {
             return err
         }
-        fmt.Fprintf(mainView, "this is a view %v", os.Getpid())
+        // fmt.Fprintf(mainView, "this is a view %v", os.Getpid())
 
         go func(){
             for quit.Err() == nil {
@@ -398,47 +398,61 @@ func run(path string) error {
 
     playerActions := make(chan PlayerAction)
 
-    err = gui.SetKeybinding("", gocui.KeyEsc, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
+    guiQuit := func(gui *gocui.Gui, view *gocui.View) error {
         return gocui.ErrQuit
-    })
-
-    if err != nil {
-        log.Printf("Failed to bind esc in the gui: %v", err)
-        return err
     }
 
-    err = gui.SetKeybinding("", gocui.KeyArrowLeft, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
-        playerActions <- PlayerPreviousTrack
-        return nil
-    })
-
-    if err != nil {
-        return err
+    for _, key := range []gocui.Key{gocui.KeyEsc, gocui.KeyCtrlC} {
+        err = gui.SetKeybinding("", key, gocui.ModNone, guiQuit)
+        if err != nil {
+            log.Printf("Failed to bind esc in the gui: %v", err)
+            return err
+        }
     }
 
-    err = gui.SetKeybinding("", gocui.KeyArrowDown, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
-        playerActions <- PlayerPrevious5Track
-        return nil
-    })
+    bindAction := func(key interface{}, action PlayerAction) error {
+        return gui.SetKeybinding("", key, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
+            playerActions <- action
+            return nil
+        })
+    }
 
+    err = bindAction(gocui.KeyArrowLeft, PlayerPreviousTrack)
     if err != nil {
         return err
     }
 
-    err = gui.SetKeybinding("", gocui.KeyArrowRight, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
-        playerActions <- PlayerNextTrack
-        return nil
-    })
-
+    err = bindAction('h', PlayerPreviousTrack)
     if err != nil {
         return err
     }
 
-    err = gui.SetKeybinding("", gocui.KeyArrowUp, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
-        playerActions <- PlayerNext5Track
-        return nil
-    })
+    err = bindAction(gocui.KeyArrowDown, PlayerPrevious5Track)
+    if err != nil {
+        return err
+    }
 
+    err = bindAction('j', PlayerPrevious5Track)
+    if err != nil {
+        return err
+    }
+
+    err = bindAction(gocui.KeyArrowRight, PlayerNextTrack)
+    if err != nil {
+        return err
+    }
+
+    err = bindAction('l', PlayerNextTrack)
+    if err != nil {
+        return err
+    }
+
+    err = bindAction(gocui.KeyArrowUp, PlayerNext5Track)
+    if err != nil {
+        return err
+    }
+
+    err = bindAction('k', PlayerNext5Track)
     if err != nil {
         return err
     }
