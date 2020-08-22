@@ -166,6 +166,7 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     return device, err
 }
 
+/* FIXME: move this to lib/nsf.go */
 func playNSF(nsf NSFFile, track byte, audioDevice sdl.AudioDeviceID, sampleRate float32, mainQuit context.Context) error {
     cpu := nes.StartupState()
     cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress))
@@ -324,7 +325,9 @@ func playNSF(nsf NSFFile, track byte, audioDevice sdl.AudioDeviceID, sampleRate 
 type PlayerAction int
 const (
     PlayerNextTrack = iota
+    PlayerNext5Track = iota
     PlayerPreviousTrack
+    PlayerPrevious5Track
     PlayerQuit
 )
 
@@ -363,6 +366,8 @@ func run(path string) error {
 
     defer gui.Close()
 
+    updateState := make(chan byte, 10)
+
     gui.InputEsc = true
 
     var mainView *gocui.View
@@ -374,6 +379,19 @@ func run(path string) error {
             return err
         }
         fmt.Fprintf(mainView, "this is a view %v", os.Getpid())
+
+        go func(){
+            for quit.Err() == nil {
+                select {
+                    case track := <-updateState:
+                        gui.Update(func (gui *gocui.Gui) error {
+                            mainView.Clear()
+                            fmt.Fprintf(mainView, "Track %v", track)
+                            return nil
+                        })
+                }
+            }
+        }()
 
         return nil
     })
@@ -398,8 +416,26 @@ func run(path string) error {
         return err
     }
 
+    err = gui.SetKeybinding("", gocui.KeyArrowDown, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
+        playerActions <- PlayerPrevious5Track
+        return nil
+    })
+
+    if err != nil {
+        return err
+    }
+
     err = gui.SetKeybinding("", gocui.KeyArrowRight, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
         playerActions <- PlayerNextTrack
+        return nil
+    })
+
+    if err != nil {
+        return err
+    }
+
+    err = gui.SetKeybinding("", gocui.KeyArrowUp, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
+        playerActions <- PlayerNext5Track
         return nil
     })
 
@@ -418,6 +454,8 @@ func run(path string) error {
 
     track := byte(0)
 
+    updateState <- track
+
     runPlayer := func(track byte) (context.Context, context.CancelFunc) {
         playQuit, playCancel := context.WithCancel(quit)
         go func(){
@@ -434,19 +472,35 @@ func run(path string) error {
     for quit.Err() == nil {
         select {
             case action := <-playerActions:
+                trackDelta := 0
                 switch action {
                     case PlayerPreviousTrack:
-                        if track > 0 {
-                            track -= 1
-                            playCancel()
-                            playQuit, playCancel = runPlayer(track)
-                        }
+                        trackDelta = -1
+                    case PlayerPrevious5Track:
+                        trackDelta = -5
                     case PlayerNextTrack:
-                        if track < nsf.TotalSongs - 1 {
-                            track += 1
-                            playCancel()
-                            playQuit, playCancel = runPlayer(track)
-                        }
+                        trackDelta = 1
+                    case PlayerNext5Track:
+                        trackDelta = 5
+                }
+
+                if trackDelta != 0 {
+                    oldTrack := track
+                    newTrack := int(track) + trackDelta
+                    if newTrack < 0 {
+                        newTrack = 0
+                    }
+                    if newTrack >= int(nsf.TotalSongs) {
+                        newTrack = int(nsf.TotalSongs) - 1
+                    }
+
+                    track = byte(newTrack)
+
+                    if oldTrack != track {
+                        playCancel()
+                        playQuit, playCancel = runPlayer(track)
+                        updateState <- track
+                    }
                 }
             case <-quit.Done():
         }
