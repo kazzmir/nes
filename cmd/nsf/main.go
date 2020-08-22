@@ -174,8 +174,13 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     return device, err
 }
 
+type NSFActions int
+const (
+    NSFActionTogglePause = iota
+)
+
 /* FIXME: move this to lib/nsf.go */
-func playNSF(nsf NSFFile, track byte, audioDevice sdl.AudioDeviceID, sampleRate float32, mainQuit context.Context) error {
+func playNSF(nsf NSFFile, track byte, audioDevice sdl.AudioDeviceID, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
     cpu := nes.StartupState()
     cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress))
     cpu.Input = nes.MakeInput(&NoInput{})
@@ -292,6 +297,11 @@ func playNSF(nsf NSFFile, track byte, audioDevice sdl.AudioDeviceID, sampleRate 
             select {
                 case <-quit.Done():
                     return nil
+                case action := <-actions:
+                    switch action {
+                        case NSFActionTogglePause:
+                            paused = !paused
+                    }
                 case <-cycleTimer.C:
                     cycleCounter += cycleDiff * turboMultiplier
             }
@@ -337,11 +347,13 @@ const (
     PlayerPreviousTrack
     PlayerPrevious5Track
     PlayerQuit
+    PlayerTogglePause
 )
 
 type RenderState struct {
     track byte
     playTime uint64
+    paused bool
 }
 
 func run(nsfPath string) error {
@@ -380,6 +392,7 @@ func run(nsfPath string) error {
     defer gui.Close()
 
     updateTrack := make(chan byte, 10)
+    pauseChannel := make(chan bool)
 
     gui.InputEsc = true
     // gui.Cursor = true
@@ -424,6 +437,7 @@ func run(nsfPath string) error {
         fmt.Fprintf(keyView, "^ or k: skip 5 tracks ahead\n")
         fmt.Fprintf(keyView, "< or h: previous track\n")
         fmt.Fprintf(keyView, "v or j: skip 5 tracks back\n")
+        fmt.Fprintf(keyView, "space: pause/unpause\n")
         fmt.Fprintf(keyView, "esc or ctrl-c: quit\n")
 
         viewUpdates := make(chan RenderState, 3)
@@ -435,8 +449,11 @@ func run(nsfPath string) error {
                         gui.Update(func (gui *gocui.Gui) error {
                             mainView.Clear()
                             fmt.Fprintf(mainView, "Track %v / %v\n", state.track + 1, nsf.TotalSongs)
-                            mainView.SetCursor(1, 2)
-                            fmt.Fprintf(mainView, "Play time %v:%02d", state.playTime / 60, state.playTime % 60)
+                            if !state.paused {
+                                fmt.Fprintf(mainView, "Play time %v:%02d\n", state.playTime / 60, state.playTime % 60)
+                            } else {
+                                fmt.Fprintf(mainView, "Paused\n")
+                            }
                             return nil
                         })
                     case <-quit.Done():
@@ -450,13 +467,19 @@ func run(nsfPath string) error {
             defer timer.Stop()
             for quit.Err() == nil {
                 select {
+                    case paused := <-pauseChannel:
+                        renderState.paused = paused
+                        viewUpdates <- renderState
                     case track := <-updateTrack:
+                        renderState.paused = false
                         renderState.track = track
                         renderState.playTime = 0
                         viewUpdates <- renderState
                     case <-timer.C:
-                        renderState.playTime += 1
-                        viewUpdates <- renderState
+                        if !renderState.paused {
+                            renderState.playTime += 1
+                            viewUpdates <- renderState
+                        }
                     case <-quit.Done():
                 }
             }
@@ -526,6 +549,11 @@ func run(nsfPath string) error {
         return err
     }
 
+    err = bindAction(gocui.KeySpace, PlayerTogglePause)
+    if err != nil {
+        return err
+    }
+
     go func(){
         err := gui.MainLoop()
         if err != nil && err != gocui.ErrQuit {
@@ -539,10 +567,10 @@ func run(nsfPath string) error {
 
     updateTrack <- track
 
-    runPlayer := func(track byte) (context.Context, context.CancelFunc) {
+    runPlayer := func(track byte, actions chan NSFActions) (context.Context, context.CancelFunc) {
         playQuit, playCancel := context.WithCancel(quit)
         go func(){
-            err := playNSF(nsf, track, audioDevice, sampleRate, playQuit)
+            err := playNSF(nsf, track, audioDevice, sampleRate, actions, playQuit)
             if err != nil {
                 log.Printf("Unable to play: %v", err)
             }
@@ -551,7 +579,11 @@ func run(nsfPath string) error {
         return playQuit, playCancel
     }
 
-    playQuit, playCancel := runPlayer(track)
+    nsfActions := make(chan NSFActions)
+
+    paused := false
+
+    playQuit, playCancel := runPlayer(track, nsfActions)
     defer playCancel()
     for quit.Err() == nil {
         select {
@@ -566,6 +598,10 @@ func run(nsfPath string) error {
                         trackDelta = 1
                     case PlayerNext5Track:
                         trackDelta = 5
+                    case PlayerTogglePause:
+                        paused = !paused
+                        nsfActions <- NSFActionTogglePause
+                        pauseChannel <- paused
                 }
 
                 if trackDelta != 0 {
@@ -581,8 +617,9 @@ func run(nsfPath string) error {
                     track = byte(newTrack)
 
                     if oldTrack != track {
+                        paused = false
                         playCancel()
-                        playQuit, playCancel = runPlayer(track)
+                        playQuit, playCancel = runPlayer(track, nsfActions)
                         updateTrack <- track
                     }
                 }
