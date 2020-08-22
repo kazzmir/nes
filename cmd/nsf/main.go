@@ -80,6 +80,12 @@ func loadNSF(path string) (NSFFile, error) {
     _ = nsf2Reserved
     _ = nsf2MetaData
 
+    _ = bankValues
+    _ = palSpeed
+    _ = palOrNtsc
+    _ = extraSoundChip
+
+    /*
     log.Printf("Version %v", version)
     log.Printf("Total songs %v", totalSongs)
     log.Printf("Starting song %v", startingSong)
@@ -94,6 +100,7 @@ func loadNSF(path string) (NSFFile, error) {
     log.Printf("PAL speed %v", palSpeed)
     log.Printf("PAL/NTSC %v", palOrNtsc)
     log.Printf("Extra sound chip %v", extraSoundChip)
+    */
 
     _ = version
     _ = totalSongs
@@ -180,7 +187,8 @@ const (
 )
 
 /* FIXME: move this to lib/nsf.go */
-func playNSF(nsf NSFFile, track byte, audioDevice sdl.AudioDeviceID, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
+/* https://wiki.nesdev.com/w/index.php/NSF */
+func playNSF(nsf NSFFile, track byte, audioOut chan []byte, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
     cpu := nes.StartupState()
     cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress))
     cpu.Input = nes.MakeInput(&NoInput{})
@@ -328,10 +336,13 @@ func playNSF(nsf NSFFile, track byte, audioDevice sdl.AudioDeviceID, sampleRate 
                 binary.Write(&audioBuffer, binary.LittleEndian, sample)
             }
             // log.Printf("Enqueue audio")
-            err := sdl.QueueAudio(audioDevice, audioBuffer.Bytes())
-            if err != nil {
-                return fmt.Errorf("Error: could not queue audio data: %v", err)
+
+            /* try to enqueue the audio but throw out the data if the channel is busy */
+            select {
+                case audioOut <- audioBuffer.Bytes():
+                default:
             }
+
         }
 
         lastCpuCycle = usedCycles
@@ -382,7 +393,22 @@ func run(nsfPath string) error {
         sdl.PauseAudioDevice(audioDevice, false)
     }
 
+    audioOut := make(chan []byte, 2)
+
     quit, cancel := context.WithCancel(context.Background())
+
+    go func(){
+        for quit.Err() == nil {
+            select {
+                case <-quit.Done():
+                case audio := <-audioOut:
+                    err := sdl.QueueAudio(audioDevice, audio)
+                    if err != nil {
+                        log.Printf("Error: could not queue audio data: %v", err)
+                    }
+            }
+        }
+    }()
 
     gui, err := gocui.NewGui(gocui.OutputNormal)
     if err != nil {
@@ -570,7 +596,7 @@ func run(nsfPath string) error {
     runPlayer := func(track byte, actions chan NSFActions) (context.Context, context.CancelFunc) {
         playQuit, playCancel := context.WithCancel(quit)
         go func(){
-            err := playNSF(nsf, track, audioDevice, sampleRate, actions, playQuit)
+            err := playNSF(nsf, track, audioOut, sampleRate, actions, playQuit)
             if err != nil {
                 log.Printf("Unable to play: %v", err)
             }
