@@ -331,6 +331,11 @@ const (
     PlayerQuit
 )
 
+type RenderState struct {
+    track byte
+    playTime uint64
+}
+
 func run(path string) error {
     nsf, err := loadNSF(path)
     if err != nil {
@@ -366,29 +371,70 @@ func run(path string) error {
 
     defer gui.Close()
 
-    updateState := make(chan byte, 10)
+    updateTrack := make(chan byte, 10)
 
     gui.InputEsc = true
+    // gui.Cursor = true
 
     var mainView *gocui.View
 
     gui.Update(func (gui *gocui.Gui) error {
         var err error
-        mainView, err = gui.SetView("main", 0, 0, 30, 30)
+        mainView, err = gui.SetView("main", 0, 0, 40, 10)
         if err != nil && err != gocui.ErrUnknownView {
             return err
         }
         // fmt.Fprintf(mainView, "this is a view %v", os.Getpid())
 
+        mainWidth, mainHeight := mainView.Size()
+        _ = mainHeight
+        keyView, err := gui.SetView("keys", mainWidth + 2, 0, mainWidth + 2 + 30, 10)
+        if err != nil && err != gocui.ErrUnknownView {
+            return err
+        }
+
+        keyView.Frame = true
+
+        fmt.Fprintf(keyView, "Keys\n")
+        fmt.Fprintf(keyView, "> or l: next track\n")
+        fmt.Fprintf(keyView, "^ or k: skip 5 tracks ahead\n")
+        fmt.Fprintf(keyView, "< or h: previous track\n")
+        fmt.Fprintf(keyView, "v or j: skip 5 tracks back\n")
+        fmt.Fprintf(keyView, "esc or ctrl-c: quit\n")
+
+        viewUpdates := make(chan RenderState, 3)
+
         go func(){
             for quit.Err() == nil {
                 select {
-                    case track := <-updateState:
+                    case state := <-viewUpdates:
                         gui.Update(func (gui *gocui.Gui) error {
                             mainView.Clear()
-                            fmt.Fprintf(mainView, "Track %v", track)
+                            fmt.Fprintf(mainView, "NSF Player\n")
+                            fmt.Fprintf(mainView, "Track %v\n", state.track)
+                            mainView.SetCursor(1, 2)
+                            fmt.Fprintf(mainView, "Play time %v:%02d", state.playTime / 60, state.playTime % 60)
                             return nil
                         })
+                    case <-quit.Done():
+                }
+            }
+        }()
+
+        go func(){
+            renderState := RenderState{}
+            timer := time.NewTicker(1 * time.Second)
+            defer timer.Stop()
+            for quit.Err() == nil {
+                select {
+                    case track := <-updateTrack:
+                        renderState.track = track
+                        renderState.playTime = 0
+                        viewUpdates <- renderState
+                    case <-timer.C:
+                        renderState.playTime += 1
+                        viewUpdates <- renderState
+                    case <-quit.Done():
                 }
             }
         }()
@@ -468,7 +514,7 @@ func run(path string) error {
 
     track := byte(0)
 
-    updateState <- track
+    updateTrack <- track
 
     runPlayer := func(track byte) (context.Context, context.CancelFunc) {
         playQuit, playCancel := context.WithCancel(quit)
@@ -483,6 +529,7 @@ func run(path string) error {
     }
 
     playQuit, playCancel := runPlayer(track)
+    defer playCancel()
     for quit.Err() == nil {
         select {
             case action := <-playerActions:
@@ -513,7 +560,7 @@ func run(path string) error {
                     if oldTrack != track {
                         playCancel()
                         playQuit, playCancel = runPlayer(track)
-                        updateState <- track
+                        updateTrack <- track
                     }
                 }
             case <-quit.Done():
@@ -539,5 +586,7 @@ func main(){
     err := run(nesPath)
     if err != nil {
         log.Printf("Error: %v", err)
+    } else {
+        log.Printf("Bye")
     }
 }
