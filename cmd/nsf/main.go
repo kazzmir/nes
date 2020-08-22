@@ -10,6 +10,7 @@ import (
     "errors"
     "time"
     "encoding/binary"
+    "path/filepath"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/veandco/go-sdl2/sdl"
@@ -24,6 +25,9 @@ type NSFFile struct {
     TotalSongs byte
     StartingSong byte
     NTSCSpeed uint16
+    SongName string
+    Artist string
+    Copyright string
     Data []byte
 }
 
@@ -111,6 +115,10 @@ func loadNSF(path string) (NSFFile, error) {
         StartingSong: startingSong,
         NTSCSpeed: ntscSpeed,
         Data: programData,
+
+        SongName: string(songName),
+        Artist: string(artist),
+        Copyright: string(copyright),
     }, nil
 }
 
@@ -336,8 +344,8 @@ type RenderState struct {
     playTime uint64
 }
 
-func run(path string) error {
-    nsf, err := loadNSF(path)
+func run(nsfPath string) error {
+    nsf, err := loadNSF(nsfPath)
     if err != nil {
         return err
     }
@@ -380,15 +388,31 @@ func run(path string) error {
 
     gui.Update(func (gui *gocui.Gui) error {
         var err error
-        mainView, err = gui.SetView("main", 0, 0, 40, 10)
+
+        infoView, err := gui.SetView("info", 0, 0, 50, 10)
+        if err != nil && err != gocui.ErrUnknownView {
+            log.Printf("GUI error: %v", err)
+            return err
+        }
+
+        fmt.Fprintf(infoView, "NSF Player by Jon Rafkind\n")
+        fmt.Fprintf(infoView, "File: %v\n", filepath.Base(nsfPath))
+        fmt.Fprintf(infoView, "Artist: %v\n", nsf.Artist)
+        fmt.Fprintf(infoView, "Song: %v\n", nsf.SongName)
+        fmt.Fprintf(infoView, "Copyright: %v\n", nsf.Copyright)
+
+        infoWidth, infoHeight := infoView.Size()
+        mainView, err = gui.SetView("main", 0, infoHeight + 2, infoWidth + 1, infoHeight + 2 + 10)
         if err != nil && err != gocui.ErrUnknownView {
             return err
         }
         // fmt.Fprintf(mainView, "this is a view %v", os.Getpid())
 
+
         mainWidth, mainHeight := mainView.Size()
+        _ = mainWidth
         _ = mainHeight
-        keyView, err := gui.SetView("keys", mainWidth + 2, 0, mainWidth + 2 + 30, 10)
+        keyView, err := gui.SetView("keys", infoWidth + 2, 0, infoWidth + 2 + 30, infoHeight + 1)
         if err != nil && err != gocui.ErrUnknownView {
             return err
         }
@@ -410,8 +434,7 @@ func run(path string) error {
                     case state := <-viewUpdates:
                         gui.Update(func (gui *gocui.Gui) error {
                             mainView.Clear()
-                            fmt.Fprintf(mainView, "NSF Player\n")
-                            fmt.Fprintf(mainView, "Track %v\n", state.track)
+                            fmt.Fprintf(mainView, "Track %v / %v\n", state.track + 1, nsf.TotalSongs)
                             mainView.SetCursor(1, 2)
                             fmt.Fprintf(mainView, "Play time %v:%02d", state.playTime / 60, state.playTime % 60)
                             return nil
