@@ -357,13 +357,16 @@ func run(nsfPath string) error {
 }
 
 func help(){
-    fmt.Println("nsf [-mp3 <path> <track> <time>] <nsf file>")
+    fmt.Println("nsf [-mp3 <path> <track> <time>] [-info] <nsf file>")
     fmt.Println()
     fmt.Println("With no other arguments, launch the terminal app that plays the given <nsf file>")
-    fmt.Println("With -mp3 <path> <track> <time> the <nsf file> will be transcoded to an mp3 file (needs ffmpeg installed)")
+    fmt.Println()
+    fmt.Println("-mp3 <path> <track> <time>: the <nsf file> will be transcoded to an mp3 file (needs ffmpeg installed)")
     fmt.Println("  The <time> argument refers to the amount of time to play the track for, and can be")
     fmt.Println("  either a plain number or can be suffixed with s for seconds or m for minutes. Without a")
     fmt.Println("  suffix the <time> is interpreted as seconds.")
+    fmt.Println()
+    fmt.Println("-info: print information about the given nsf file")
     fmt.Println()
     fmt.Println("Jon Rafkind <jon@rafkind.com>")
 }
@@ -444,11 +447,32 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
     return err
 }
 
+func showInfo(path string){
+    nsf, err := nes.LoadNSF(path)
+    if err != nil {
+        fmt.Printf("Could not load '%v': %v", path, err)
+        return
+    }
+
+    fmt.Printf("NSF file '%v'\n", path)
+    fmt.Printf("Song: '%v'\n", nsf.SongName)
+    fmt.Printf("Artist: '%v'\n", nsf.Artist)
+    fmt.Printf("Copyright: '%v'\n", nsf.Copyright)
+    fmt.Printf("Load address: 0x%x\n", nsf.LoadAddress)
+    fmt.Printf("Init address: 0x%x\n", nsf.InitAddress)
+    fmt.Printf("Play address: 0x%x\n", nsf.PlayAddress)
+    fmt.Printf("Total songs: %v\n", nsf.TotalSongs)
+    fmt.Printf("Starting song: %v\n", nsf.StartingSong)
+    fmt.Printf("NTSC speed: %v\n", nsf.NTSCSpeed)
+    fmt.Printf("Data length: 0x%x\n", len(nsf.Data))
+}
+
 type Arguments struct {
     NSFPath string
     Mp3Out string
     Mp3Track int
     Mp3Time uint64
+    Info bool
 }
 
 func parseArguments() (Arguments, error) {
@@ -460,6 +484,8 @@ func parseArguments() (Arguments, error) {
 
     for i := 1; i < len(os.Args); i++ {
         switch os.Args[i] {
+            case "-info":
+                arguments.Info = true
             case "-mp3":
                 i = i + 1
                 if i < len(os.Args) {
@@ -517,6 +543,12 @@ func main(){
         if err != nil {
             log.Printf("Error: %v", err)
         }
+    } else if arguments.Info {
+        if arguments.NSFPath == "" {
+            fmt.Println("Give an nsf file")
+            return
+        }
+        showInfo(arguments.NSFPath)
     } else {
         err := run(arguments.NSFPath)
         if err != nil {
