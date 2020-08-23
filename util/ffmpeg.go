@@ -152,28 +152,50 @@ func EncodeMp3(mp3out string, mainQuit context.Context, sampleRate int, audioOut
 
     go func(){
         defer audio_reader.Close()
-
-        var audioBuffer bytes.Buffer
-
-        for {
-            select {
-            case <-quit.Done():
-                return
-            case audio := <-audioOut:
-                audioBuffer.Reset()
-                /* convert []float32 into []byte */
-                for _, sample := range audio {
-                    binary.Write(&audioBuffer, binary.LittleEndian, sample)
-                }
-                // log.Printf("Enqueue audio")
-                audio_writer.Write(audioBuffer.Bytes())
-            }
-        }
+        audioWriter(audio_writer, audioOut, quit)
     }()
 
     <-quit.Done()
 
     return nil
+}
+
+func audioWriter(out io.Writer, audio_channel chan []float32, stop context.Context){
+    var output bytes.Buffer
+    for {
+        select {
+            case <-stop.Done():
+                return
+            case buffer := <-audio_channel:
+                output.Reset()
+                for _, sample := range buffer {
+                    binary.Write(&output, binary.LittleEndian, sample)
+                }
+
+                // log.Printf("Writing audio samples to ffmpeg")
+                out.Write(output.Bytes())
+        }
+    }
+}
+
+func videoWriter(out io.Writer, overscanPixels int, video_channel chan nes.VirtualScreen, stop context.Context){
+    var output bytes.Buffer
+    for {
+        select {
+            case <-stop.Done():
+                return
+            case buffer := <-video_channel:
+                output.Reset()
+                for y := overscanPixels; y < buffer.Height - overscanPixels; y++ {
+                    for x := 0; x < buffer.Width; x++ {
+                        r, g, b, _ := buffer.GetRGBA(x, y)
+                        output.Write([]byte{r, g, b})
+                    }
+                }
+
+                out.Write(output.Bytes())
+            }
+    }
 }
 
 /* Audio+Video */
@@ -289,44 +311,13 @@ func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sam
 
     go func(){
         defer audio_reader.Close()
-
-        var output bytes.Buffer
-        for {
-            select {
-                case <-stop.Done():
-                    return
-                case buffer := <-audio_channel:
-                    output.Reset()
-                    for _, sample := range buffer {
-                        binary.Write(&output, binary.LittleEndian, sample)
-                    }
-
-                    // log.Printf("Writing audio samples to ffmpeg")
-                    audio_writer.Write(output.Bytes())
-            }
-        }
+        audioWriter(audio_writer, audio_channel, stop)
     }()
 
     /* video reader */
     go func(){
         defer video_reader.Close()
-        var output bytes.Buffer
-        for {
-            select {
-                case <-stop.Done():
-                    return
-                case buffer := <-video_channel:
-                    output.Reset()
-                    for y := overscanPixels; y < buffer.Height - overscanPixels; y++ {
-                        for x := 0; x < buffer.Width; x++ {
-                            r, g, b, _ := buffer.GetRGBA(x, y)
-                            output.Write([]byte{r, g, b})
-                        }
-                    }
-
-                    video_writer.Write(output.Bytes())
-            }
-        }
+        videoWriter(video_writer, overscanPixels, video_channel, stop)
     }()
 
     <-stop.Done()
