@@ -589,7 +589,7 @@ func run(nsfPath string) error {
         cancel()
     }()
 
-    track := byte(0)
+    track := byte(nsf.StartingSong - 1)
 
     updateTrack <- track
 
