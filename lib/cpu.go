@@ -22,7 +22,7 @@ const BRKVector uint16 = 0xfff6
 
 /* http://wiki.nesdev.com/w/index.php/Cycle_reference_chart#Clock_rates
  * NTSC 2c0c clock speed is 21.47~ MHz ÷ 12 = 1.789773 MHz
- * Every millisecond we should run this many cycles
+ * Every second we should run this many cycles
  */
 const CPUSpeed float64 = 1.789773e6
 
