@@ -8,9 +8,12 @@ Resources:
 
 Usage:
 
+```
 $ ./nes somerom.nes
+```
 
 Keys:
+```
 up arrow = up
 down arrow = down
 left arrow = left
@@ -19,8 +22,10 @@ enter = start
 Q = select
 A = a
 S = b
+```
 
 Other keys:
+```
 ~ = speed up emulator by 3x
 - = slow down emulator by 0.1
 = = speed up emulator by 0.1
@@ -29,16 +34,34 @@ space = pause/unpase emulator
 R = restart emulator
 P = enable ppu debugging
 O = stop the emulator after each frame, press O repeatedly
+```
 
 Build instructions:
 
 Get go 1.14.x, currently 1.15 has a bug such that the compiler will crash (https://github.com/golang/go/issues/40746)
 
 Using make
+```
 $ make
+```
 
 Or pure go
+```
 $ go build ./cmd/nes
+```
+
+NSF player is an ncurses terminal based music player of nsf files.
+```
+$ make nsf
+```
+or
+```
+$ go build ./cmd/nsf
+```
+
+```
+$ ./nsf somefile.nsf
+```
 
 Log:
 
