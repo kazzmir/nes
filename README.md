@@ -114,3 +114,7 @@ Colors have been fixed, and rendering uses an in-memory `[]uint32` array, which 
 8/18/2020: Audio, scrolling, and tons of other stuff is working much better. I added the ability to directly record a video from the emulator using ffmpeg. Here is a video showing off a few games that work well.
 
 [![nes video](https://img.youtube.com/vi/X8OQhbjnr9o/0.jpg)](https://youtube.com/watch?v=X8OQhbjnr9o)
+
+8/23/2020: Added an nsf player. The format is not 100% supported yet as it does not support bank switching or PAL speeds, but most nsf files I can find seem to play properly.
+
+![nsf](./pics/nsf.png)
