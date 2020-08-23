@@ -13,6 +13,8 @@ import (
     "strconv"
     "os/exec"
     "syscall"
+    "bytes"
+    "encoding/binary"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/veandco/go-sdl2/sdl"
@@ -252,16 +254,23 @@ func run(nsfPath string) error {
         sdl.PauseAudioDevice(audioDevice, false)
     }
 
-    audioOut := make(chan []byte, 2)
+    audioOut := make(chan []float32, 2)
 
     quit, cancel := context.WithCancel(context.Background())
 
     go func(){
+        var audioBuffer bytes.Buffer
         for quit.Err() == nil {
             select {
                 case <-quit.Done():
                 case audio := <-audioOut:
-                    err := sdl.QueueAudio(audioDevice, audio)
+                    audioBuffer.Reset()
+                    /* convert []float32 into []byte */
+                    for _, sample := range audio {
+                        binary.Write(&audioBuffer, binary.LittleEndian, sample)
+                    }
+
+                    err := sdl.QueueAudio(audioDevice, audioBuffer.Bytes())
                     if err != nil {
                         log.Printf("Error: could not queue audio data: %v", err)
                     }
@@ -452,7 +461,7 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
     }
 
     sampleRate := float32(44100)
-    audioOut := make(chan []byte, 2)
+    audioOut := make(chan []float32, 2)
     actions := make(chan nes.NSFActions)
 
     quit, cancel := context.WithCancel(context.Background())
@@ -559,13 +568,20 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
         go func(){
             defer audio_reader.Close()
 
+            var audioBuffer bytes.Buffer
+
             for {
                 select {
                     case <-quit.Done():
                         return
-                    case buffer := <-audioOut:
-                        // log.Printf("Writing audio %v", len(buffer))
-                        audio_writer.Write(buffer)
+                    case audio := <-audioOut:
+                        audioBuffer.Reset()
+                        /* convert []float32 into []byte */
+                        for _, sample := range audio {
+                            binary.Write(&audioBuffer, binary.LittleEndian, sample)
+                        }
+                        // log.Printf("Enqueue audio")
+                        audio_writer.Write(audioBuffer.Bytes())
                 }
             }
         }()
