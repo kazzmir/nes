@@ -15,4 +15,4 @@ make-screenshot:
 	go build ./test/make-screenshot
 
 count:
-	wc -l ./cmd/nes/*.go ./lib/*.go `find test -name "*.go"`
+	wc -l ./cmd/**/*.go ./lib/*.go `find test -name "*.go"`
