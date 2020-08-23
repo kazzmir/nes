@@ -1100,7 +1100,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             cpu.APU.WriteNoiseMode(value)
             return
         case APUNoiseIgnore:
-            /* FIXME: some games write here 0x4009, its unclear why. just ignore
+            /* FIXME: some games write here 0x400d, its unclear why. just ignore
              * the writes for now
              */
             return
