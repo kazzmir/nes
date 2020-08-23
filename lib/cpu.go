@@ -20,6 +20,12 @@ const ResetVector uint16 = 0xfffc
 const IRQVector uint16 = 0xfffe
 const BRKVector uint16 = 0xfff6
 
+/* http://wiki.nesdev.com/w/index.php/Cycle_reference_chart#Clock_rates
+ * NTSC 2c0c clock speed is 21.47~ MHz ÷ 12 = 1.789773 MHz
+ * Every second we should run this many cycles
+ */
+const CPUSpeed float64 = 1.789773e6
+
 type InstructionReader struct {
     data io.Reader
     table map[InstructionType]InstructionDescription
@@ -913,10 +919,12 @@ const (
     APUPulse2Timer = 0x4006
     APUPulse2Length = 0x4007
     APUTriangleCounter = 0x4008
+    APUTriangleIgnore = 0x4009
     APUTriangleTimerLow = 0x400A
     APUTriangleTimerHigh = 0x400B
     APUNoiseEnvelope = 0x400c
     APUNoiseMode = 0x400e
+    APUNoiseIgnore = 0x400d
     APUNoiseLength = 0x400f
     APUDMCEnable = 0x4010
     APUDMCLoad = 0x4011
@@ -1074,6 +1082,11 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
         case APUTriangleCounter:
             cpu.APU.WriteTriangleCounter(value)
             return
+        case APUTriangleIgnore:
+            /* FIXME: some games write here 0x4009, its unclear why. just ignore
+             * the writes for now
+             */
+            return
         case APUTriangleTimerLow:
             cpu.APU.WriteTriangleTimerLow(value)
             return
@@ -1085,6 +1098,11 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             return
         case APUNoiseMode:
             cpu.APU.WriteNoiseMode(value)
+            return
+        case APUNoiseIgnore:
+            /* FIXME: some games write here 0x400d, its unclear why. just ignore
+             * the writes for now
+             */
             return
         case APUNoiseEnvelope:
             cpu.APU.WriteNoiseEnvelope(value)

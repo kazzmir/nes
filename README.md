@@ -8,9 +8,12 @@ Resources:
 
 Usage:
 
+```
 $ ./nes somerom.nes
+```
 
 Keys:
+```
 up arrow = up
 down arrow = down
 left arrow = left
@@ -19,8 +22,10 @@ enter = start
 Q = select
 A = a
 S = b
+```
 
 Other keys:
+```
 ~ = speed up emulator by 3x
 - = slow down emulator by 0.1
 = = speed up emulator by 0.1
@@ -29,16 +34,34 @@ space = pause/unpase emulator
 R = restart emulator
 P = enable ppu debugging
 O = stop the emulator after each frame, press O repeatedly
+```
 
 Build instructions:
 
 Get go 1.14.x, currently 1.15 has a bug such that the compiler will crash (https://github.com/golang/go/issues/40746)
 
 Using make
+```
 $ make
+```
 
 Or pure go
+```
 $ go build ./cmd/nes
+```
+
+NSF player is an ncurses terminal based music player of nsf files.
+```
+$ make nsf
+```
+or
+```
+$ go build ./cmd/nsf
+```
+
+```
+$ ./nsf somefile.nsf
+```
 
 Log:
 
@@ -91,3 +114,7 @@ Colors have been fixed, and rendering uses an in-memory `[]uint32` array, which 
 8/18/2020: Audio, scrolling, and tons of other stuff is working much better. I added the ability to directly record a video from the emulator using ffmpeg. Here is a video showing off a few games that work well.
 
 [![nes video](https://img.youtube.com/vi/X8OQhbjnr9o/0.jpg)](https://youtube.com/watch?v=X8OQhbjnr9o)
+
+8/23/2020: Added an nsf player. The format is not 100% supported yet as it does not support bank switching or PAL speeds, but most nsf files I can find seem to play properly.
+
+![nsf](./pics/nsf.png)
