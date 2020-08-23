@@ -367,59 +367,8 @@ type RenderState struct {
     paused bool
 }
 
-func run(nsfPath string) error {
-    nsf, err := loadNSF(nsfPath)
-    if err != nil {
-        return err
-    }
-
-    _ = nsf
-
-    err = sdl.Init(sdl.INIT_AUDIO)
-    if err != nil {
-        return err
-    }
-    defer sdl.Quit()
-
-    sampleRate := float32(44100)
-
-    audioDevice, err := setupAudio(sampleRate)
-    if err != nil {
-        log.Printf("Warning: could not set up audio: %v", err)
-        audioDevice = 0
-    } else {
-        defer sdl.CloseAudioDevice(audioDevice)
-        log.Printf("Opened SDL audio device %v", audioDevice)
-        sdl.PauseAudioDevice(audioDevice, false)
-    }
-
-    audioOut := make(chan []byte, 2)
-
-    quit, cancel := context.WithCancel(context.Background())
-
-    go func(){
-        for quit.Err() == nil {
-            select {
-                case <-quit.Done():
-                case audio := <-audioOut:
-                    err := sdl.QueueAudio(audioDevice, audio)
-                    if err != nil {
-                        log.Printf("Error: could not queue audio data: %v", err)
-                    }
-            }
-        }
-    }()
-
+func terminalGui(quit context.Context, cancel context.CancelFunc, nsfPath string, nsf NSFFile, pauseChannel chan bool, updateTrack chan byte, playerActions chan PlayerAction) (*gocui.Gui, error) {
     gui, err := gocui.NewGui(gocui.OutputNormal)
-    if err != nil {
-        return err
-    }
-
-    defer gui.Close()
-
-    updateTrack := make(chan byte, 10)
-    pauseChannel := make(chan bool)
-
     gui.InputEsc = true
     // gui.Cursor = true
 
@@ -514,8 +463,6 @@ func run(nsfPath string) error {
         return nil
     })
 
-    playerActions := make(chan PlayerAction)
-
     guiQuit := func(gui *gocui.Gui, view *gocui.View) error {
         return gocui.ErrQuit
     }
@@ -524,7 +471,7 @@ func run(nsfPath string) error {
         err = gui.SetKeybinding("", key, gocui.ModNone, guiQuit)
         if err != nil {
             log.Printf("Failed to bind esc in the gui: %v", err)
-            return err
+            return nil, err
         }
     }
 
@@ -537,47 +484,47 @@ func run(nsfPath string) error {
 
     err = bindAction(gocui.KeyArrowLeft, PlayerPreviousTrack)
     if err != nil {
-        return err
+        return nil, err
     }
 
     err = bindAction('h', PlayerPreviousTrack)
     if err != nil {
-        return err
+        return nil, err
     }
 
     err = bindAction(gocui.KeyArrowDown, PlayerPrevious5Track)
     if err != nil {
-        return err
+        return nil, err
     }
 
     err = bindAction('j', PlayerPrevious5Track)
     if err != nil {
-        return err
+        return nil, err
     }
 
     err = bindAction(gocui.KeyArrowRight, PlayerNextTrack)
     if err != nil {
-        return err
+        return nil, err
     }
 
     err = bindAction('l', PlayerNextTrack)
     if err != nil {
-        return err
+        return nil, err
     }
 
     err = bindAction(gocui.KeyArrowUp, PlayerNext5Track)
     if err != nil {
-        return err
+        return nil, err
     }
 
     err = bindAction('k', PlayerNext5Track)
     if err != nil {
-        return err
+        return nil, err
     }
 
     err = bindAction(gocui.KeySpace, PlayerTogglePause)
     if err != nil {
-        return err
+        return nil, err
     }
 
     go func(){
@@ -588,6 +535,63 @@ func run(nsfPath string) error {
 
         cancel()
     }()
+
+    return gui, nil
+}
+
+func run(nsfPath string) error {
+    nsf, err := loadNSF(nsfPath)
+    if err != nil {
+        return err
+    }
+
+    _ = nsf
+
+    err = sdl.Init(sdl.INIT_AUDIO)
+    if err != nil {
+        return err
+    }
+    defer sdl.Quit()
+
+    sampleRate := float32(44100)
+
+    audioDevice, err := setupAudio(sampleRate)
+    if err != nil {
+        log.Printf("Warning: could not set up audio: %v", err)
+        audioDevice = 0
+    } else {
+        defer sdl.CloseAudioDevice(audioDevice)
+        log.Printf("Opened SDL audio device %v", audioDevice)
+        sdl.PauseAudioDevice(audioDevice, false)
+    }
+
+    audioOut := make(chan []byte, 2)
+
+    quit, cancel := context.WithCancel(context.Background())
+
+    go func(){
+        for quit.Err() == nil {
+            select {
+                case <-quit.Done():
+                case audio := <-audioOut:
+                    err := sdl.QueueAudio(audioDevice, audio)
+                    if err != nil {
+                        log.Printf("Error: could not queue audio data: %v", err)
+                    }
+            }
+        }
+    }()
+
+    playerActions := make(chan PlayerAction)
+    updateTrack := make(chan byte, 10)
+    pauseChannel := make(chan bool)
+
+    gui, err := terminalGui(quit, cancel, nsfPath, nsf, pauseChannel, updateTrack, playerActions)
+    if err != nil {
+        return err
+    }
+
+    defer gui.Close()
 
     track := byte(nsf.StartingSong - 1)
 
