@@ -444,71 +444,81 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
     return err
 }
 
-func main(){
-    log.SetFlags(log.Lshortfile | log.Lmicroseconds | log.Ldate)
+type Arguments struct {
+    NSFPath string
+    Mp3Out string
+    Mp3Track int
+    Mp3Time uint64
+}
 
-    var nesPath string
+func parseArguments() (Arguments, error) {
+    var arguments Arguments
 
     if len(os.Args) == 1 {
-        fmt.Printf("Give a .nsf file to play\n\n")
-        help()
-        return
+        return arguments, fmt.Errorf("Give a .nsf file to play")
     }
-
-    var mp3Out string
-    var mp3track int
-    var mp3time uint64
 
     for i := 1; i < len(os.Args); i++ {
         switch os.Args[i] {
             case "-mp3":
                 i = i + 1
                 if i < len(os.Args) {
-                    mp3Out = os.Args[i]
+                    arguments.Mp3Out = os.Args[i]
                     i += 1
                     if i < len(os.Args) {
                         var err error
-                        mp3track, err = strconv.Atoi(os.Args[i])
+                        arguments.Mp3Track, err = strconv.Atoi(os.Args[i])
                         if err != nil {
-                            fmt.Printf("Error: %v\n", err)
-                            return
+                            return arguments, fmt.Errorf("Error: %v", err)
                         }
 
                         i += 1
                         if i < len(os.Args) {
-                            mp3time, err = convertTime(os.Args[i])
+                            arguments.Mp3Time, err = convertTime(os.Args[i])
                             if err != nil {
-                                fmt.Printf("Error: %v\n", err)
-                                return
+                                return arguments, fmt.Errorf("Error: %v", err)
                             }
                         } else {
-                            fmt.Printf("-mp3 needs a <time> argument\n")
-                            return
+                            return arguments, fmt.Errorf("-mp3 needs a <time> argument")
                         }
                     } else {
-                        fmt.Printf("-mp3 needs a <track> argument\n")
-                        return
+                        return arguments, fmt.Errorf("-mp3 needs a <track> argument")
                     }
                 } else {
-                    fmt.Printf("-mp3 needs three more arguments\n")
-                    help()
-                    return
+                    return arguments, fmt.Errorf("-mp3 needs three more arguments")
                 }
             case "-h", "--help":
-                help()
-                return
+                return arguments, fmt.Errorf("")
             default:
-                nesPath = os.Args[i]
+                arguments.NSFPath = os.Args[i]
         }
     }
 
-    if mp3Out != "" {
-        err := saveMp3(nesPath, mp3Out, mp3track - 1, mp3time)
+    return arguments, nil
+}
+
+func main(){
+    log.SetFlags(log.Lshortfile | log.Lmicroseconds | log.Ldate)
+
+    arguments, err := parseArguments()
+    if err != nil {
+        help()
+        fmt.Println()
+        fmt.Printf("%v\n", err)
+        return
+    }
+
+    if arguments.Mp3Out != "" {
+        if arguments.NSFPath == "" {
+            fmt.Printf("Give an nsf file\n")
+            return
+        }
+        err := saveMp3(arguments.NSFPath, arguments.Mp3Out, arguments.Mp3Track - 1, arguments.Mp3Time)
         if err != nil {
             log.Printf("Error: %v", err)
         }
     } else {
-        err := run(nesPath)
+        err := run(arguments.NSFPath)
         if err != nil {
             log.Printf("Error: %v", err)
         } else {
