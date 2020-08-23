@@ -4,9 +4,15 @@ import (
     "log"
     "fmt"
     "os"
+    "io"
     "context"
     "time"
+    "strings"
+    "sync"
     "path/filepath"
+    "strconv"
+    "os/exec"
+    "syscall"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/veandco/go-sdl2/sdl"
@@ -343,21 +349,306 @@ func run(nsfPath string) error {
     return nil
 }
 
+func help(){
+    fmt.Println("nsf [-mp3 <path> <track> <time>] <nsf file>")
+    fmt.Println()
+    fmt.Println("With no other arguments, launch the terminal app that plays the given <nsf file>")
+    fmt.Println("With -mp3 <path> <track> <time> the <nsf file> will be transcoded to an mp3 file (needs ffmpeg installed)")
+    fmt.Println("  The <time> argument refers to the amount of time to play the track for, and can be")
+    fmt.Println("  either a plain number or can be suffixed with s for seconds or m for minutes. Without a")
+    fmt.Println("  suffix the <time> is interpreted as seconds.")
+    fmt.Println()
+    fmt.Println("Jon Rafkind <jon@rafkind.com>")
+}
+
+func isNumber(value string) bool {
+    _, err := strconv.Atoi(value)
+    return err == nil
+}
+
+func convertTime(data string) (uint64, error) {
+    if len(data) == 0 {
+        return 0, fmt.Errorf("No time given")
+    }
+
+    last := strings.ToLower(data[len(data)-1:])
+    hasSuffix := !isNumber(last)
+
+    end := len(data)
+
+    multiple := 1
+    if hasSuffix {
+        switch last {
+            case "s":
+            case "m": multiple = 60
+            default:
+                return 0, fmt.Errorf("Unknown suffix '%v'", last)
+        }
+
+        end = len(data)-1
+    }
+
+    rest := data[0:end]
+    number, err := strconv.ParseUint(rest, 10, 64)
+    if err != nil {
+        return 0, err
+    }
+
+    return number * uint64(multiple), nil
+}
+
+/* FIXME: share this between the nes program */
+func findFfmpegBinary() (string, error) {
+    return exec.LookPath("ffmpeg")
+}
+
+func waitForProcess(process *os.Process, timeout int){
+    done := time.Now().Add(time.Second * time.Duration(timeout))
+    dead := false
+    for time.Now().Before(done) {
+        err := os.Signal(syscall.Signal(0)) // on linux sending signal 0 will have no impact, but will fail
+                            // if the process doesn't exist (or we don't own it)
+        if err == nil {
+            time.Sleep(time.Millisecond * 100)
+        } else {
+            dead = true
+            break
+        }
+    }
+    if !dead {
+        /* Didn't die on its own, so we forcifully kill it */
+        log.Printf("Killing pid %v", process.Pid)
+        process.Kill()
+    }
+    process.Wait()
+}
+
+func niceSize(path string) string {
+    info, err := os.Stat(path)
+    if err != nil {
+        return ""
+    }
+
+    size := float64(info.Size())
+    suffixes := []string{"b", "kb", "mb", "gb"}
+    suffix := 0
+
+    for size > 1024 && suffix < len(suffixes) - 1 {
+        size /= 1024
+        suffix += 1
+    }
+
+    return fmt.Sprintf("%.2f%v", size, suffixes[suffix])
+}
+
+func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error {
+    nsf, err := nes.LoadNSF(nsfPath)
+    if err != nil {
+        return err
+    }
+
+    if track < 0 || track >= int(nsf.TotalSongs) {
+        return fmt.Errorf("Invalid track %v. Must be between 1 and %v", track+1, nsf.TotalSongs+1)
+    }
+
+    sampleRate := float32(44100)
+    audioOut := make(chan []byte, 2)
+    actions := make(chan nes.NSFActions)
+
+    quit, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    var waiter sync.WaitGroup
+
+    go func(){
+        time.Sleep(time.Duration(renderTime) * time.Second)
+        log.Printf("Done")
+        cancel()
+    }()
+
+    waiter.Add(1)
+    go func(){
+        ffmpeg_binary_path, err := findFfmpegBinary()
+        if err != nil {
+            log.Printf("Could not find ffmpeg: %v", err)
+            return
+        }
+
+        audio_reader, audio_writer, err := os.Pipe()
+        if err != nil {
+            return
+        }
+
+        log.Printf("Launching ffmpeg")
+        ffmpeg_process := exec.Command(ffmpeg_binary_path,
+            "-use_wallclock_as_timestamps", "1", // treat the incoming data as a live stream
+            "-f", "f32le", // audio is uncompressed pcm in float32 format
+            "-ar", strconv.Itoa(int(sampleRate)), // sample rate
+            "-ac", "1",
+            "-i", "pipe:3", // audio is passed as fd 3
+
+            "-tune", "zerolatency", // fast encoding
+            "-acodec", "mp3", // mp3 for audio
+            // "-filter:a", "volume=10dB", // increase volume a bit
+            "-y", // overwrite output if the file already exists
+            mp3out)
+
+        // ffmpeg_process.Stdin = reader
+
+        /* FIXME: figure out a solution for windows */
+        ffmpeg_process.ExtraFiles = []*os.File{audio_reader}
+
+        stdout, err := ffmpeg_process.StdoutPipe()
+        if err != nil {
+            log.Printf("Could not get ffmpeg stdout: %v", err)
+            return
+        }
+
+        stderr, err := ffmpeg_process.StderrPipe()
+        if err != nil {
+            log.Printf("Could not get ffmpeg stderr: %v", err)
+            return
+        }
+
+        err = ffmpeg_process.Start()
+        if err != nil {
+            log.Printf("Could not start ffmpeg: %v", err)
+            return
+        }
+
+        go func(stdout io.ReadCloser){
+            buffer := make([]byte, 4096)
+            for {
+                count, err := stdout.Read(buffer)
+                if err != nil {
+                    log.Printf("Could not read ffmpeg stdout: %v", err)
+                    return
+                }
+                _ = count
+                // log.Printf("ffmpeg: %v", string(buffer[0:count]))
+            }
+        }(stdout)
+
+        go func(stdout io.ReadCloser){
+            buffer := make([]byte, 4096)
+            for {
+                count, err := stdout.Read(buffer)
+                if err != nil {
+                    log.Printf("Could not read ffmpeg stdout: %v", err)
+                    return
+                }
+                _ = count
+                // log.Printf("ffmpeg: %v", string(buffer[0:count]))
+            }
+        }(stderr)
+
+        log.Printf("Recording to %v", mp3out)
+
+        go func(){
+            defer waiter.Done()
+            startTime := time.Now()
+            <-quit.Done()
+            /* ffmpeg will normally close on its own if its input is closed */
+            audio_writer.Close()
+            /* we can send SIGINT to it as well, which also usually stops it */
+            ffmpeg_process.Process.Signal(os.Interrupt)
+            waitForProcess(ffmpeg_process.Process, 10)
+            log.Printf("Recording has ended. Saved '%v' for %v size %v", mp3out, time.Now().Sub(startTime), niceSize(mp3out))
+        }()
+
+        go func(){
+            defer audio_reader.Close()
+
+            for {
+                select {
+                    case <-quit.Done():
+                        return
+                    case buffer := <-audioOut:
+                        // log.Printf("Writing audio %v", len(buffer))
+                        audio_writer.Write(buffer)
+                }
+            }
+        }()
+    }()
+
+    log.Printf("Rendering track %v of %v to '%v' for %d:%02d", track+1, filepath.Base(nsfPath), mp3out, renderTime/60, renderTime % 60)
+
+    err = nes.PlayNSF(nsf, byte(track), audioOut, sampleRate, actions, quit)
+
+    waiter.Wait()
+
+    return err
+}
+
 func main(){
     log.SetFlags(log.Lshortfile | log.Lmicroseconds | log.Ldate)
 
     var nesPath string
 
     if len(os.Args) == 1 {
-        fmt.Printf("Give a .nsf file to play\n")
+        fmt.Printf("Give a .nsf file to play\n\n")
+        help()
         return
     }
 
-    nesPath = os.Args[1]
-    err := run(nesPath)
-    if err != nil {
-        log.Printf("Error: %v", err)
+    var mp3Out string
+    var mp3track int
+    var mp3time uint64
+
+    for i := 1; i < len(os.Args); i++ {
+        switch os.Args[i] {
+            case "-mp3":
+                i = i + 1
+                if i < len(os.Args) {
+                    mp3Out = os.Args[i]
+                    i += 1
+                    if i < len(os.Args) {
+                        var err error
+                        mp3track, err = strconv.Atoi(os.Args[i])
+                        if err != nil {
+                            fmt.Printf("Error: %v\n", err)
+                            return
+                        }
+
+                        i += 1
+                        if i < len(os.Args) {
+                            mp3time, err = convertTime(os.Args[i])
+                            if err != nil {
+                                fmt.Printf("Error: %v\n", err)
+                                return
+                            }
+                        } else {
+                            fmt.Printf("-mp3 needs a <time> argument\n")
+                            return
+                        }
+                    } else {
+                        fmt.Printf("-mp3 needs a <track> argument\n")
+                        return
+                    }
+                } else {
+                    fmt.Printf("-mp3 needs three more arguments\n")
+                    help()
+                    return
+                }
+            case "-h", "--help":
+                help()
+                return
+            default:
+                nesPath = os.Args[i]
+        }
+    }
+
+    if mp3Out != "" {
+        err := saveMp3(nesPath, mp3Out, mp3track - 1, mp3time)
+        if err != nil {
+            log.Printf("Error: %v", err)
+        }
     } else {
-        log.Printf("Bye")
+        err := run(nesPath)
+        if err != nil {
+            log.Printf("Error: %v", err)
+        } else {
+            log.Printf("Bye")
+        }
     }
 }
