@@ -264,7 +264,117 @@ func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
 }
 
 func RunNSF(path string) error {
-    return nil
+    nsfFile, err := nes.LoadNSF(path)
+    if err != nil {
+        return err
+    }
+
+    err = sdl.Init(sdl.INIT_EVERYTHING)
+    if err != nil {
+        return err
+    }
+    defer sdl.Quit()
+
+    /* to resize the window */
+    // | sdl.WINDOW_RESIZABLE
+    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(640), int32(480), sdl.WINDOW_SHOWN)
+    if err != nil {
+        return err
+    }
+    defer window.Destroy()
+
+    renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
+    if err != nil {
+        return err
+    }
+
+    quit, cancel := context.WithCancel(context.Background())
+
+    go func(){
+        for quit.Err() == nil {
+            <-quit.Done()
+            _ = renderer
+        }
+    }()
+
+    const AudioSampleRate float32 = 44100
+
+    audioDevice, err := setupAudio(AudioSampleRate)
+    if err != nil {
+        return fmt.Errorf("Could not initialize audio: %v", err)
+    }
+
+    defer sdl.CloseAudioDevice(audioDevice)
+    log.Printf("Opened SDL audio device %v", audioDevice)
+    sdl.PauseAudioDevice(audioDevice, false)
+
+    audioOut := make(chan []float32, 2)
+    actions := make(chan nes.NSFActions)
+
+    go func(){
+        <-quit.Done()
+        close(audioOut)
+    }()
+
+    var waiter sync.WaitGroup
+
+    if audioDevice != 0 {
+        waiter.Add(1)
+        go func(){
+            defer waiter.Done()
+            runAudio(audioDevice, audioOut)
+        }()
+    }
+
+    track := byte(0)
+    go func(){
+        err := nes.PlayNSF(nsfFile, track, audioOut, AudioSampleRate, actions, quit)
+        if err != nil {
+            log.Printf("Error playing nsf: %v", err)
+            cancel()
+        }
+    }()
+
+    for quit.Err() == nil {
+        event := sdl.WaitEvent()
+        if event != nil {
+            // log.Printf("Event %+v\n", event)
+            switch event.GetType() {
+                case sdl.QUIT: cancel()
+                case sdl.KEYDOWN:
+                    keyboard_event := event.(*sdl.KeyboardEvent)
+                    quit_pressed := keyboard_event.Keysym.Scancode == sdl.SCANCODE_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK
+                    if quit_pressed {
+                        cancel()
+                    }
+
+                case sdl.KEYUP:
+            }
+        }
+    }
+
+    waiter.Wait()
+
+    return err
+}
+
+func runAudio(audioDevice sdl.AudioDeviceID, audio chan []float32){
+    var buffer bytes.Buffer
+    for samples := range audio {
+        // log.Printf("Prepare audio to queue")
+        // log.Printf("Enqueue data %v", samples)
+        buffer.Reset()
+        /* convert []float32 into []byte */
+        for _, sample := range samples {
+            binary.Write(&buffer, binary.LittleEndian, sample)
+        }
+        // log.Printf("Enqueue audio")
+        err := sdl.QueueAudio(audioDevice, buffer.Bytes())
+        if err != nil {
+            log.Printf("Error: could not queue audio data: %v", err)
+            return
+        }
+    }
 }
 
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
