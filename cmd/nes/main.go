@@ -17,6 +17,7 @@ import (
     "github.com/kazzmir/nes/util"
 
     "github.com/veandco/go-sdl2/sdl"
+    "github.com/veandco/go-sdl2/ttf"
 
     "encoding/binary"
     "bytes"
@@ -263,6 +264,10 @@ func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
     listeners.AudioListeners = out
 }
 
+type NSFRenderState struct {
+    Text string
+}
+
 func RunNSF(path string) error {
     nsfFile, err := nes.LoadNSF(path)
     if err != nil {
@@ -288,12 +293,66 @@ func RunNSF(path string) error {
         return err
     }
 
+    err = ttf.Init()
+    if err != nil {
+        return err
+    }
+
+    defer ttf.Quit()
+
+    font, err := ttf.OpenFont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
+    if err != nil {
+        return err
+    }
+    defer font.Close()
+
     quit, cancel := context.WithCancel(context.Background())
 
+    renderUpdates := make(chan NSFRenderState)
+
     go func(){
+        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
         for quit.Err() == nil {
-            <-quit.Done()
-            _ = renderer
+            select {
+                case <-quit.Done():
+                case state := <-renderUpdates:
+                    renderer.Clear()
+
+                    _ = state
+                    surface, err := font.RenderUTF8Blended(state.Text, white)
+                    if err == nil {
+                        texture, err := renderer.CreateTextureFromSurface(surface)
+                        if err == nil {
+                            surfaceBounds := surface.Bounds()
+
+                            sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(surfaceBounds.Max.X), H: int32(surfaceBounds.Max.Y)}
+                            destRect := sourceRect
+
+                            renderer.Copy(texture, &sourceRect, &destRect)
+                            texture.Destroy()
+                        }
+
+                        surface.Free()
+                    }
+                    // renderer.Copy(texture, nil, nil)
+                    renderer.Present()
+            }
+        }
+    }()
+
+    go func(){
+        var renderState NSFRenderState
+        renderState.Text = "hello"
+        renderUpdates <- renderState
+        tick := 5.0 / 60.0 * 1000.0 * 1000.0
+        timer := time.NewTicker(time.Duration(tick) * time.Microsecond)
+        defer timer.Stop()
+        for quit.Err() == nil {
+            select {
+                case <-quit.Done():
+                case <-timer.C:
+                    renderUpdates <- renderState
+            }
         }
     }()
 
