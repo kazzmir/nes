@@ -263,7 +263,11 @@ func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
     listeners.AudioListeners = out
 }
 
-func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
+func RunNSF(path string) error {
+    return nil
+}
+
+func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
     nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
         return err
@@ -874,9 +878,19 @@ func main(){
             pprof.StartCPUProfile(profile)
             defer pprof.StopCPUProfile()
         }
-        err := Run(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
-        if err != nil {
-            log.Printf("Error: %v\n", err)
+
+        if nes.IsNESFile(arguments.NESPath) {
+            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
+            if err != nil {
+                log.Printf("Error: %v\n", err)
+            }
+        } else if nes.IsNSFFile(arguments.NESPath) {
+            err := RunNSF(arguments.NESPath)
+            if err != nil {
+                log.Printf("Error: %v\n", err)
+            }
+        } else {
+            fmt.Printf("%v is neither a .nes nor .nsf file\n", arguments.NESPath)
         }
         log.Printf("Bye")
 

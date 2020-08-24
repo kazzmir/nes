@@ -33,6 +33,23 @@ func isNSF(header []byte) bool {
     return bytes.Equal(header[0:len(nsfBytes)], nsfBytes)
 }
 
+func IsNSFFile(path string) bool {
+    file, err := os.Open(path)
+    if err != nil {
+        return false
+    }
+    defer file.Close()
+
+    header := make([]byte, 0x80)
+
+    _, err = io.ReadFull(file, header)
+    if err != nil {
+        return false
+    }
+
+    return isNSF(header)
+}
+
 func LoadNSF(path string) (NSFFile, error) {
     file, err := os.Open(path)
     if err != nil {

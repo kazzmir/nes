@@ -33,6 +33,23 @@ func isNes2(nesHeader []byte) bool {
     return nesHeader[7] & 0xc == 0x8
 }
 
+func IsNESFile(path string) bool {
+    file, err := os.Open(path)
+    if err != nil {
+        return false
+    }
+
+    defer file.Close()
+
+    header := make([]byte, 16)
+    _, err = io.ReadFull(file, header)
+    if err != nil {
+        return false
+    }
+
+    return isINes(header[0:4])
+}
+
 func readPRG(header []byte) uint64 {
     lsb := header[4]
     /* only use the lowest 4 bits of byte 9 in the header */
