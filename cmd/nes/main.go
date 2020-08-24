@@ -265,7 +265,36 @@ func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
 }
 
 type NSFRenderState struct {
-    Text string
+    SongName string
+    PlayTime uint64
+    Track int
+    MaxTrack int
+}
+
+func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) error {
+    surface, err := font.RenderUTF8Blended(message, color)
+    if err != nil {
+        return err
+    }
+
+    defer surface.Free()
+
+    texture, err := renderer.CreateTextureFromSurface(surface)
+    if err != nil {
+        return err
+    }
+    defer texture.Destroy()
+
+    surfaceBounds := surface.Bounds()
+
+    sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(surfaceBounds.Max.X), H: int32(surfaceBounds.Max.Y)}
+    destRect := sourceRect
+    destRect.X = int32(x)
+    destRect.Y = int32(y)
+
+    renderer.Copy(texture, &sourceRect, &destRect)
+
+    return nil
 }
 
 func RunNSF(path string) error {
@@ -300,6 +329,7 @@ func RunNSF(path string) error {
 
     defer ttf.Quit()
 
+    /* FIXME: choose a font somehow */
     font, err := ttf.OpenFont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
     if err != nil {
         return err
@@ -312,6 +342,7 @@ func RunNSF(path string) error {
 
     go func(){
         white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+        fontHeight := font.Height()
         for quit.Err() == nil {
             select {
                 case <-quit.Done():
@@ -319,21 +350,21 @@ func RunNSF(path string) error {
                     renderer.Clear()
 
                     _ = state
-                    surface, err := font.RenderUTF8Blended(state.Text, white)
-                    if err == nil {
-                        texture, err := renderer.CreateTextureFromSurface(surface)
-                        if err == nil {
-                            surfaceBounds := surface.Bounds()
 
-                            sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(surfaceBounds.Max.X), H: int32(surfaceBounds.Max.Y)}
-                            destRect := sourceRect
-
-                            renderer.Copy(texture, &sourceRect, &destRect)
-                            texture.Destroy()
-                        }
-
-                        surface.Free()
+                    y := 0
+                    err := writeFont(font, renderer, 0, y, fmt.Sprintf("Song: %v", state.SongName), white)
+                    if err != nil {
+                        log.Printf("Unable to write font: %v", err)
                     }
+                    y += fontHeight + 3
+
+                    err = writeFont(font, renderer, 0, y, fmt.Sprintf("Track %v/%v", state.Track, state.MaxTrack), white)
+                    if err != nil {
+                        log.Printf("Unable to write font: %v", err)
+                    }
+                    y += fontHeight + 3
+                    err = writeFont(font, renderer, 0, y, fmt.Sprintf("Play time %d:%02d", state.PlayTime / 60, state.PlayTime % 60), white)
+
                     // renderer.Copy(texture, nil, nil)
                     renderer.Present()
             }
@@ -342,15 +373,23 @@ func RunNSF(path string) error {
 
     go func(){
         var renderState NSFRenderState
-        renderState.Text = "hello"
+        renderState.SongName = nsfFile.SongName
+        renderState.MaxTrack = int(nsfFile.TotalSongs + 1)
+        renderState.Track = 1
         renderUpdates <- renderState
         tick := 5.0 / 60.0 * 1000.0 * 1000.0
         timer := time.NewTicker(time.Duration(tick) * time.Microsecond)
+        second := time.NewTicker(1 * time.Second)
+        defer second.Stop()
         defer timer.Stop()
         for quit.Err() == nil {
             select {
                 case <-quit.Done():
                 case <-timer.C:
+                    /* Force a refresh at least this often */
+                    renderUpdates <- renderState
+                case <-second.C:
+                    renderState.PlayTime += 1
                     renderUpdates <- renderState
             }
         }
