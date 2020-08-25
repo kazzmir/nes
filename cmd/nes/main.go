@@ -297,6 +297,14 @@ func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message str
     return nil
 }
 
+type NSFPlayerActions int
+const (
+    NSFPlayerNext5Tracks = iota
+    NSFPlayerNext
+    NSFPlayerPrevious
+    NSFPlayerPrevious5Tracks
+)
+
 func RunNSF(path string) error {
     nsfFile, err := nes.LoadNSF(path)
     if err != nil {
@@ -308,6 +316,9 @@ func RunNSF(path string) error {
         return err
     }
     defer sdl.Quit()
+
+    sdl.DisableScreenSaver()
+    defer sdl.EnableScreenSaver()
 
     /* to resize the window */
     // | sdl.WINDOW_RESIZABLE
@@ -330,7 +341,7 @@ func RunNSF(path string) error {
     defer ttf.Quit()
 
     /* FIXME: choose a font somehow */
-    font, err := ttf.OpenFont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
+    font, err := ttf.OpenFont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
     if err != nil {
         return err
     }
@@ -358,7 +369,7 @@ func RunNSF(path string) error {
                     }
                     y += fontHeight + 3
 
-                    err = writeFont(font, renderer, 0, y, fmt.Sprintf("Track %v/%v", state.Track, state.MaxTrack), white)
+                    err = writeFont(font, renderer, 0, y, fmt.Sprintf("Track %v/%v", state.Track + 1, state.MaxTrack + 1), white)
                     if err != nil {
                         log.Printf("Unable to write font: %v", err)
                     }
@@ -371,31 +382,83 @@ func RunNSF(path string) error {
         }
     }()
 
+    doRender := make(chan bool, 2)
+    nsfActions := make(chan NSFPlayerActions, 3)
+    audioOut := make(chan []float32, 2)
+    actions := make(chan nes.NSFActions)
+
+    const AudioSampleRate float32 = 44100
+
     go func(){
         var renderState NSFRenderState
         renderState.SongName = nsfFile.SongName
-        renderState.MaxTrack = int(nsfFile.TotalSongs + 1)
-        renderState.Track = 1
+        renderState.MaxTrack = int(nsfFile.TotalSongs)
+        renderState.Track = 0
+
+        playQuit, playCancel := context.WithCancel(quit)
+
+        doPlay := func(playQuit context.Context, track byte){
+            err := nes.PlayNSF(nsfFile, track, audioOut, AudioSampleRate, actions, playQuit)
+            if err != nil {
+                log.Printf("Error playing nsf: %v", err)
+                cancel()
+            }
+        }
+
+        go doPlay(playQuit, byte(renderState.Track))
+
         renderUpdates <- renderState
-        tick := 5.0 / 60.0 * 1000.0 * 1000.0
-        timer := time.NewTicker(time.Duration(tick) * time.Microsecond)
+        // tick := 5.0 / 60.0 * 1000.0 * 1000.0
+        // timer := time.NewTicker(time.Duration(tick) * time.Microsecond)
         second := time.NewTicker(1 * time.Second)
         defer second.Stop()
-        defer timer.Stop()
+        // defer timer.Stop()
         for quit.Err() == nil {
             select {
                 case <-quit.Done():
-                case <-timer.C:
-                    /* Force a refresh at least this often */
+                case <-doRender:
                     renderUpdates <- renderState
+                // case <-timer.C:
+                    /* Force a refresh at least this often */
+                    // renderUpdates <- renderState
                 case <-second.C:
                     renderState.PlayTime += 1
                     renderUpdates <- renderState
+                case action := <-nsfActions:
+                    trackDelta := 0
+                    switch action {
+                        case NSFPlayerNext5Tracks:
+                            trackDelta = 5
+                        case NSFPlayerNext:
+                            trackDelta = 1
+                        case NSFPlayerPrevious:
+                            trackDelta = -1
+                        case NSFPlayerPrevious5Tracks:
+                            trackDelta = -5
+                    }
+
+                    if trackDelta != 0 {
+                        newTrack := renderState.Track + trackDelta
+                        if newTrack < 0 {
+                            newTrack = 0
+                        }
+                        if newTrack >= renderState.MaxTrack {
+                            newTrack = renderState.MaxTrack
+                        }
+
+                        if newTrack != renderState.Track {
+                            renderState.Track = newTrack
+
+                            playCancel()
+                            playQuit, playCancel = context.WithCancel(quit)
+                            go doPlay(playQuit, byte(renderState.Track))
+                        }
+
+                        renderUpdates <- renderState
+                    }
             }
         }
     }()
-
-    const AudioSampleRate float32 = 44100
 
     audioDevice, err := setupAudio(AudioSampleRate)
     if err != nil {
@@ -406,11 +469,9 @@ func RunNSF(path string) error {
     log.Printf("Opened SDL audio device %v", audioDevice)
     sdl.PauseAudioDevice(audioDevice, false)
 
-    audioOut := make(chan []float32, 2)
-    actions := make(chan nes.NSFActions)
-
     go func(){
         <-quit.Done()
+        /* FIXME: close this channel after writers are guaranteed not to be using it */
         close(audioOut)
     }()
 
@@ -424,14 +485,15 @@ func RunNSF(path string) error {
         }()
     }
 
-    track := byte(0)
-    go func(){
-        err := nes.PlayNSF(nsfFile, track, audioOut, AudioSampleRate, actions, quit)
-        if err != nil {
-            log.Printf("Error playing nsf: %v", err)
-            cancel()
-        }
-    }()
+    keyMapping := make(map[sdl.Scancode]NSFPlayerActions)
+    keyMapping[sdl.SCANCODE_UP] = NSFPlayerNext5Tracks
+    keyMapping[sdl.SCANCODE_K] = NSFPlayerNext5Tracks
+    keyMapping[sdl.SCANCODE_RIGHT] = NSFPlayerNext
+    keyMapping[sdl.SCANCODE_L] = NSFPlayerNext
+    keyMapping[sdl.SCANCODE_LEFT] = NSFPlayerPrevious
+    keyMapping[sdl.SCANCODE_H] = NSFPlayerPrevious
+    keyMapping[sdl.SCANCODE_DOWN] = NSFPlayerPrevious5Tracks
+    keyMapping[sdl.SCANCODE_J] = NSFPlayerPrevious5Tracks
 
     for quit.Err() == nil {
         event := sdl.WaitEvent()
@@ -446,6 +508,16 @@ func RunNSF(path string) error {
                         cancel()
                     }
 
+                    action, ok := keyMapping[keyboard_event.Keysym.Scancode]
+                    if ok {
+                        nsfActions <- action
+                    }
+                case sdl.WINDOWEVENT:
+                        window_event := event.(*sdl.WindowEvent)
+                        switch window_event.Event {
+                            case sdl.WINDOWEVENT_EXPOSED:
+                                doRender <- true
+                        }
                 case sdl.KEYUP:
             }
         }
@@ -489,6 +561,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         return err
     }
     defer sdl.Quit()
+
+    sdl.DisableScreenSaver()
+    defer sdl.EnableScreenSaver()
 
     /* Number of pixels on the top and bottom of the screen to hide */
     overscanPixels := 8
