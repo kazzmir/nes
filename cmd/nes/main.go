@@ -269,6 +269,7 @@ type NSFRenderState struct {
     Artist string
     Copyright string
     PlayTime uint64
+    Paused bool
     Track int
     MaxTrack int
 }
@@ -305,6 +306,7 @@ const (
     NSFPlayerNext
     NSFPlayerPrevious
     NSFPlayerPrevious5Tracks
+    NSFPlayerPause
 )
 
 func RunNSF(path string) error {
@@ -355,6 +357,7 @@ func RunNSF(path string) error {
 
     go func(){
         white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+        red := sdl.Color{R:255, G: 0, B: 0, A: 255}
         fontHeight := font.Height()
         for quit.Err() == nil {
             select {
@@ -391,7 +394,11 @@ func RunNSF(path string) error {
                     }
                     y += fontHeight + 3
 
-                    err = writeFont(font, renderer, x, y, fmt.Sprintf("Play time %d:%02d", state.PlayTime / 60, state.PlayTime % 60), white)
+                    if state.Paused {
+                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Paused"), red)
+                    } else {
+                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Play time %d:%02d", state.PlayTime / 60, state.PlayTime % 60), white)
+                    }
                     if err != nil {
                         log.Printf("Unable to write font: %v", err)
                     }
@@ -454,6 +461,7 @@ func RunNSF(path string) error {
         renderState.Copyright = nsfFile.Copyright
         renderState.MaxTrack = int(nsfFile.TotalSongs)
         renderState.Track = int(nsfFile.StartingSong)
+        renderState.Paused = false
 
         playQuit, playCancel := context.WithCancel(quit)
 
@@ -482,8 +490,10 @@ func RunNSF(path string) error {
                     /* Force a refresh at least this often */
                     // renderUpdates <- renderState
                 case <-second.C:
-                    renderState.PlayTime += 1
-                    renderUpdates <- renderState
+                    if !renderState.Paused {
+                        renderState.PlayTime += 1
+                        renderUpdates <- renderState
+                    }
                 case action := <-nsfActions:
                     trackDelta := 0
                     switch action {
@@ -495,6 +505,10 @@ func RunNSF(path string) error {
                             trackDelta = -1
                         case NSFPlayerPrevious5Tracks:
                             trackDelta = -5
+                        case NSFPlayerPause:
+                            actions <- nes.NSFActionTogglePause
+                            renderState.Paused = !renderState.Paused
+                            renderUpdates <- renderState
                     }
 
                     if trackDelta != 0 {
@@ -507,6 +521,7 @@ func RunNSF(path string) error {
                         }
 
                         if newTrack != renderState.Track {
+                            renderState.Paused = false
                             renderState.Track = newTrack
                             renderState.PlayTime = 0
                             /* FIXME: in go 1.15 */
@@ -557,6 +572,7 @@ func RunNSF(path string) error {
     keyMapping[sdl.SCANCODE_H] = NSFPlayerPrevious
     keyMapping[sdl.SCANCODE_DOWN] = NSFPlayerPrevious5Tracks
     keyMapping[sdl.SCANCODE_J] = NSFPlayerPrevious5Tracks
+    keyMapping[sdl.SCANCODE_SPACE] = NSFPlayerPause
 
     for quit.Err() == nil {
         event := sdl.WaitEvent()
