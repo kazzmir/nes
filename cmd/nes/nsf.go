@@ -125,6 +125,7 @@ func RunNSF(path string) error {
 
     renderUpdates := make(chan NSFRenderState)
 
+    /* The 'view' loop, that displays whats in the NSFRenderState model */
     go func(){
         white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
         red := sdl.Color{R:255, G: 0, B: 0, A: 255}
@@ -224,6 +225,7 @@ func RunNSF(path string) error {
 
     const AudioSampleRate float32 = 44100
 
+    /* The 'controller' loop, that updates the 'renderState' model */
     go func(){
         var renderState NSFRenderState
         renderState.SongName = nsfFile.SongName
