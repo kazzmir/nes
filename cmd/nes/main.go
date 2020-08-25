@@ -266,6 +266,8 @@ func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
 
 type NSFRenderState struct {
     SongName string
+    Artist string
+    Copyright string
     PlayTime uint64
     Track int
     MaxTrack int
@@ -341,7 +343,7 @@ func RunNSF(path string) error {
     defer ttf.Quit()
 
     /* FIXME: choose a font somehow */
-    font, err := ttf.OpenFont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+    font, err := ttf.OpenFont("font/DejaVuSans.ttf", 20)
     if err != nil {
         return err
     }
@@ -362,19 +364,75 @@ func RunNSF(path string) error {
 
                     _ = state
 
-                    y := 0
-                    err := writeFont(font, renderer, 0, y, fmt.Sprintf("Song: %v", state.SongName), white)
+                    x := 4
+                    y := 4
+
+                    err := writeFont(font, renderer, x, y, fmt.Sprintf("Song: %v", state.SongName), white)
                     if err != nil {
                         log.Printf("Unable to write font: %v", err)
                     }
                     y += fontHeight + 3
 
-                    err = writeFont(font, renderer, 0, y, fmt.Sprintf("Track %v/%v", state.Track + 1, state.MaxTrack + 1), white)
+                    err = writeFont(font, renderer, x, y, fmt.Sprintf("Artist: %v", state.Artist), white)
                     if err != nil {
                         log.Printf("Unable to write font: %v", err)
                     }
                     y += fontHeight + 3
-                    err = writeFont(font, renderer, 0, y, fmt.Sprintf("Play time %d:%02d", state.PlayTime / 60, state.PlayTime % 60), white)
+
+                    err = writeFont(font, renderer, x, y, fmt.Sprintf("Coyright: %v", state.Copyright), white)
+                    if err != nil {
+                        log.Printf("Unable to write font: %v", err)
+                    }
+                    y += fontHeight + 3
+
+                    err = writeFont(font, renderer, x, y, fmt.Sprintf("Track %v/%v", state.Track + 1, state.MaxTrack + 1), white)
+                    if err != nil {
+                        log.Printf("Unable to write font: %v", err)
+                    }
+                    y += fontHeight + 3
+
+                    err = writeFont(font, renderer, x, y, fmt.Sprintf("Play time %d:%02d", state.PlayTime / 60, state.PlayTime % 60), white)
+                    if err != nil {
+                        log.Printf("Unable to write font: %v", err)
+                    }
+                    y += fontHeight + 3
+
+                    y += fontHeight * 2
+
+                    err = writeFont(font, renderer, x, y, fmt.Sprintf("Keys"), white)
+                    if err != nil {
+                        log.Printf("Unable to write font: %v", err)
+                    }
+                    y += fontHeight + 3
+
+                    err = writeFont(font, renderer, x, y, fmt.Sprintf("> or l: skip 1 track ahead"), white)
+                    if err != nil {
+                        log.Printf("Unable to write font: %v", err)
+                    }
+                    y += fontHeight + 3
+
+                    err = writeFont(font, renderer, x, y, fmt.Sprintf("^ or k: skip 5 tracks ahead"), white)
+                    if err != nil {
+                        log.Printf("Unable to write font: %v", err)
+                    }
+                    y += fontHeight + 3
+
+                    err = writeFont(font, renderer, x, y, fmt.Sprintf("< or h: go 1 track back"), white)
+                    if err != nil {
+                        log.Printf("Unable to write font: %v", err)
+                    }
+                    y += fontHeight + 3
+
+                    err = writeFont(font, renderer, x, y, fmt.Sprintf("v or j: go 5 tracks back"), white)
+                    if err != nil {
+                        log.Printf("Unable to write font: %v", err)
+                    }
+                    y += fontHeight + 3
+
+                    err = writeFont(font, renderer, x, y, fmt.Sprintf("esc: quit"), white)
+                    if err != nil {
+                        log.Printf("Unable to write font: %v", err)
+                    }
 
                     // renderer.Copy(texture, nil, nil)
                     renderer.Present()
@@ -392,8 +450,10 @@ func RunNSF(path string) error {
     go func(){
         var renderState NSFRenderState
         renderState.SongName = nsfFile.SongName
+        renderState.Artist = nsfFile.Artist
+        renderState.Copyright = nsfFile.Copyright
         renderState.MaxTrack = int(nsfFile.TotalSongs)
-        renderState.Track = 0
+        renderState.Track = int(nsfFile.StartingSong)
 
         playQuit, playCancel := context.WithCancel(quit)
 
@@ -448,6 +508,9 @@ func RunNSF(path string) error {
 
                         if newTrack != renderState.Track {
                             renderState.Track = newTrack
+                            renderState.PlayTime = 0
+                            /* FIXME: in go 1.15 */
+                            // second.Reset(1 * time.Second)
 
                             playCancel()
                             playQuit, playCancel = context.WithCancel(quit)
