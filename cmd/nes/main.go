@@ -23,7 +23,6 @@ import (
     "sync"
     "context"
     "runtime/pprof"
-    "os/exec"
 
     // rdebug "runtime/debug"
 )
@@ -217,16 +216,6 @@ func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
     listeners.AudioListeners = out
 }
 
-func hasGlxinfo() bool {
-    glxinfo_path, err := exec.LookPath("ffmpeg")
-    if err != nil {
-        return true
-    }
-    glxinfo := exec.Command(glxinfo_path)
-    err = glxinfo.Run()
-    return err == nil
-}
-
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
     nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
@@ -234,7 +223,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
 
     // force a software renderer
-    if !hasGlxinfo() {
+    if !util.HasGlxinfo() {
         sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
     }
 
