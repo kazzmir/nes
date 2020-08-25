@@ -40,6 +40,11 @@ Build instructions:
 
 Get go 1.14.x, currently 1.15 has a bug such that the compiler will crash (https://github.com/golang/go/issues/40746)
 
+Install libSDL2 and libSDL2-ttf
+```
+$ sudo apt install libsdl2-dev libsdl2-ttf-dev
+```
+
 Using make
 ```
 $ make
