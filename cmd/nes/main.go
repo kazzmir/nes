@@ -239,7 +239,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     /* to resize the window */
     // | sdl.WINDOW_RESIZABLE
-    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(256 * windowSizeMultiple), int32((240 - overscanPixels * 2) * windowSizeMultiple), sdl.WINDOW_SHOWN)
+    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(256 * windowSizeMultiple), int32((240 - overscanPixels * 2) * windowSizeMultiple), sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
     if err != nil {
         return err
     }
@@ -301,6 +301,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     desiredFps := 60.0
     pixelFormat := findPixelFormat()
+
+    /* Show black bars on the sides or top/bottom when the window changes size */
+    renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
 
     /* create a surface from the pixels in one call, then create a texture and render it */
     doRender := func(screen nes.VirtualScreen, raw_pixels []byte) error {
