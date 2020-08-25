@@ -246,19 +246,13 @@ func RunNSF(path string) error {
         go doPlay(playQuit, byte(renderState.Track))
 
         renderUpdates <- renderState
-        // tick := 5.0 / 60.0 * 1000.0 * 1000.0
-        // timer := time.NewTicker(time.Duration(tick) * time.Microsecond)
         second := time.NewTicker(1 * time.Second)
         defer second.Stop()
-        // defer timer.Stop()
         for quit.Err() == nil {
             select {
                 case <-quit.Done():
                 case <-doRender:
                     renderUpdates <- renderState
-                // case <-timer.C:
-                    /* Force a refresh at least this often */
-                    // renderUpdates <- renderState
                 case <-second.C:
                     if !renderState.Paused {
                         renderState.PlayTime += 1
