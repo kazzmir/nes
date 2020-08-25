@@ -343,7 +343,7 @@ func RunNSF(path string) error {
     defer ttf.Quit()
 
     /* FIXME: choose a font somehow */
-    font, err := ttf.OpenFont("font/DejaVuSans.ttf", 20)
+    font, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "font/DejaVuSans.ttf"), 20)
     if err != nil {
         return err
     }
