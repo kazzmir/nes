@@ -10,7 +10,6 @@ import (
     "strconv"
     "errors"
     "os"
-    "os/exec"
     "path/filepath"
 
     nes "github.com/kazzmir/nes/lib"
@@ -24,7 +23,6 @@ import (
     "sync"
     "context"
     "runtime/pprof"
-    "syscall"
 
     // rdebug "runtime/debug"
 )
@@ -112,51 +110,6 @@ func stripExtension(path string) string {
     }
 
     return path
-}
-
-/* Returns the absolute path to ffmpeg, or an error if not found
- */
-func findFfmpegBinary() (string, error) {
-    return exec.LookPath("ffmpeg")
-}
-
-func waitForProcess(process *os.Process, timeout int){
-    done := time.Now().Add(time.Second * time.Duration(timeout))
-    dead := false
-    for time.Now().Before(done) {
-        err := os.Signal(syscall.Signal(0)) // on linux sending signal 0 will have no impact, but will fail
-                            // if the process doesn't exist (or we don't own it)
-        if err == nil {
-            time.Sleep(time.Millisecond * 100)
-        } else {
-            dead = true
-            break
-        }
-    }
-    if !dead {
-        /* Didn't die on its own, so we forcifully kill it */
-        log.Printf("Killing pid %v", process.Pid)
-        process.Kill()
-    }
-    process.Wait()
-}
-
-func niceSize(path string) string {
-    info, err := os.Stat(path)
-    if err != nil {
-        return ""
-    }
-
-    size := float64(info.Size())
-    suffixes := []string{"b", "kb", "mb", "gb"}
-    suffix := 0
-
-    for size > 1024 && suffix < len(suffixes) - 1 {
-        size /= 1024
-        suffix += 1
-    }
-
-    return fmt.Sprintf("%.2f%v", size, suffixes[suffix])
 }
 
 func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleRate int, screenListeners *ScreenListeners) error {
@@ -263,7 +216,7 @@ func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
     listeners.AudioListeners = out
 }
 
-func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
+func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
     nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
         return err
@@ -277,6 +230,9 @@ func Run(path string, debug bool, maxCycles uint64, windowSizeMultiple int, reco
         return err
     }
     defer sdl.Quit()
+
+    sdl.DisableScreenSaver()
+    defer sdl.EnableScreenSaver()
 
     /* Number of pixels on the top and bottom of the screen to hide */
     overscanPixels := 8
@@ -792,50 +748,65 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
     return nil
 }
 
-func main(){
-    log.SetFlags(log.Lshortfile | log.Lmicroseconds | log.Ldate)
+type Arguments struct {
+    NESPath string
+    Debug bool
+    MaxCycles uint64
+    WindowSizeMultiple int
+    CpuProfile bool
+    MemoryProfile bool
+    Record bool
+}
 
-    var nesPath string
-    var debug bool
-    var maxCycles uint64
-    var windowSizeMultiple int64 = 3
-    var doCpuProfile bool = true
-    var doMemoryProfile bool = true
-    var doRecord bool = false
+func parseArguments() (Arguments, error) {
+    var arguments Arguments
+    arguments.WindowSizeMultiple = 3
+    arguments.CpuProfile = true
+    arguments.MemoryProfile = true
 
-    argIndex := 1
-    for argIndex < len(os.Args) {
+    for argIndex := 1; argIndex < len(os.Args); argIndex++ {
         arg := os.Args[argIndex]
         switch arg {
             case "-debug", "--debug":
-                debug = true
+                arguments.Debug = true
             case "-size", "--size":
                 var err error
                 argIndex += 1
                 if argIndex >= len(os.Args) {
-                    log.Fatalf("Expected an integer argument for -size")
+                    return arguments, fmt.Errorf("Expected an integer argument for -size")
                 }
-                windowSizeMultiple, err = strconv.ParseInt(os.Args[argIndex], 10, 64)
+                windowSizeMultiple, err := strconv.ParseInt(os.Args[argIndex], 10, 64)
                 if err != nil {
-                    log.Fatalf("Error reading size argument: %v", err)
+                    return arguments, fmt.Errorf("Error reading size argument: %v", err)
                 }
+                arguments.WindowSizeMultiple = int(windowSizeMultiple)
             case "-record":
-                doRecord = true
+                arguments.Record = true
             case "-cycles", "--cycles":
                 var err error
                 argIndex += 1
                 if argIndex >= len(os.Args) {
-                    log.Fatalf("Expected a number of cycles\n")
+                    return arguments, fmt.Errorf("Expected a number of cycles")
                 }
-                maxCycles, err = strconv.ParseUint(os.Args[argIndex], 10, 64)
+                arguments.MaxCycles, err = strconv.ParseUint(os.Args[argIndex], 10, 64)
                 if err != nil {
-                    log.Fatalf("Error parsing cycles: %v\n", err)
+                    return arguments, fmt.Errorf("Error parsing cycles: %v", err)
                 }
             default:
-                nesPath = arg
+                arguments.NESPath = arg
         }
+    }
 
-        argIndex += 1
+    return arguments, nil
+}
+
+func main(){
+    log.SetFlags(log.Lshortfile | log.Lmicroseconds | log.Ldate)
+
+    arguments, err := parseArguments()
+    if err != nil {
+        fmt.Printf("%v", err)
+        return
     }
 
     /*
@@ -849,8 +820,8 @@ func main(){
     }()
     */
 
-    if nesPath != "" {
-        if doCpuProfile {
+    if arguments.NESPath != "" {
+        if arguments.CpuProfile {
             profile, err := os.Create("profile.cpu")
             if err != nil {
                 log.Fatal(err)
@@ -859,13 +830,23 @@ func main(){
             pprof.StartCPUProfile(profile)
             defer pprof.StopCPUProfile()
         }
-        err := Run(nesPath, debug, maxCycles, int(windowSizeMultiple), doRecord)
-        if err != nil {
-            log.Printf("Error: %v\n", err)
+
+        if nes.IsNESFile(arguments.NESPath) {
+            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
+            if err != nil {
+                log.Printf("Error: %v\n", err)
+            }
+        } else if nes.IsNSFFile(arguments.NESPath) {
+            err := RunNSF(arguments.NESPath)
+            if err != nil {
+                log.Printf("Error: %v\n", err)
+            }
+        } else {
+            fmt.Printf("%v is neither a .nes nor .nsf file\n", arguments.NESPath)
         }
         log.Printf("Bye")
 
-        if doMemoryProfile {
+        if arguments.MemoryProfile {
             file, err := os.Create("profile.memory")
             if err != nil {
                 log.Fatal(err)
