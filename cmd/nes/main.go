@@ -302,6 +302,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     desiredFps := 60.0
     pixelFormat := findPixelFormat()
 
+    /* Show black bars on the sides or top/bottom when the window changes size */
+    renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
+
     /* create a surface from the pixels in one call, then create a texture and render it */
     doRender := func(screen nes.VirtualScreen, raw_pixels []byte) error {
         width := int32(256)
