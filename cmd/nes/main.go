@@ -23,6 +23,7 @@ import (
     "sync"
     "context"
     "runtime/pprof"
+    // "runtime"
 
     // rdebug "runtime/debug"
 )
@@ -307,6 +308,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     /* create a surface from the pixels in one call, then create a texture and render it */
     doRender := func(screen nes.VirtualScreen, raw_pixels []byte) error {
+        /*
+        runtime.LockOSThread()
+        defer runtime.UnlockOSThread()
+        */
+
         width := int32(256)
         height := int32(240 - overscanPixels * 2)
         depth := 8 * 4 // RGBA8888
@@ -382,11 +388,13 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     return
                 case screen := <-toDraw:
                     if canRender {
-                        err := doRender(screen, raw_pixels)
                         fps += 1
-                        if err != nil {
-                            log.Printf("Could not render: %v\n", err)
-                        }
+                        sdl.Do(func (){
+                            err := doRender(screen, raw_pixels)
+                            if err != nil {
+                                log.Printf("Could not render: %v\n", err)
+                            }
+                        })
                     }
                     canRender = false
                     bufferReady <- screen
@@ -483,12 +491,18 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         recordCancel()
     }
 
-    for mainQuit.Err() == nil {
-        event := sdl.WaitEvent()
+    eventFunction := func(){
+        event := sdl.WaitEventTimeout(1)
         if event != nil {
             // log.Printf("Event %+v\n", event)
             switch event.GetType() {
                 case sdl.QUIT: mainCancel()
+                case sdl.WINDOWEVENT:
+                    window_event := event.(*sdl.WindowEvent)
+                    switch window_event.Event {
+                        case sdl.WINDOWEVENT_RESIZED:
+                            log.Printf("Window resized")
+                    }
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
@@ -578,6 +592,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
             }
         }
+    }
+
+    for mainQuit.Err() == nil {
+        sdl.Do(eventFunction)
     }
 
     log.Printf("Waiting to quit..")
@@ -835,10 +853,12 @@ func main(){
         }
 
         if nes.IsNESFile(arguments.NESPath) {
-            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
-            if err != nil {
-                log.Printf("Error: %v\n", err)
-            }
+            sdl.Main(func (){
+                err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
+                if err != nil {
+                    log.Printf("Error: %v\n", err)
+                }
+            })
         } else if nes.IsNSFFile(arguments.NESPath) {
             err := RunNSF(arguments.NESPath)
             if err != nil {
