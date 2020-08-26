@@ -16,6 +16,7 @@ import (
     "github.com/kazzmir/nes/util"
 
     "github.com/veandco/go-sdl2/sdl"
+    "github.com/veandco/go-sdl2/ttf"
 
     "encoding/binary"
     "bytes"
@@ -216,6 +217,11 @@ func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
     listeners.AudioListeners = out
 }
 
+type RenderState struct {
+    Alpha uint8
+    Direction int
+}
+
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
     nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
@@ -302,11 +308,29 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     desiredFps := 60.0
     pixelFormat := findPixelFormat()
 
+    err = ttf.Init()
+    if err != nil {
+        return err
+    }
+
+    defer ttf.Quit()
+
+    font, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "font/DejaVuSans.ttf"), 20)
+    if err != nil {
+        return err
+    }
+    defer font.Close()
+
+    err = renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
+    if err != nil {
+        log.Printf("Could not set blend mode: %v", err)
+    }
+
     /* Show black bars on the sides or top/bottom when the window changes size */
-    renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
+    // renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
 
     /* create a surface from the pixels in one call, then create a texture and render it */
-    doRender := func(screen nes.VirtualScreen, raw_pixels []byte) error {
+    doRender := func(screen nes.VirtualScreen, raw_pixels []byte, renderState RenderState) error {
         width := int32(256)
         height := int32(240 - overscanPixels * 2)
         depth := 8 * 4 // RGBA8888
@@ -355,8 +379,19 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         // texture_format, access, width, height, err := texture.Query()
         // log.Printf("Texture format=%v access=%v width=%v height=%v err=%v\n", get_pixel_format(texture_format), access, width, height, err)
 
+        renderer.SetDrawColor(0, 0, 0, 0)
         renderer.Clear()
+
+        renderer.SetLogicalSize(width, height)
         renderer.Copy(texture, nil, nil)
+
+        renderer.SetLogicalSize(0, 0)
+        err = writeFont(font, renderer, 1, 1, "NES emulator", sdl.Color{R: 255, G: 255, B: 255, A: 128})
+        _ = err
+
+        renderer.SetDrawColor(0, 0, 0, renderState.Alpha)
+        renderer.FillRect(nil)
+
         renderer.Present()
 
         return nil
@@ -376,6 +411,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         renderTimer := time.NewTicker(time.Second / time.Duration(desiredFps))
         defer renderTimer.Stop()
         canRender := false
+        renderState := RenderState{
+            Direction: 1,
+            Alpha: 0,
+        }
         for {
             select {
                 case <-mainQuit.Done():
@@ -384,7 +423,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     if canRender {
                         fps += 1
                         sdl.Do(func (){
-                            err := doRender(screen, raw_pixels)
+                            err := doRender(screen, raw_pixels, renderState)
                             if err != nil {
                                 log.Printf("Could not render: %v\n", err)
                             }
@@ -394,6 +433,17 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     bufferReady <- screen
                 case <-renderTimer.C:
                     canRender = true
+
+                    value := int(renderState.Alpha) + renderState.Direction * 2
+                    if value > 255 {
+                        value = 255
+                        renderState.Direction = -1
+                    }
+                    if value < 0 {
+                        value = 0
+                        renderState.Direction = 1
+                    }
+                    renderState.Alpha = uint8(value)
                 case <-fpsTimer.C:
                     log.Printf("FPS: %v", int(float64(fps) / fpsCounter))
                     fps = 0
@@ -495,7 +545,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     window_event := event.(*sdl.WindowEvent)
                     switch window_event.Event {
                         case sdl.WINDOWEVENT_RESIZED:
-                            log.Printf("Window resized")
+                            // log.Printf("Window resized")
                     }
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
