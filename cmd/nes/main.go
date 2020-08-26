@@ -23,7 +23,6 @@ import (
     "sync"
     "context"
     "runtime/pprof"
-    // "runtime"
 
     // rdebug "runtime/debug"
 )
@@ -308,11 +307,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     /* create a surface from the pixels in one call, then create a texture and render it */
     doRender := func(screen nes.VirtualScreen, raw_pixels []byte) error {
-        /*
-        runtime.LockOSThread()
-        defer runtime.UnlockOSThread()
-        */
-
         width := int32(256)
         height := int32(240 - overscanPixels * 2)
         depth := 8 * 4 // RGBA8888
