@@ -227,6 +227,9 @@ type RenderFunction func(*sdl.Renderer) error
 type MenuInput int
 const (
     MenuToggle = iota
+    MenuNext
+    MenuPrevious
+    MenuSelect
 )
 
 type Menu struct {
@@ -237,13 +240,42 @@ type Menu struct {
     Input chan MenuInput
 }
 
-func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan RenderFunction) Menu {
+type MenuAction int
+const (
+    MenuActionQuit = iota
+    MenuActionLoadRom
+)
+
+func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.CancelFunc, renderUpdates chan RenderFunction) Menu {
     quit, cancel := context.WithCancel(mainQuit)
     events := make(chan sdl.Event)
     menuInput := make(chan MenuInput)
 
     go func(){
         active := false
+
+        choices := []MenuAction{MenuActionQuit, MenuActionLoadRom}
+        choice := 0
+
+        update := func(choice int){
+            renderUpdates <- func (renderer *sdl.Renderer) error {
+                var err error
+                yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+                white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+                renderer.SetDrawColor(0, 0, 0, 128)
+                renderer.FillRect(nil)
+
+                colors := []sdl.Color{white, white}
+                colors[choice] = yellow
+
+                err = writeFont(font, renderer, 50, 50, "Quit", colors[0])
+                err = writeFont(font, renderer, 200, 50, "Load rom", colors[1])
+                _ = err
+
+                return nil
+            }
+        }
+
         /* Reset the default renderer */
         for {
             select {
@@ -257,14 +289,30 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan Rende
                                     return nil
                                 }
                             } else {
-                                renderUpdates <- func (renderer *sdl.Renderer) error {
-                                    renderer.SetDrawColor(0, 0, 0, 128)
-                                    renderer.FillRect(nil)
-                                    return nil
-                                }
+                                choice = 0
+                                update(choice)
                             }
 
                             active = ! active
+                        case MenuNext:
+                            if active {
+                                choice = (choice + 1) % len(choices)
+                                update(choice)
+                            }
+                        case MenuPrevious:
+                            if active {
+                                choice = (choice + 1) % len(choices)
+                                update(choice)
+                            }
+                        case MenuSelect:
+                            if active {
+                                switch choices[choice] {
+                                    case MenuActionQuit:
+                                        mainCancel()
+                                    case MenuActionLoadRom:
+                                        log.Printf("Load a rom")
+                                }
+                            }
                     }
 
                 case event := <-events:
@@ -474,6 +522,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
 
     renderFuncUpdate := make(chan RenderFunction)
+    renderNow := make(chan bool)
 
     go func(){
         waiter.Add(1)
@@ -494,6 +543,13 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             return nil
         }
 
+        render := func (){
+            err := doRender(256, 240-overscanPixels*2, raw_pixels, renderFunc)
+            if err != nil {
+                log.Printf("Could not render: %v\n", err)
+            }
+        }
+
         for {
             select {
                 case <-mainQuit.Done():
@@ -502,23 +558,16 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     if canRender {
                         fps += 1
                         renderPixelsRGBA(screen, raw_pixels, overscanPixels)
-                        sdl.Do(func (){
-                            err := doRender(256, 240-overscanPixels*2, raw_pixels, renderFunc)
-                            if err != nil {
-                                log.Printf("Could not render: %v\n", err)
-                            }
-                        })
+                        sdl.Do(render)
                     }
                     canRender = false
                     bufferReady <- screen
                 case newFunction := <-renderFuncUpdate:
                     renderFunc = newFunction
-                    sdl.Do(func (){
-                        err := doRender(256, 240-overscanPixels*2, raw_pixels, renderFunc)
-                        if err != nil {
-                            log.Printf("Could not render: %v\n", err)
-                        }
-                    })
+                    sdl.Do(render)
+                case <-renderNow:
+                    /* Force a rerender */
+                    sdl.Do(render)
                 case <-renderTimer.C:
                     canRender = true
                 case <-fpsTimer.C:
@@ -654,7 +703,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         recordCancel()
     }
 
-    menu := MakeMenu(font, mainQuit, renderFuncUpdate)
+    menu := MakeMenu(font, mainQuit, mainCancel, renderFuncUpdate)
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
@@ -665,6 +714,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 case sdl.WINDOWEVENT:
                     window_event := event.(*sdl.WindowEvent)
                     switch window_event.Event {
+                        case sdl.WINDOWEVENT_EXPOSED:
+                            renderNow <- true
                         case sdl.WINDOWEVENT_RESIZED:
                             // log.Printf("Window resized")
                     }
@@ -680,6 +731,18 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             case emulatorActions <- EmulatorTogglePause:
                             default:
                         }
+                    }
+
+                    if keyboard_event.Keysym.Scancode == sdl.SCANCODE_LEFT {
+                        menu.Input <- MenuPrevious
+                    }
+
+                    if keyboard_event.Keysym.Scancode == sdl.SCANCODE_RIGHT {
+                        menu.Input <- MenuNext
+                    }
+
+                    if keyboard_event.Keysym.Scancode == sdl.SCANCODE_RETURN {
+                        menu.Input <- MenuSelect
                     }
 
                     if keyboard_event.Keysym.Scancode == turboKey {
