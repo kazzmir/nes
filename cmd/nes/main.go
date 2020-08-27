@@ -11,6 +11,8 @@ import (
     "errors"
     "os"
     "path/filepath"
+    "math"
+    "math/rand"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/util"
@@ -246,6 +248,31 @@ const (
     MenuActionLoadRom
 )
 
+type Snow struct {
+    x float32
+    y float32
+    truex float32
+    truey float32
+    angle float32
+    direction int
+    speed float32
+}
+
+func MakeSnow() Snow {
+    x := rand.Float32() * 800
+    // y := rand.Float32() * 400
+    y := float32(0)
+    return Snow{
+        x: x,
+        y: y,
+        truex: x,
+        truey: y,
+        angle: rand.Float32() * 180,
+        direction: 1,
+        speed: rand.Float32() * 4 + 1,
+    }
+}
+
 func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.CancelFunc, renderUpdates chan RenderFunction) Menu {
     quit, cancel := context.WithCancel(mainQuit)
     events := make(chan sdl.Event)
@@ -253,17 +280,24 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
 
     go func(){
         active := false
+        snowTicker := time.NewTicker(time.Second / 20)
+        defer snowTicker.Stop()
 
         choices := []MenuAction{MenuActionQuit, MenuActionLoadRom}
         choice := 0
 
-        update := func(choice int){
+        update := func(choice int, snowflakes []Snow){
             renderUpdates <- func (renderer *sdl.Renderer) error {
                 var err error
                 yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
                 white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-                renderer.SetDrawColor(0, 0, 0, 128)
+                renderer.SetDrawColor(32, 0, 0, 192)
                 renderer.FillRect(nil)
+
+                renderer.SetDrawColor(255, 255, 255, 255)
+                for _, snow := range snowflakes {
+                    renderer.DrawPoint(int32(snow.x), int32(snow.y))
+                }
 
                 colors := []sdl.Color{white, white}
                 colors[choice] = yellow
@@ -274,6 +308,16 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
 
                 return nil
             }
+        }
+
+        var snow []Snow
+        for i := 0; i < 1; i++ {
+            // speed := rand.Float32() * 2 + 1
+            /*
+            x_direction := math.Cos(float64(angle) * math.Pi / 180)
+            y_direction := -math.Sin(float64(angle) * math.Pi / 180)
+            */
+            snow = append(snow, MakeSnow())
         }
 
         /* Reset the default renderer */
@@ -290,19 +334,19 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                                 }
                             } else {
                                 choice = 0
-                                update(choice)
+                                update(choice, snow)
                             }
 
                             active = ! active
                         case MenuNext:
                             if active {
                                 choice = (choice + 1) % len(choices)
-                                update(choice)
+                                update(choice, snow)
                             }
                         case MenuPrevious:
                             if active {
                                 choice = (choice + 1) % len(choices)
-                                update(choice)
+                                update(choice, snow)
                             }
                         case MenuSelect:
                             if active {
@@ -315,6 +359,35 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                             }
                     }
 
+                case <-snowTicker.C:
+                    if active {
+                        if len(snow) < 300 {
+                            snow = append(snow, MakeSnow())
+                        }
+
+                        for i := 0; i < len(snow); i++ {
+                            snow[i].truey += 1.8
+                            snow[i].x = snow[i].truex + float32(math.Cos(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
+                            // snow[i].y = snow[i].truey + float32(-math.Sin(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
+                            snow[i].y = snow[i].truey
+                            snow[i].angle += float32(snow[i].direction) * snow[i].speed
+
+                            if snow[i].y > 800 {
+                                snow[i] = MakeSnow()
+                            }
+
+                            if snow[i].angle < 0 {
+                                snow[i].angle = 0
+                                snow[i].direction = -snow[i].direction
+                            }
+                            if snow[i].angle >= 180  {
+                                snow[i].angle = 180
+                                snow[i].direction = -snow[i].direction
+                            }
+                        }
+
+                        update(choice, snow)
+                    }
                 case event := <-events:
                     if event.GetType() == sdl.QUIT {
                         cancel()
@@ -360,6 +433,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     if err != nil {
         return err
     }
+
+    rand.Seed(time.Now().UnixNano())
 
     // force a software renderer
     // sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
