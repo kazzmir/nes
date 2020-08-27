@@ -222,6 +222,91 @@ type RenderState struct {
     Direction int
 }
 
+type RenderFunction func(*sdl.Renderer) error
+
+type MenuInput int
+const (
+    MenuToggle = iota
+)
+
+type Menu struct {
+    quit context.Context
+    cancel context.CancelFunc
+    font *ttf.Font
+    events chan sdl.Event
+    Input chan MenuInput
+}
+
+func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan RenderFunction) Menu {
+    quit, cancel := context.WithCancel(mainQuit)
+    events := make(chan sdl.Event)
+    menuInput := make(chan MenuInput)
+
+    go func(){
+        active := false
+        /* Reset the default renderer */
+        for {
+            select {
+                case <-quit.Done():
+                    return
+                case input := <-menuInput:
+                    switch input {
+                        case MenuToggle:
+                            if active {
+                                renderUpdates <- func(renderer *sdl.Renderer) error {
+                                    return nil
+                                }
+                            } else {
+                                renderUpdates <- func (renderer *sdl.Renderer) error {
+                                    renderer.SetDrawColor(0, 0, 0, 128)
+                                    renderer.FillRect(nil)
+                                    return nil
+                                }
+                            }
+
+                            active = ! active
+                    }
+
+                case event := <-events:
+                    if event.GetType() == sdl.QUIT {
+                        cancel()
+                    }
+            }
+        }
+    }()
+
+    return Menu{
+        quit: quit,
+        cancel: cancel,
+        font: font,
+        events: events,
+        Input: menuInput,
+    }
+}
+
+func (menu *Menu) Close() {
+    menu.cancel()
+}
+
+func renderPixelsRGBA(screen nes.VirtualScreen, raw_pixels []byte, overscanPixels int){
+    width := int32(256)
+    // height := int32(240 - overscanPixels * 2)
+
+    startPixel := overscanPixels * int(width)
+    endPixel := (240 - overscanPixels) * int(width)
+
+    for i, pixel := range screen.Buffer[startPixel:endPixel] {
+        /* red */
+        raw_pixels[i*4+0] = byte(pixel >> 24)
+        /* green */
+        raw_pixels[i*4+1] = byte(pixel >> 16)
+        /* blue */
+        raw_pixels[i*4+2] = byte(pixel >> 8)
+        /* alpha */
+        raw_pixels[i*4+3] = byte(pixel >> 0)
+    }
+}
+
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
     nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
@@ -330,28 +415,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     // renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
 
     /* create a surface from the pixels in one call, then create a texture and render it */
-    doRender := func(screen nes.VirtualScreen, raw_pixels []byte, renderState RenderState) error {
-        width := int32(256)
-        height := int32(240 - overscanPixels * 2)
-        depth := 8 * 4 // RGBA8888
-        pitch := int(width) * int(depth) / 8
-
-        startPixel := overscanPixels * int(width)
-        endPixel := (240 - overscanPixels) * int(width)
-
-        for i, pixel := range screen.Buffer[startPixel:endPixel] {
-            /* red */
-            raw_pixels[i*4+0] = byte(pixel >> 24)
-            /* green */
-            raw_pixels[i*4+1] = byte(pixel >> 16)
-            /* blue */
-            raw_pixels[i*4+2] = byte(pixel >> 8)
-            /* alpha */
-            raw_pixels[i*4+3] = byte(pixel >> 0)
-        }
-
+    doRender := func(width int, height int, raw_pixels []byte, renderFunc RenderFunction) error {
         pixels := C.CBytes(raw_pixels)
         defer C.free(pixels)
+
+        depth := 8 * 4 // RGBA8888
+        pitch := int(width) * int(depth) / 8
 
         // pixelFormat := sdl.PIXELFORMAT_ABGR8888
 
@@ -359,7 +428,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
          * RBGA8888 on big-endian (arm)
          */
 
-        surface, err := sdl.CreateRGBSurfaceWithFormatFrom(pixels, width, height, int32(depth), int32(pitch), pixelFormat)
+        surface, err := sdl.CreateRGBSurfaceWithFormatFrom(pixels, int32(width), int32(height), int32(depth), int32(pitch), pixelFormat)
         if err != nil {
             return fmt.Errorf("Unable to create surface from pixels: %v", err)
         }
@@ -382,20 +451,29 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         renderer.SetDrawColor(0, 0, 0, 0)
         renderer.Clear()
 
-        renderer.SetLogicalSize(width, height)
+        renderer.SetLogicalSize(int32(width), int32(height))
         renderer.Copy(texture, nil, nil)
 
         renderer.SetLogicalSize(0, 0)
+        err = renderFunc(renderer)
+        if err != nil {
+            log.Printf("Warning: render error: %v", err)
+        }
+
+        /*
         err = writeFont(font, renderer, 1, 1, "NES emulator", sdl.Color{R: 255, G: 255, B: 255, A: 128})
         _ = err
 
         renderer.SetDrawColor(0, 0, 0, renderState.Alpha)
         renderer.FillRect(nil)
+        */
 
         renderer.Present()
 
         return nil
     }
+
+    renderFuncUpdate := make(chan RenderFunction)
 
     go func(){
         waiter.Add(1)
@@ -411,10 +489,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         renderTimer := time.NewTicker(time.Second / time.Duration(desiredFps))
         defer renderTimer.Stop()
         canRender := false
-        renderState := RenderState{
-            Direction: 1,
-            Alpha: 0,
+
+        renderFunc := func(renderer *sdl.Renderer) error {
+            return nil
         }
+
         for {
             select {
                 case <-mainQuit.Done():
@@ -422,8 +501,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 case screen := <-toDraw:
                     if canRender {
                         fps += 1
+                        renderPixelsRGBA(screen, raw_pixels, overscanPixels)
                         sdl.Do(func (){
-                            err := doRender(screen, raw_pixels, renderState)
+                            err := doRender(256, 240-overscanPixels*2, raw_pixels, renderFunc)
                             if err != nil {
                                 log.Printf("Could not render: %v\n", err)
                             }
@@ -431,9 +511,48 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
                     canRender = false
                     bufferReady <- screen
+                case newFunction := <-renderFuncUpdate:
+                    renderFunc = newFunction
+                    sdl.Do(func (){
+                        err := doRender(256, 240-overscanPixels*2, raw_pixels, renderFunc)
+                        if err != nil {
+                            log.Printf("Could not render: %v\n", err)
+                        }
+                    })
                 case <-renderTimer.C:
                     canRender = true
+                case <-fpsTimer.C:
+                    log.Printf("FPS: %v", int(float64(fps) / fpsCounter))
+                    fps = 0
+            }
+        }
+    }()
 
+    /*
+    go func(){
+        ticker := time.NewTicker(time.Second / 60)
+
+        makeRenderFunction := func(state RenderState) RenderFunction {
+            return func(renderer *sdl.Renderer) error {
+                err = writeFont(font, renderer, 1, 1, "NES emulator", sdl.Color{R: 255, G: 255, B: 255, A: 128})
+                _ = err
+
+                renderer.SetDrawColor(0, 0, 0, state.Alpha)
+                renderer.FillRect(nil)
+                return nil
+            }
+        }
+
+        renderState := RenderState{
+            Direction: 1,
+            Alpha: 128,
+        }
+
+        for {
+            select {
+                case <-mainQuit.Done():
+                    return
+                case <-ticker.C:
                     value := int(renderState.Alpha) + renderState.Direction * 2
                     if value > 255 {
                         value = 255
@@ -444,12 +563,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         renderState.Direction = 1
                     }
                     renderState.Alpha = uint8(value)
-                case <-fpsTimer.C:
-                    log.Printf("FPS: %v", int(float64(fps) / fpsCounter))
-                    fps = 0
+
+                    renderFuncUpdate <- makeRenderFunction(renderState)
             }
         }
     }()
+    */
 
     emulatorActions := make(chan EmulatorAction, 50)
 
@@ -535,6 +654,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         recordCancel()
     }
 
+    menu := MakeMenu(font, mainQuit, renderFuncUpdate)
+
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
         if event != nil {
@@ -551,8 +672,14 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
+
                     if quit_pressed {
-                        mainCancel()
+                        // mainCancel()
+                        menu.Input <- MenuToggle
+                        select {
+                            case emulatorActions <- EmulatorTogglePause:
+                            default:
+                        }
                     }
 
                     if keyboard_event.Keysym.Scancode == turboKey {
