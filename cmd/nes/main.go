@@ -249,6 +249,7 @@ const (
 )
 
 type Snow struct {
+    color int32
     x float32
     y float32
     truex float32
@@ -256,6 +257,7 @@ type Snow struct {
     angle float32
     direction int
     speed float32
+    fallSpeed float32
 }
 
 func MakeSnow() Snow {
@@ -263,6 +265,7 @@ func MakeSnow() Snow {
     // y := rand.Float32() * 400
     y := float32(0)
     return Snow{
+        color: rand.Int31n(4),
         x: x,
         y: y,
         truex: x,
@@ -270,6 +273,7 @@ func MakeSnow() Snow {
         angle: rand.Float32() * 180,
         direction: 1,
         speed: rand.Float32() * 4 + 1,
+        fallSpeed: rand.Float32() * 2.5 + 0.8,
     }
 }
 
@@ -294,8 +298,9 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                 renderer.SetDrawColor(32, 0, 0, 192)
                 renderer.FillRect(nil)
 
-                renderer.SetDrawColor(255, 255, 255, 255)
                 for _, snow := range snowflakes {
+                    c := uint8(255 * snow.color / 4)
+                    renderer.SetDrawColor(c, c, c, 255)
                     renderer.DrawPoint(int32(snow.x), int32(snow.y))
                 }
 
@@ -366,7 +371,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                         }
 
                         for i := 0; i < len(snow); i++ {
-                            snow[i].truey += 1.8
+                            snow[i].truey += snow[i].fallSpeed
                             snow[i].x = snow[i].truex + float32(math.Cos(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
                             // snow[i].y = snow[i].truey + float32(-math.Sin(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
                             snow[i].y = snow[i].truey
