@@ -104,6 +104,8 @@ const (
     EmulatorTogglePause
     EmulatorTogglePPUDebug
     EmulatorStepFrame
+    EmulatorSetPause
+    EmulatorUnpause
 )
 
 func stripExtension(path string) string {
@@ -282,6 +284,48 @@ type WindowSize struct {
     Y int
 }
 
+func copySnow(snow []Snow) []Snow {
+    out := make([]Snow, len(snow))
+    copy(out, snow)
+    return out
+}
+
+func drawButton(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) (int, int, error) {
+    buttonInside := sdl.Color{R: 64, G: 64, B: 64, A: 255}
+    buttonOutline := sdl.Color{R: 32, G: 32, B: 32, A: 255}
+
+    surface, err := font.RenderUTF8Blended(message, color)
+    if err != nil {
+        return 0, 0, err
+    }
+
+    defer surface.Free()
+
+    texture, err := renderer.CreateTextureFromSurface(surface)
+    if err != nil {
+        return 0, 0, err
+    }
+    defer texture.Destroy()
+
+    surfaceBounds := surface.Bounds()
+
+    margin := 12
+
+    renderer.SetDrawColor(buttonOutline.R, buttonOutline.G, buttonOutline.B, buttonOutline.A)
+    renderer.FillRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(surfaceBounds.Max.X + margin), H: int32(surfaceBounds.Max.Y + margin)})
+
+    renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
+    renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(surfaceBounds.Max.X + margin - 3), H: int32(surfaceBounds.Max.Y + margin - 3)})
+
+    sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(surfaceBounds.Max.X), H: int32(surfaceBounds.Max.Y)}
+    destRect := sourceRect
+    destRect.X = int32(x + margin/2)
+    destRect.Y = int32(y + margin/2)
+
+    renderer.Copy(texture, &sourceRect, &destRect)
+    return surfaceBounds.Max.X, surfaceBounds.Max.Y, nil
+}
+
 func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.CancelFunc, renderUpdates chan RenderFunction, windowSizeUpdates chan WindowSize) Menu {
     quit, cancel := context.WithCancel(mainQuit)
     events := make(chan sdl.Event)
@@ -295,7 +339,8 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
         choices := []MenuAction{MenuActionQuit, MenuActionLoadRom}
         choice := 0
 
-        update := func(choice int, snowflakes []Snow){
+        update := func(choice int, maxWidth int, maxHeight int, snowflakes []Snow){
+            snowCopy := copySnow(snowflakes)
             renderUpdates <- func (renderer *sdl.Renderer) error {
                 var err error
                 yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
@@ -303,7 +348,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                 renderer.SetDrawColor(32, 0, 0, 192)
                 renderer.FillRect(nil)
 
-                for _, snow := range snowflakes {
+                for _, snow := range snowCopy {
                     c := snow.color
                     renderer.SetDrawColor(c, c, c, 255)
                     renderer.DrawPoint(int32(snow.x), int32(snow.y))
@@ -312,8 +357,17 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                 colors := []sdl.Color{white, white}
                 colors[choice] = yellow
 
-                err = writeFont(font, renderer, 50, 50, "Quit", colors[0])
-                err = writeFont(font, renderer, 200, 50, "Load rom", colors[1])
+                quitWidth, quitHeight, err := drawButton(font, renderer, 50, 50, "Quit", colors[0])
+                loadWidth, loadHeight, err := drawButton(font, renderer, 50 + quitWidth + 50, 50, "Load rom", colors[1])
+
+                _ = quitWidth
+                _ = quitHeight
+                _ = loadWidth
+                _ = loadHeight
+
+                // err = writeFont(font, renderer, 50, 50, "Quit", colors[0])
+                err = writeFont(font, renderer, maxWidth - 200, maxHeight - font.Height() * 3, "NES Emulator", white)
+                err = writeFont(font, renderer, maxWidth - 200, maxHeight - font.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
                 _ = err
 
                 return nil
@@ -339,19 +393,19 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                                 }
                             } else {
                                 choice = 0
-                                update(choice, snow)
+                                update(choice, windowSize.X, windowSize.Y, snow)
                             }
 
                             active = ! active
                         case MenuNext:
                             if active {
                                 choice = (choice + 1) % len(choices)
-                                update(choice, snow)
+                                update(choice, windowSize.X, windowSize.Y, snow)
                             }
                         case MenuPrevious:
                             if active {
                                 choice = (choice + 1) % len(choices)
-                                update(choice, snow)
+                                update(choice, windowSize.X, windowSize.Y, snow)
                             }
                         case MenuSelect:
                             if active {
@@ -365,7 +419,6 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                     }
 
                 case windowSize = <-windowSizeUpdates:
-                    log.Printf("window size update")
                 case <-snowTicker.C:
                     if active {
                         if len(snow) < 300 {
@@ -402,7 +455,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                             }
                         }
 
-                        update(choice, snow)
+                        update(choice, windowSize.X, windowSize.Y, snow)
                     }
                 case event := <-events:
                     if event.GetType() == sdl.QUIT {
@@ -799,6 +852,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     windowSizeUpdates := make(chan WindowSize, 2)
 
     menu := MakeMenu(font, mainQuit, mainCancel, renderFuncUpdate, windowSizeUpdates)
+    menuActive := false
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
@@ -829,101 +883,109 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     if quit_pressed {
                         // mainCancel()
                         menu.Input <- MenuToggle
+                        menuActive = !menuActive
+
+                        var action EmulatorAction = EmulatorSetPause
+                        if !menuActive {
+                            action = EmulatorUnpause
+                        }
+
                         select {
-                            case emulatorActions <- EmulatorTogglePause:
+                            case emulatorActions <- action:
                             default:
                         }
                     }
 
-                    if keyboard_event.Keysym.Scancode == sdl.SCANCODE_LEFT {
-                        menu.Input <- MenuPrevious
-                    }
-
-                    if keyboard_event.Keysym.Scancode == sdl.SCANCODE_RIGHT {
-                        menu.Input <- MenuNext
-                    }
-
-                    if keyboard_event.Keysym.Scancode == sdl.SCANCODE_RETURN {
-                        menu.Input <- MenuSelect
-                    }
-
-                    if keyboard_event.Keysym.Scancode == turboKey {
-                        select {
-                            case emulatorActions <- EmulatorTurbo:
-                            default:
+                    if menuActive {
+                        switch keyboard_event.Keysym.Scancode {
+                            case sdl.SCANCODE_LEFT, sdl.SCANCODE_H:
+                                menu.Input <- MenuPrevious
+                            case sdl.SCANCODE_RIGHT, sdl.SCANCODE_L:
+                                menu.Input <- MenuNext
+                            case sdl.SCANCODE_RETURN:
+                                menu.Input <- MenuSelect
                         }
-                    }
-
-                    if keyboard_event.Keysym.Scancode == stepFrameKey {
-                        select {
-                            case emulatorActions <- EmulatorStepFrame:
-                        }
-                    }
-
-                    if keyboard_event.Keysym.Scancode == recordKey {
-                        if recordQuit.Err() == nil {
-                            recordCancel()
-                        } else {
-                            recordQuit, recordCancel = context.WithCancel(mainQuit)
-                            err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), overscanPixels, int(AudioSampleRate), &screenListeners)
-                            if err != nil {
-                                log.Printf("Could not record video: %v", err)
+                    } else {
+                        if keyboard_event.Keysym.Scancode == turboKey {
+                            select {
+                                case emulatorActions <- EmulatorTurbo:
+                                default:
                             }
                         }
-                    }
 
-                    if keyboard_event.Keysym.Scancode == pauseKey {
-                        log.Printf("Pause/unpause")
-                        select {
-                            case emulatorActions <- EmulatorTogglePause:
-                            default:
+                        if keyboard_event.Keysym.Scancode == stepFrameKey {
+                            select {
+                                case emulatorActions <- EmulatorStepFrame:
+                            }
                         }
-                    }
 
-                    if keyboard_event.Keysym.Scancode == ppuDebugKey {
-                        select {
-                            case emulatorActions <- EmulatorTogglePPUDebug:
-                            default:
+                        if keyboard_event.Keysym.Scancode == recordKey {
+                            if recordQuit.Err() == nil {
+                                recordCancel()
+                            } else {
+                                recordQuit, recordCancel = context.WithCancel(mainQuit)
+                                err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), overscanPixels, int(AudioSampleRate), &screenListeners)
+                                if err != nil {
+                                    log.Printf("Could not record video: %v", err)
+                                }
+                            }
                         }
-                    }
 
-                    if keyboard_event.Keysym.Scancode == slowDownKey {
-                        select {
-                            case emulatorActions <- EmulatorSlowDown:
-                            default:
+                        if keyboard_event.Keysym.Scancode == pauseKey {
+                            log.Printf("Pause/unpause")
+                            select {
+                                case emulatorActions <- EmulatorTogglePause:
+                                default:
+                            }
                         }
-                    }
 
-                    if keyboard_event.Keysym.Scancode == speedUpKey {
-                        select {
-                            case emulatorActions <- EmulatorSpeedUp:
-                            default:
+                        if keyboard_event.Keysym.Scancode == ppuDebugKey {
+                            select {
+                                case emulatorActions <- EmulatorTogglePPUDebug:
+                                default:
+                            }
                         }
-                    }
 
-                    if keyboard_event.Keysym.Scancode == normalKey {
-                        select {
-                            case emulatorActions <- EmulatorNormal:
-                            default:
+                        if keyboard_event.Keysym.Scancode == slowDownKey {
+                            select {
+                                case emulatorActions <- EmulatorSlowDown:
+                                default:
+                            }
                         }
-                    }
 
-                    if keyboard_event.Keysym.Scancode == hardResetKey {
-                        log.Printf("Hard reset")
-                        nesCancel()
+                        if keyboard_event.Keysym.Scancode == speedUpKey {
+                            select {
+                                case emulatorActions <- EmulatorSpeedUp:
+                                default:
+                            }
+                        }
 
-                        nesWaiter.Wait()
+                        if keyboard_event.Keysym.Scancode == normalKey {
+                            select {
+                                case emulatorActions <- EmulatorNormal:
+                                default:
+                            }
+                        }
 
-                        nesQuit, nesCancel = context.WithCancel(mainQuit)
-                        go startNES(nesQuit, &nesWaiter)
+                        if keyboard_event.Keysym.Scancode == hardResetKey {
+                            log.Printf("Hard reset")
+                            nesCancel()
+
+                            nesWaiter.Wait()
+
+                            nesQuit, nesCancel = context.WithCancel(mainQuit)
+                            go startNES(nesQuit, &nesWaiter)
+                        }
                     }
                 case sdl.KEYUP:
-                    keyboard_event := event.(*sdl.KeyboardEvent)
-                    scancode := keyboard_event.Keysym.Scancode
-                    if scancode == turboKey || scancode == pauseKey {
-                        select {
-                            case emulatorActions <- EmulatorNormal:
-                            default:
+                    if !menuActive {
+                        keyboard_event := event.(*sdl.KeyboardEvent)
+                        scancode := keyboard_event.Keysym.Scancode
+                        if scancode == turboKey || scancode == pauseKey {
+                            select {
+                                case emulatorActions <- EmulatorNormal:
+                                default:
+                            }
                         }
                     }
             }
@@ -1038,6 +1100,10 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
                             log.Printf("Emulator speed set to %v", turboMultiplier)
                         case EmulatorTogglePause:
                             paused = !paused
+                        case EmulatorSetPause:
+                            paused = true
+                        case EmulatorUnpause:
+                            paused = false
                         case EmulatorTogglePPUDebug:
                             cpu.PPU.ToggleDebug()
                     }
