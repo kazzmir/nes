@@ -249,7 +249,7 @@ const (
 )
 
 type Snow struct {
-    color int32
+    color uint8
     x float32
     y float32
     truex float32
@@ -260,12 +260,12 @@ type Snow struct {
     fallSpeed float32
 }
 
-func MakeSnow() Snow {
-    x := rand.Float32() * 800
+func MakeSnow(screenWidth int) Snow {
+    x := rand.Float32() * float32(screenWidth)
     // y := rand.Float32() * 400
     y := float32(0)
     return Snow{
-        color: rand.Int31n(4),
+        color: uint8(rand.Int31n(210) + 40),
         x: x,
         y: y,
         truex: x,
@@ -277,7 +277,12 @@ func MakeSnow() Snow {
     }
 }
 
-func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.CancelFunc, renderUpdates chan RenderFunction) Menu {
+type WindowSize struct {
+    X int
+    Y int
+}
+
+func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.CancelFunc, renderUpdates chan RenderFunction, windowSizeUpdates chan WindowSize) Menu {
     quit, cancel := context.WithCancel(mainQuit)
     events := make(chan sdl.Event)
     menuInput := make(chan MenuInput)
@@ -299,7 +304,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                 renderer.FillRect(nil)
 
                 for _, snow := range snowflakes {
-                    c := uint8(255 * snow.color / 4)
+                    c := snow.color
                     renderer.SetDrawColor(c, c, c, 255)
                     renderer.DrawPoint(int32(snow.x), int32(snow.y))
                 }
@@ -316,14 +321,9 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
         }
 
         var snow []Snow
-        for i := 0; i < 1; i++ {
-            // speed := rand.Float32() * 2 + 1
-            /*
-            x_direction := math.Cos(float64(angle) * math.Pi / 180)
-            y_direction := -math.Sin(float64(angle) * math.Pi / 180)
-            */
-            snow = append(snow, MakeSnow())
-        }
+
+        wind := rand.Float32() - 0.5
+        var windowSize WindowSize
 
         /* Reset the default renderer */
         for {
@@ -364,21 +364,32 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                             }
                     }
 
+                case windowSize = <-windowSizeUpdates:
+                    log.Printf("window size update")
                 case <-snowTicker.C:
                     if active {
                         if len(snow) < 300 {
-                            snow = append(snow, MakeSnow())
+                            snow = append(snow, MakeSnow(windowSize.X))
+                        }
+
+                        wind += (rand.Float32() - 0.5) / 4
+                        if wind < -1 {
+                            wind = -1
+                        }
+                        if wind > 1 {
+                            wind = 1
                         }
 
                         for i := 0; i < len(snow); i++ {
                             snow[i].truey += snow[i].fallSpeed
+                            snow[i].truex += wind
                             snow[i].x = snow[i].truex + float32(math.Cos(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
                             // snow[i].y = snow[i].truey + float32(-math.Sin(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
                             snow[i].y = snow[i].truey
                             snow[i].angle += float32(snow[i].direction) * snow[i].speed
 
-                            if snow[i].y > 800 {
-                                snow[i] = MakeSnow()
+                            if snow[i].y > float32(windowSize.Y) {
+                                snow[i] = MakeSnow(windowSize.X)
                             }
 
                             if snow[i].angle < 0 {
@@ -420,6 +431,8 @@ func renderPixelsRGBA(screen nes.VirtualScreen, raw_pixels []byte, overscanPixel
 
     startPixel := overscanPixels * int(width)
     endPixel := (240 - overscanPixels) * int(width)
+
+    /* FIXME: this can be done with a writer and binary.Writer(BigEndian, pixels) */
 
     for i, pixel := range screen.Buffer[startPixel:endPixel] {
         /* red */
@@ -602,7 +615,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
 
     renderFuncUpdate := make(chan RenderFunction)
-    renderNow := make(chan bool)
+    renderNow := make(chan bool, 2)
 
     go func(){
         waiter.Add(1)
@@ -783,7 +796,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         recordCancel()
     }
 
-    menu := MakeMenu(font, mainQuit, mainCancel, renderFuncUpdate)
+    windowSizeUpdates := make(chan WindowSize, 2)
+
+    menu := MakeMenu(font, mainQuit, mainCancel, renderFuncUpdate, windowSizeUpdates)
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
@@ -795,10 +810,17 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     window_event := event.(*sdl.WindowEvent)
                     switch window_event.Event {
                         case sdl.WINDOWEVENT_EXPOSED:
-                            renderNow <- true
+                            select {
+                                case renderNow <- true:
+                                default:
+                            }
                         case sdl.WINDOWEVENT_RESIZED:
                             // log.Printf("Window resized")
+
                     }
+
+                    width, height := window.GetSize()
+                    windowSizeUpdates <- WindowSize{X: int(width), Y: int(height)}
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
