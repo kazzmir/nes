@@ -10,3 +10,8 @@ type WindowSize struct {
     X int
     Y int
 }
+
+type ProgramActions int
+const (
+    ProgramToggleSound = iota
+)

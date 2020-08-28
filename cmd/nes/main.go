@@ -244,6 +244,11 @@ func renderPixelsRGBA(screen nes.VirtualScreen, raw_pixels []byte, overscanPixel
     }
 }
 
+type AudioActions int
+const (
+    AudioToggle = iota
+)
+
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
     nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
@@ -506,6 +511,55 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     var screenListeners ScreenListeners
 
+    audioActions := make(chan AudioActions, 2)
+
+    audio := make(chan []float32, 2)
+    if audioDevice != 0 {
+        /* runNES will generate arrays of samples that we enqueue into the SDL audio system */
+        go func(){
+            var buffer bytes.Buffer
+            enabled := true
+            for {
+                select {
+                    case <-mainQuit.Done():
+                        return
+                    case action := <-audioActions:
+                        switch action {
+                            case AudioToggle:
+                                enabled = !enabled
+                        }
+                    case samples := <-audio:
+                        if !enabled {
+                            break
+                        }
+                        // log.Printf("Prepare audio to queue")
+                        // log.Printf("Enqueue data %v", samples)
+                        buffer.Reset()
+                        /* convert []float32 into []byte */
+                        for _, sample := range samples {
+                            binary.Write(&buffer, binary.LittleEndian, sample)
+                        }
+                        // log.Printf("Enqueue audio")
+                        err := sdl.QueueAudio(audioDevice, buffer.Bytes())
+                        if err != nil {
+                            log.Printf("Error: could not queue audio data: %v", err)
+                            return
+                        }
+                }
+            }
+        }()
+    } else {
+        go func(){
+            for {
+                select {
+                    case <-mainQuit.Done():
+                        return
+                    case <-audio:
+                }
+            }
+        }()
+    }
+
     startNES := func(quit context.Context, waiter *sync.WaitGroup){
         waiter.Add(1)
         defer waiter.Done()
@@ -521,34 +575,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             /* The main loop below is waiting for an event so we push the quit event */
             sdl.PushEvent(&quitEvent)
         } else {
-            audio := make(chan []float32, 2)
-            defer close(audio)
-
-            if audioDevice != 0 {
-                /* runNES will generate arrays of samples that we enqueue into the SDL audio system */
-                go func(){
-                    waiter.Add(1)
-                    defer waiter.Done()
-
-                    var buffer bytes.Buffer
-                    for samples := range audio {
-                        // log.Printf("Prepare audio to queue")
-                        // log.Printf("Enqueue data %v", samples)
-                        buffer.Reset()
-                        /* convert []float32 into []byte */
-                        for _, sample := range samples {
-                            binary.Write(&buffer, binary.LittleEndian, sample)
-                        }
-                        // log.Printf("Enqueue audio")
-                        err := sdl.QueueAudio(audioDevice, buffer.Bytes())
-                        if err != nil {
-                            log.Printf("Error: could not queue audio data: %v", err)
-                            return
-                        }
-                    }
-                }()
-            }
-
             log.Printf("Run NES")
             err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audio, emulatorActions, &screenListeners, AudioSampleRate)
             if err != nil {
@@ -588,8 +614,24 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     windowSizeUpdates := make(chan common.WindowSize, 2)
 
-    theMenu := menu.MakeMenu(font, mainQuit, mainCancel, renderFuncUpdate, windowSizeUpdates)
+    programActions := make(chan common.ProgramActions, 2)
+
+    theMenu := menu.MakeMenu(font, mainQuit, mainCancel, renderFuncUpdate, windowSizeUpdates, programActions)
     menuActive := false
+
+    go func(){
+        for {
+            select {
+                case <-mainQuit.Done():
+                    return
+                case action := <-programActions:
+                    switch action {
+                        case common.ProgramToggleSound:
+                            audioActions <- AudioToggle
+                    }
+            }
+        }
+    }()
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)

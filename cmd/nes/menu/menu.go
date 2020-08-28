@@ -34,6 +34,7 @@ type MenuAction int
 const (
     MenuActionQuit = iota
     MenuActionLoadRom
+    MenuActionSound
 )
 
 type Snow struct {
@@ -133,7 +134,7 @@ func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message str
     return nil
 }
 
-func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.CancelFunc, renderUpdates chan common.RenderFunction, windowSizeUpdates chan common.WindowSize) Menu {
+func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.CancelFunc, renderUpdates chan common.RenderFunction, windowSizeUpdates chan common.WindowSize, programActions chan common.ProgramActions) Menu {
     quit, cancel := context.WithCancel(mainQuit)
     events := make(chan sdl.Event)
     menuInput := make(chan MenuInput)
@@ -143,10 +144,10 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
         snowTicker := time.NewTicker(time.Second / 20)
         defer snowTicker.Stop()
 
-        choices := []MenuAction{MenuActionQuit, MenuActionLoadRom}
+        choices := []MenuAction{MenuActionQuit, MenuActionLoadRom, MenuActionSound}
         choice := 0
 
-        update := func(choice int, maxWidth int, maxHeight int, snowflakes []Snow){
+        update := func(choice int, maxWidth int, maxHeight int, audioEnabled bool, snowflakes []Snow){
             snowCopy := copySnow(snowflakes)
             renderUpdates <- func (renderer *sdl.Renderer) error {
                 var err error
@@ -161,16 +162,25 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                     renderer.DrawPoint(int32(snow.x), int32(snow.y))
                 }
 
-                colors := []sdl.Color{white, white}
-                colors[choice] = yellow
+                sound := "Sound enabled"
+                if !audioEnabled {
+                    sound = "Sound disabled"
+                }
 
-                quitWidth, quitHeight, err := drawButton(font, renderer, 50, 50, "Quit", colors[0])
-                loadWidth, loadHeight, err := drawButton(font, renderer, 50 + quitWidth + 50, 50, "Load rom", colors[1])
+                buttons := []string{"Quit", "Load ROM", sound}
 
-                _ = quitWidth
-                _ = quitHeight
-                _ = loadWidth
-                _ = loadHeight
+                x := 50
+                y := 50
+                for i, button := range buttons {
+                    color := white
+                    if i == choice {
+                        color = yellow
+                    }
+                    width, height, err := drawButton(font, renderer, x, y, button, color)
+                    x += width + 50
+                    _ = height
+                    _ = err
+                }
 
                 // err = writeFont(font, renderer, 50, 50, "Quit", colors[0])
                 err = writeFont(font, renderer, maxWidth - 200, maxHeight - font.Height() * 3, "NES Emulator", white)
@@ -185,6 +195,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
 
         wind := rand.Float32() - 0.5
         var windowSize common.WindowSize
+        audio := true
 
         /* Reset the default renderer */
         for {
@@ -200,19 +211,19 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                                 }
                             } else {
                                 choice = 0
-                                update(choice, windowSize.X, windowSize.Y, snow)
+                                update(choice, windowSize.X, windowSize.Y, audio, snow)
                             }
 
                             active = ! active
                         case MenuNext:
                             if active {
                                 choice = (choice + 1) % len(choices)
-                                update(choice, windowSize.X, windowSize.Y, snow)
+                                update(choice, windowSize.X, windowSize.Y, audio, snow)
                             }
                         case MenuPrevious:
                             if active {
-                                choice = (choice + 1) % len(choices)
-                                update(choice, windowSize.X, windowSize.Y, snow)
+                                choice = (choice - 1 + len(choices)) % len(choices)
+                                update(choice, windowSize.X, windowSize.Y, audio, snow)
                             }
                         case MenuSelect:
                             if active {
@@ -221,6 +232,9 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                                         mainCancel()
                                     case MenuActionLoadRom:
                                         log.Printf("Load a rom")
+                                    case MenuActionSound:
+                                        programActions <- common.ProgramToggleSound
+                                        audio = !audio
                                 }
                             }
                     }
@@ -262,7 +276,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                             }
                         }
 
-                        update(choice, windowSize.X, windowSize.Y, snow)
+                        update(choice, windowSize.X, windowSize.Y, audio, snow)
                     }
                 case event := <-events:
                     if event.GetType() == sdl.QUIT {
