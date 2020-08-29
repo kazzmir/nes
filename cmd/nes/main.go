@@ -249,6 +249,106 @@ const (
     AudioToggle = iota
 )
 
+func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audioActions <-chan AudioActions, mainQuit context.Context) func() {
+    if audioDevice != 0 {
+        /* runNES will generate arrays of samples that we enqueue into the SDL audio system */
+        return func(){
+            var buffer bytes.Buffer
+            enabled := true
+            for {
+                select {
+                    case <-mainQuit.Done():
+                        return
+                    case action := <-audioActions:
+                        switch action {
+                            case AudioToggle:
+                                enabled = !enabled
+                        }
+                    case samples := <-audio:
+                        if !enabled {
+                            break
+                        }
+                        // log.Printf("Prepare audio to queue")
+                        // log.Printf("Enqueue data %v", samples)
+                        buffer.Reset()
+                        /* convert []float32 into []byte */
+                        for _, sample := range samples {
+                            binary.Write(&buffer, binary.LittleEndian, sample)
+                        }
+                        // log.Printf("Enqueue audio")
+                        err := sdl.QueueAudio(audioDevice, buffer.Bytes())
+                        if err != nil {
+                            log.Printf("Error: could not queue audio data: %v", err)
+                            return
+                        }
+                }
+            }
+        }
+    } else {
+        return func(){
+            for {
+                select {
+                    case <-mainQuit.Done():
+                        return
+                    case <-audio:
+                }
+            }
+        }
+    }
+}
+
+type PixelFormat uint32
+
+func doRender(width int, height int, raw_pixels []byte, pixelFormat PixelFormat, renderer *sdl.Renderer, renderFunc common.RenderFunction) error {
+    pixels := C.CBytes(raw_pixels)
+    defer C.free(pixels)
+
+    depth := 8 * 4 // RGBA8888
+    pitch := int(width) * int(depth) / 8
+
+    // pixelFormat := sdl.PIXELFORMAT_ABGR8888
+
+    /* pixelFormat should be ABGR8888 on little-endian (x86) and
+     * RBGA8888 on big-endian (arm)
+     */
+
+    surface, err := sdl.CreateRGBSurfaceWithFormatFrom(pixels, int32(width), int32(height), int32(depth), int32(pitch), uint32(pixelFormat))
+    if err != nil {
+        return fmt.Errorf("Unable to create surface from pixels: %v", err)
+    }
+    if surface == nil {
+        return fmt.Errorf("Did not create a surface somehow")
+    }
+
+    defer surface.Free()
+
+    texture, err := renderer.CreateTextureFromSurface(surface)
+    if err != nil {
+        return fmt.Errorf("Could not create texture: %v", err)
+    }
+
+    defer texture.Destroy()
+
+    // texture_format, access, width, height, err := texture.Query()
+    // log.Printf("Texture format=%v access=%v width=%v height=%v err=%v\n", get_pixel_format(texture_format), access, width, height, err)
+
+    renderer.SetDrawColor(0, 0, 0, 0)
+    renderer.Clear()
+
+    renderer.SetLogicalSize(int32(width), int32(height))
+    renderer.Copy(texture, nil, nil)
+
+    renderer.SetLogicalSize(0, 0)
+    err = renderFunc(renderer)
+    if err != nil {
+        log.Printf("Warning: render error: %v", err)
+    }
+
+    renderer.Present()
+
+    return nil
+}
+
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
     nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
@@ -359,55 +459,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     // renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
 
     /* create a surface from the pixels in one call, then create a texture and render it */
-    doRender := func(width int, height int, raw_pixels []byte, renderFunc common.RenderFunction) error {
-        pixels := C.CBytes(raw_pixels)
-        defer C.free(pixels)
-
-        depth := 8 * 4 // RGBA8888
-        pitch := int(width) * int(depth) / 8
-
-        // pixelFormat := sdl.PIXELFORMAT_ABGR8888
-
-        /* pixelFormat should be ABGR8888 on little-endian (x86) and
-         * RBGA8888 on big-endian (arm)
-         */
-
-        surface, err := sdl.CreateRGBSurfaceWithFormatFrom(pixels, int32(width), int32(height), int32(depth), int32(pitch), pixelFormat)
-        if err != nil {
-            return fmt.Errorf("Unable to create surface from pixels: %v", err)
-        }
-        if surface == nil {
-            return fmt.Errorf("Did not create a surface somehow")
-        }
-
-        defer surface.Free()
-
-        texture, err := renderer.CreateTextureFromSurface(surface)
-        if err != nil {
-            return fmt.Errorf("Could not create texture: %v", err)
-        }
-
-        defer texture.Destroy()
-
-        // texture_format, access, width, height, err := texture.Query()
-        // log.Printf("Texture format=%v access=%v width=%v height=%v err=%v\n", get_pixel_format(texture_format), access, width, height, err)
-
-        renderer.SetDrawColor(0, 0, 0, 0)
-        renderer.Clear()
-
-        renderer.SetLogicalSize(int32(width), int32(height))
-        renderer.Copy(texture, nil, nil)
-
-        renderer.SetLogicalSize(0, 0)
-        err = renderFunc(renderer)
-        if err != nil {
-            log.Printf("Warning: render error: %v", err)
-        }
-
-        renderer.Present()
-
-        return nil
-    }
 
     renderFuncUpdate := make(chan common.RenderFunction)
     renderNow := make(chan bool, 2)
@@ -432,7 +483,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         }
 
         render := func (){
-            err := doRender(256, 240-overscanPixels*2, raw_pixels, renderFunc)
+            err := doRender(256, 240-overscanPixels*2, raw_pixels, pixelFormat, renderer, renderFunc)
             if err != nil {
                 log.Printf("Could not render: %v\n", err)
             }
@@ -465,48 +516,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         }
     }()
 
-    /*
-    go func(){
-        ticker := time.NewTicker(time.Second / 60)
-
-        makeRenderFunction := func(state RenderState) RenderFunction {
-            return func(renderer *sdl.Renderer) error {
-                err = writeFont(font, renderer, 1, 1, "NES emulator", sdl.Color{R: 255, G: 255, B: 255, A: 128})
-                _ = err
-
-                renderer.SetDrawColor(0, 0, 0, state.Alpha)
-                renderer.FillRect(nil)
-                return nil
-            }
-        }
-
-        renderState := RenderState{
-            Direction: 1,
-            Alpha: 128,
-        }
-
-        for {
-            select {
-                case <-mainQuit.Done():
-                    return
-                case <-ticker.C:
-                    value := int(renderState.Alpha) + renderState.Direction * 2
-                    if value > 255 {
-                        value = 255
-                        renderState.Direction = -1
-                    }
-                    if value < 0 {
-                        value = 0
-                        renderState.Direction = 1
-                    }
-                    renderState.Alpha = uint8(value)
-
-                    renderFuncUpdate <- makeRenderFunction(renderState)
-            }
-        }
-    }()
-    */
-
     emulatorActions := make(chan EmulatorAction, 50)
 
     var screenListeners ScreenListeners
@@ -514,51 +523,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     audioActions := make(chan AudioActions, 2)
 
     audio := make(chan []float32, 2)
-    if audioDevice != 0 {
-        /* runNES will generate arrays of samples that we enqueue into the SDL audio system */
-        go func(){
-            var buffer bytes.Buffer
-            enabled := true
-            for {
-                select {
-                    case <-mainQuit.Done():
-                        return
-                    case action := <-audioActions:
-                        switch action {
-                            case AudioToggle:
-                                enabled = !enabled
-                        }
-                    case samples := <-audio:
-                        if !enabled {
-                            break
-                        }
-                        // log.Printf("Prepare audio to queue")
-                        // log.Printf("Enqueue data %v", samples)
-                        buffer.Reset()
-                        /* convert []float32 into []byte */
-                        for _, sample := range samples {
-                            binary.Write(&buffer, binary.LittleEndian, sample)
-                        }
-                        // log.Printf("Enqueue audio")
-                        err := sdl.QueueAudio(audioDevice, buffer.Bytes())
-                        if err != nil {
-                            log.Printf("Error: could not queue audio data: %v", err)
-                            return
-                        }
-                }
-            }
-        }()
-    } else {
-        go func(){
-            for {
-                select {
-                    case <-mainQuit.Done():
-                        return
-                    case <-audio:
-                }
-            }
-        }()
-    }
+    go makeAudioWorker(audioDevice, audio, audioActions, mainQuit)()
 
     startNES := func(quit context.Context, waiter *sync.WaitGroup){
         waiter.Add(1)
@@ -787,7 +752,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
  * if the first byte in the byte array is the same as the lowest byte of the 32-bit number
  * then the host is little endian
  */
-func findPixelFormat() uint32 {
+func findPixelFormat() PixelFormat {
     red := uint32(32)
     green := uint32(128)
     blue := uint32(64)
