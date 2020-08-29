@@ -134,7 +134,7 @@ func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message str
     return nil
 }
 
-func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.CancelFunc, renderUpdates chan common.RenderFunction, windowSizeUpdates chan common.WindowSize, programActions chan common.ProgramActions) Menu {
+func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.CancelFunc, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) Menu {
     quit, cancel := context.WithCancel(mainQuit)
     events := make(chan sdl.Event)
     menuInput := make(chan MenuInput)

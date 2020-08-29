@@ -373,22 +373,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     overscanPixels := 8
 
     /* to resize the window */
-    // | sdl.WINDOW_RESIZABLE
     window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(256 * windowSizeMultiple), int32((240 - overscanPixels * 2) * windowSizeMultiple), sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
     if err != nil {
         return err
     }
     defer window.Destroy()
-
-    /*
-    surface, err := window.GetSurface()
-    if err != nil {
-        return err
-    }
-
-    surface.FillRect(nil, 0)
-    window.UpdateSurface()
-    */
 
     softwareRenderer := true
     _ = softwareRenderer
@@ -414,18 +403,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         log.Printf("Opened SDL audio device %v", audioDevice)
         sdl.PauseAudioDevice(audioDevice, false)
     }
-
-    // renderer.SetScale(2, 2)
-
-    /*
-    texture, err := renderer.CreateTexture(sdl.PIXELFORMAT_RGB888, sdl.TEXTUREACCESS_TARGET, 640, 480)
-    if err != nil {
-        return err
-    }
-
-    // _ = texture
-    // renderer.SetRenderTarget(texture)
-    */
 
     var waiter sync.WaitGroup
 
@@ -517,13 +494,20 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }()
 
     emulatorActions := make(chan EmulatorAction, 50)
+    emulatorActionsInput := (<-chan EmulatorAction)(emulatorActions)
+    emulatorActionsOutput := (chan<- EmulatorAction)(emulatorActions)
 
     var screenListeners ScreenListeners
 
     audioActions := make(chan AudioActions, 2)
+    audioActionsInput := (<-chan AudioActions)(audioActions)
+    audioActionsOutput := (chan<- AudioActions)(audioActions)
 
-    audio := make(chan []float32, 2)
-    go makeAudioWorker(audioDevice, audio, audioActions, mainQuit)()
+    audioChannel := make(chan []float32, 2)
+    audioInput := (<-chan []float32)(audioChannel)
+    audioOutput := (chan<- []float32)(audioChannel)
+
+    go makeAudioWorker(audioDevice, audioInput, audioActionsInput, mainQuit)()
 
     startNES := func(quit context.Context, waiter *sync.WaitGroup){
         waiter.Add(1)
@@ -541,7 +525,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             sdl.PushEvent(&quitEvent)
         } else {
             log.Printf("Run NES")
-            err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audio, emulatorActions, &screenListeners, AudioSampleRate)
+            err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate)
             if err != nil {
                 if err == MaxCyclesReached {
                 } else {
@@ -577,11 +561,21 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         recordCancel()
     }
 
+    /* FIXME: this would be good to do as a generic function.
+     *   reader, writer := makeChannel(common.WindowSize, 2)
+     * Where the reader gets the <-chan and the writer gets the chan<-
+     */
+    /* Notify the menu when the window changes size */
     windowSizeUpdates := make(chan common.WindowSize, 2)
+    windowSizeUpdatesInput := (<-chan common.WindowSize)(windowSizeUpdates)
+    windowSizeUpdatesOutput := (chan<- common.WindowSize)(windowSizeUpdates)
 
+    /* Actions done in the menu that should affect the program */
     programActions := make(chan common.ProgramActions, 2)
+    programActionsInput := (<-chan common.ProgramActions)(programActions)
+    programActionsOutput := (chan<- common.ProgramActions)(programActions)
 
-    theMenu := menu.MakeMenu(font, mainQuit, mainCancel, renderFuncUpdate, windowSizeUpdates, programActions)
+    theMenu := menu.MakeMenu(font, mainQuit, mainCancel, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
     menuActive := false
 
     go func(){
@@ -589,10 +583,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             select {
                 case <-mainQuit.Done():
                     return
-                case action := <-programActions:
+                case action := <-programActionsInput:
                     switch action {
                         case common.ProgramToggleSound:
-                            audioActions <- AudioToggle
+                            audioActionsOutput <- AudioToggle
                     }
             }
         }
@@ -618,7 +612,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
 
                     width, height := window.GetSize()
-                    windowSizeUpdates <- common.WindowSize{X: int(width), Y: int(height)}
+                    windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
@@ -635,7 +629,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         }
 
                         select {
-                            case emulatorActions <- action:
+                            case emulatorActionsOutput <- action:
                             default:
                         }
                     }
@@ -650,75 +644,60 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                 theMenu.Input <- menu.MenuSelect
                         }
                     } else {
-                        if keyboard_event.Keysym.Scancode == turboKey {
-                            select {
-                                case emulatorActions <- EmulatorTurbo:
-                                default:
-                            }
-                        }
-
-                        if keyboard_event.Keysym.Scancode == stepFrameKey {
-                            select {
-                                case emulatorActions <- EmulatorStepFrame:
-                            }
-                        }
-
-                        if keyboard_event.Keysym.Scancode == recordKey {
-                            if recordQuit.Err() == nil {
-                                recordCancel()
-                            } else {
-                                recordQuit, recordCancel = context.WithCancel(mainQuit)
-                                err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), overscanPixels, int(AudioSampleRate), &screenListeners)
-                                if err != nil {
-                                    log.Printf("Could not record video: %v", err)
+                        switch keyboard_event.Keysym.Scancode {
+                            case turboKey:
+                                select {
+                                    case emulatorActionsOutput <- EmulatorTurbo:
+                                    default:
                                 }
-                            }
-                        }
+                            case stepFrameKey:
+                                select {
+                                    case emulatorActionsOutput <- EmulatorStepFrame:
+                                }
+                            case recordKey:
+                                if recordQuit.Err() == nil {
+                                    recordCancel()
+                                } else {
+                                    recordQuit, recordCancel = context.WithCancel(mainQuit)
+                                    err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), overscanPixels, int(AudioSampleRate), &screenListeners)
+                                    if err != nil {
+                                        log.Printf("Could not record video: %v", err)
+                                    }
+                                }
+                            case pauseKey:
+                                log.Printf("Pause/unpause")
+                                select {
+                                    case emulatorActionsOutput <- EmulatorTogglePause:
+                                    default:
+                                }
+                            case ppuDebugKey:
+                                select {
+                                    case emulatorActionsOutput <- EmulatorTogglePPUDebug:
+                                    default:
+                                }
+                            case slowDownKey:
+                                select {
+                                    case emulatorActionsOutput <- EmulatorSlowDown:
+                                    default:
+                                }
+                            case speedUpKey:
+                                select {
+                                    case emulatorActionsOutput <- EmulatorSpeedUp:
+                                    default:
+                                }
+                            case normalKey:
+                                select {
+                                    case emulatorActionsOutput <- EmulatorNormal:
+                                    default:
+                                }
+                            case hardResetKey:
+                                log.Printf("Hard reset")
+                                nesCancel()
 
-                        if keyboard_event.Keysym.Scancode == pauseKey {
-                            log.Printf("Pause/unpause")
-                            select {
-                                case emulatorActions <- EmulatorTogglePause:
-                                default:
-                            }
-                        }
+                                nesWaiter.Wait()
 
-                        if keyboard_event.Keysym.Scancode == ppuDebugKey {
-                            select {
-                                case emulatorActions <- EmulatorTogglePPUDebug:
-                                default:
-                            }
-                        }
-
-                        if keyboard_event.Keysym.Scancode == slowDownKey {
-                            select {
-                                case emulatorActions <- EmulatorSlowDown:
-                                default:
-                            }
-                        }
-
-                        if keyboard_event.Keysym.Scancode == speedUpKey {
-                            select {
-                                case emulatorActions <- EmulatorSpeedUp:
-                                default:
-                            }
-                        }
-
-                        if keyboard_event.Keysym.Scancode == normalKey {
-                            select {
-                                case emulatorActions <- EmulatorNormal:
-                                default:
-                            }
-                        }
-
-                        if keyboard_event.Keysym.Scancode == hardResetKey {
-                            log.Printf("Hard reset")
-                            nesCancel()
-
-                            nesWaiter.Wait()
-
-                            nesQuit, nesCancel = context.WithCancel(mainQuit)
-                            go startNES(nesQuit, &nesWaiter)
+                                nesQuit, nesCancel = context.WithCancel(mainQuit)
+                                go startNES(nesQuit, &nesWaiter)
                         }
                     }
                 case sdl.KEYUP:
@@ -727,7 +706,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         scancode := keyboard_event.Keysym.Scancode
                         if scancode == turboKey || scancode == pauseKey {
                             select {
-                                case emulatorActions <- EmulatorNormal:
+                                case emulatorActionsOutput <- EmulatorNormal:
                                 default:
                             }
                         }
