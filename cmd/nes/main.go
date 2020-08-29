@@ -653,6 +653,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             case stepFrameKey:
                                 select {
                                     case emulatorActionsOutput <- EmulatorStepFrame:
+                                    default:
                                 }
                             case recordKey:
                                 if recordQuit.Err() == nil {
