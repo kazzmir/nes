@@ -509,7 +509,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     go makeAudioWorker(audioDevice, audioInput, audioActionsInput, mainQuit)()
 
-    startNES := func(quit context.Context, waiter *sync.WaitGroup){
+    startNES := func(nesFile nes.NESFile, quit context.Context, waiter *sync.WaitGroup){
         waiter.Add(1)
         defer waiter.Done()
 
@@ -539,7 +539,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     var nesWaiter sync.WaitGroup
     nesQuit, nesCancel := context.WithCancel(mainQuit)
-    go startNES(nesQuit, &nesWaiter)
+    go startNES(nesFile, nesQuit, &nesWaiter)
 
     var turboKey sdl.Scancode = sdl.SCANCODE_GRAVE
     var pauseKey sdl.Scancode = sdl.SCANCODE_SPACE
@@ -698,7 +698,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                 nesWaiter.Wait()
 
                                 nesQuit, nesCancel = context.WithCancel(mainQuit)
-                                go startNES(nesQuit, &nesWaiter)
+                                go startNES(nesFile, nesQuit, &nesWaiter)
                         }
                     }
                 case sdl.KEYUP:
