@@ -292,3 +292,23 @@ func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
     return nil
 }
 
+func RenderPixelsRGBA(screen nes.VirtualScreen, raw_pixels []byte, overscanPixels int){
+    width := int32(screen.Width)
+    // height := int32(240 - overscanPixels * 2)
+
+    startPixel := overscanPixels * int(width)
+    endPixel := (screen.Height - overscanPixels) * int(width)
+
+    /* FIXME: this can be done with a writer and binary.Writer(BigEndian, pixels) */
+
+    for i, pixel := range screen.Buffer[startPixel:endPixel] {
+        /* red */
+        raw_pixels[i*4+0] = byte(pixel >> 24)
+        /* green */
+        raw_pixels[i*4+1] = byte(pixel >> 16)
+        /* blue */
+        raw_pixels[i*4+2] = byte(pixel >> 8)
+        /* alpha */
+        raw_pixels[i*4+3] = byte(pixel >> 0)
+    }
+}

@@ -1,5 +1,9 @@
 package menu
 
+/*
+#include <stdlib.h>
+*/
+import "C"
 import (
     "context"
 
@@ -11,6 +15,7 @@ import (
     "time"
     "log"
     "sync"
+    "sort"
 
     "github.com/kazzmir/nes/cmd/nes/common"
     nes "github.com/kazzmir/nes/lib"
@@ -169,7 +174,7 @@ func (buttons *NullInput) Get() nes.ButtonMapping {
 }
 
 /* Find roms and show thumbnails of them, then let the user select one */
-func romLoader(mainQuit context.Context) (nes.NESFile, error) {
+func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NESFile, error) {
     /* for each rom call runNES() and pass in EmulatorInfiniteSpeed to let
      * the emulator run as fast as possible. Pass in a maxCycle of whatever
      * correlates to about 4 seconds of runtime. Save the screens produced
@@ -191,9 +196,11 @@ func romLoader(mainQuit context.Context) (nes.NESFile, error) {
 
     /* Have 4 go routines running roms */
     for i := 0; i < 4; i++ {
-        go func(){
+        go func(baseRomId RomId){
             wait.Add(1)
             defer wait.Done()
+
+            nextRomId := baseRomId
 
             for rom := range possibleRoms {
                 nesFile, err := nes.ParseNesFile(rom, false)
@@ -206,6 +213,14 @@ func romLoader(mainQuit context.Context) (nes.NESFile, error) {
                 if err != nil {
                     log.Printf("Unable to setup cpu for %v: %v", rom, err)
                     continue
+                }
+
+                romId := nextRomId
+                nextRomId += 1
+
+                romLoaderState.NewRom <- RomLoaderAdd{
+                    Id: romId,
+                    Path: rom,
                 }
 
                 quit, cancel := context.WithCancel(loaderQuit)
@@ -224,7 +239,6 @@ func romLoader(mainQuit context.Context) (nes.NESFile, error) {
                 buffer := nes.MakeVirtualScreen(256, 240)
                 bufferReady <- buffer
 
-                saveFrames := make(chan nes.VirtualScreen, 10)
                 go func(){
                     count := 0
                     for {
@@ -233,11 +247,11 @@ func romLoader(mainQuit context.Context) (nes.NESFile, error) {
                                 return
                             case screen := <-toDraw:
                                 count += 1
+                                /* every 60 frames should be 1 second */
                                 if count == 60 {
-                                    /* Try to save the frame in the channel */
-                                    select {
-                                        case saveFrames <- screen.Copy():
-                                        default:
+                                    romLoaderState.AddFrame <- RomLoaderFrame{
+                                        Id: romId,
+                                        Frame: screen.Copy(),
                                     }
                                     count = 0
                                 }
@@ -254,17 +268,8 @@ func romLoader(mainQuit context.Context) (nes.NESFile, error) {
                 }
 
                 cancel()
-                close(saveFrames)
-
-                count := 0
-                for frame := range saveFrames {
-                    _ = frame
-                    count += 1
-                }
-
-                log.Printf("%v had %v frames", rom, count)
             }
-        }()
+        }(RomId(uint64(i) * 1000000))
     }
 
     err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
@@ -299,6 +304,189 @@ func (menu *Menu) ToggleActive(){
     defer menu.Lock.Unlock()
 
     menu.active = ! menu.active
+}
+
+type RomId uint64
+
+type RomLoaderAdd struct {
+    Id RomId
+    Path string
+}
+
+type RomLoaderFrame struct {
+    Id RomId
+    Frame nes.VirtualScreen
+}
+
+type RomLoaderInfo struct {
+    Path string
+    Frames []nes.VirtualScreen
+    ShowFrame int
+}
+
+func (info *RomLoaderInfo) NextFrame() {
+    if len(info.Frames) > 0 {
+        info.ShowFrame = (info.ShowFrame + 1) % len(info.Frames)
+    }
+}
+
+type RomLoaderState struct {
+    Roms map[RomId]*RomLoaderInfo
+    NewRom chan RomLoaderAdd
+    AddFrame chan RomLoaderFrame
+    Lock sync.Mutex
+}
+
+func (loader *RomLoaderState) AdvanceFrames() {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    for _, info := range loader.Roms {
+        info.NextFrame()
+    }
+}
+
+func doRender(width int, height int, raw_pixels []byte, destX int, destY int, destWidth int, destHeight int, pixelFormat common.PixelFormat, renderer *sdl.Renderer) error {
+    pixels := C.CBytes(raw_pixels)
+    defer C.free(pixels)
+
+    depth := 8 * 4 // RGBA8888
+    pitch := int(width) * int(depth) / 8
+
+    // pixelFormat := sdl.PIXELFORMAT_ABGR8888
+
+    /* pixelFormat should be ABGR8888 on little-endian (x86) and
+     * RBGA8888 on big-endian (arm)
+     */
+
+    surface, err := sdl.CreateRGBSurfaceWithFormatFrom(pixels, int32(width), int32(height), int32(depth), int32(pitch), uint32(pixelFormat))
+    if err != nil {
+        return fmt.Errorf("Unable to create surface from pixels: %v", err)
+    }
+    if surface == nil {
+        return fmt.Errorf("Did not create a surface somehow")
+    }
+
+    defer surface.Free()
+
+    texture, err := renderer.CreateTextureFromSurface(surface)
+    if err != nil {
+        return fmt.Errorf("Could not create texture: %v", err)
+    }
+
+    defer texture.Destroy()
+
+    // texture_format, access, width, height, err := texture.Query()
+    // log.Printf("Texture format=%v access=%v width=%v height=%v err=%v\n", get_pixel_format(texture_format), access, width, height, err)
+
+    destRect := sdl.Rect{X: int32(destX), Y: int32(destY), W: int32(destWidth), H: int32(destHeight)}
+    renderer.Copy(texture, nil, &destRect)
+
+    return nil
+}
+
+type SortRomIds []RomId
+
+func (data SortRomIds) Len() int {
+    return len(data)
+}
+
+func (data SortRomIds) Swap(left, right int){
+    data[left], data[right] = data[right], data[left]
+}
+
+func (data SortRomIds) Less(left, right int) bool {
+    return data[left] < data[right]
+}
+
+func (loader *RomLoaderState) Render(renderer *sdl.Renderer) {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    overscanPixels := 8
+    width := 256
+    height := 240-overscanPixels*2
+    x := 50
+    y := 50
+
+    raw_pixels := make([]byte, width*height * 4)
+    pixelFormat := common.FindPixelFormat()
+
+    romIds := make([]RomId, 0, len(loader.Roms))
+    for romId := range loader.Roms {
+        romIds = append(romIds, romId)
+    }
+    sort.Sort(SortRomIds(romIds))
+
+    thumbnail := 3
+    for _, romId := range romIds {
+        info := loader.Roms[romId]
+        if len(info.Frames) > 0 {
+            frame := info.Frames[info.ShowFrame]
+            common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
+
+            doRender(width, height, raw_pixels, x, y, width / thumbnail, height / thumbnail, pixelFormat, renderer)
+
+        }
+
+        x += width / thumbnail + 20
+    }
+}
+
+func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    _, ok := loader.Roms[rom.Id]
+    if ok {
+        log.Printf("Warning: adding a duplicate rom id: %v", rom.Id)
+        return
+    }
+
+    loader.Roms[rom.Id] = &RomLoaderInfo{
+        Path: rom.Path,
+        Frames: nil,
+    }
+}
+
+func (loader *RomLoaderState) AddRomFrame(frame RomLoaderFrame) {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    info, ok := loader.Roms[frame.Id]
+    if !ok {
+        log.Printf("Warning: cannot add frame to non-existent rom id: %v", frame.Id)
+        return
+    }
+
+    info.Frames = append(info.Frames, frame.Frame)
+}
+
+func MakeRomLoaderState(quit context.Context) *RomLoaderState {
+    state := RomLoaderState{
+        Roms: make(map[RomId]*RomLoaderInfo),
+        NewRom: make(chan RomLoaderAdd, 5),
+        AddFrame: make(chan RomLoaderFrame, 5),
+    }
+
+    go func(){
+        showFrameTimer := time.NewTicker(time.Second / 2)
+        defer showFrameTimer.Stop()
+        for {
+            select {
+                case <-quit.Done():
+                    return
+                case rom := <-state.NewRom:
+                    state.AddNewRom(rom)
+                case frame := <-state.AddFrame:
+                    state.AddRomFrame(frame)
+                case <-showFrameTimer.C:
+                    state.AdvanceFrames()
+            }
+        }
+    }()
+
+    return &state
 }
 
 func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) *Menu {
@@ -382,10 +570,13 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
             }
         }
 
-        makeLoadRomRenderer := func() common.RenderFunction {
+        makeLoadRomRenderer := func(romLoadState *RomLoaderState) common.RenderFunction {
             return func(renderer *sdl.Renderer) error {
                 white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
                 writeFont(font, renderer, 1, 1, "Load a rom", white)
+
+                romLoadState.Render(renderer)
+
                 return nil
             }
         }
@@ -396,6 +587,8 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
         snowRenderer := makeSnowRenderer(nil)
 
         loadRomQuit, loadRomCancel := context.WithCancel(mainQuit)
+
+        var romLoaderState *RomLoaderState
 
         /* Reset the default renderer */
         for {
@@ -440,9 +633,11 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                             case MenuActionLoadRom:
                                                 menuState = MenuStateLoadRom
                                                 loadRomQuit, loadRomCancel = context.WithCancel(mainQuit)
-                                                go romLoader(loadRomQuit)
 
-                                                menuRenderer = makeLoadRomRenderer()
+                                                romLoaderState = MakeRomLoaderState(loadRomQuit)
+                                                go romLoader(loadRomQuit, romLoaderState)
+
+                                                menuRenderer = makeLoadRomRenderer(romLoaderState)
 
                                             case MenuActionSound:
                                                 programActions <- common.ProgramToggleSound
@@ -456,6 +651,8 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                             switch input {
                                 case MenuToggle:
                                     loadRomCancel()
+                                    /* remove reference so its state can be gc'd */
+                                    romLoaderState = nil
                                     menuState = MenuStateTop
                                     menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
                             }

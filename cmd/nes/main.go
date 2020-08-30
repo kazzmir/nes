@@ -97,27 +97,6 @@ func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleR
     return nil
 }
 
-func renderPixelsRGBA(screen nes.VirtualScreen, raw_pixels []byte, overscanPixels int){
-    width := int32(256)
-    // height := int32(240 - overscanPixels * 2)
-
-    startPixel := overscanPixels * int(width)
-    endPixel := (240 - overscanPixels) * int(width)
-
-    /* FIXME: this can be done with a writer and binary.Writer(BigEndian, pixels) */
-
-    for i, pixel := range screen.Buffer[startPixel:endPixel] {
-        /* red */
-        raw_pixels[i*4+0] = byte(pixel >> 24)
-        /* green */
-        raw_pixels[i*4+1] = byte(pixel >> 16)
-        /* blue */
-        raw_pixels[i*4+2] = byte(pixel >> 8)
-        /* alpha */
-        raw_pixels[i*4+3] = byte(pixel >> 0)
-    }
-}
-
 type AudioActions int
 const (
     AudioToggle = iota
@@ -171,9 +150,7 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
     }
 }
 
-type PixelFormat uint32
-
-func doRender(width int, height int, raw_pixels []byte, pixelFormat PixelFormat, renderer *sdl.Renderer, renderFunc common.RenderFunction) error {
+func doRender(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat, renderer *sdl.Renderer, renderFunc common.RenderFunction) error {
     pixels := C.CBytes(raw_pixels)
     defer C.free(pixels)
 
@@ -289,7 +266,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     bufferReady := make(chan nes.VirtualScreen, 1)
 
     desiredFps := 60.0
-    pixelFormat := findPixelFormat()
+    pixelFormat := common.FindPixelFormat()
 
     err = ttf.Init()
     if err != nil {
@@ -350,7 +327,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 case screen := <-toDraw:
                     if canRender {
                         fps += 1
-                        renderPixelsRGBA(screen, raw_pixels, overscanPixels)
+                        common.RenderPixelsRGBA(screen, raw_pixels, overscanPixels)
                         sdl.Do(render)
                     }
                     canRender = false
@@ -605,27 +582,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     return nil
 }
 
-/* determine endianness of the host by comparing the least-significant byte of a 32-bit number
- * versus a little endian byte array
- * if the first byte in the byte array is the same as the lowest byte of the 32-bit number
- * then the host is little endian
- */
-func findPixelFormat() PixelFormat {
-    red := uint32(32)
-    green := uint32(128)
-    blue := uint32(64)
-    alpha := uint32(96)
-    color := (red << 24) | (green << 16) | (blue << 8) | alpha
-
-    var buffer bytes.Buffer
-    binary.Write(&buffer, binary.LittleEndian, color)
-
-    if buffer.Bytes()[0] == uint8(alpha) {
-        return sdl.PIXELFORMAT_ABGR8888
-    }
-
-    return sdl.PIXELFORMAT_RGBA8888
-}
 
 func get_pixel_format(format uint32) string {
     switch format {
