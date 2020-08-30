@@ -370,8 +370,8 @@ func romLoader(mainQuit context.Context) (nes.NESFile, error) {
 
     possibleRoms := make(chan string, 1000)
 
-    quit, cancel := context.WithCancel(mainQuit)
-    _ = cancel
+    loaderQuit, loaderCancel := context.WithCancel(mainQuit)
+    _ = loaderCancel
 
     /* 4 seconds worth of cycles */
     const maxCycles = uint64(4 * nes.CPUSpeed)
@@ -397,24 +397,57 @@ func romLoader(mainQuit context.Context) (nes.NESFile, error) {
                     continue
                 }
 
+                quit, cancel := context.WithCancel(loaderQuit)
 
                 cpu.Input = nes.MakeInput(&NullInput{})
 
-                audioOutput := make(chan []float32)
+                audioOutput := make(chan []float32, 1)
                 emulatorActionsInput := make(chan EmulatorAction, 5)
                 emulatorActionsInput <- EmulatorInfinite
                 var screenListeners ScreenListeners
                 const AudioSampleRate float32 = 44100.0
 
-                toDraw := make(chan nes.VirtualScreen)
-                bufferReady := make(chan nes.VirtualScreen)
+                toDraw := make(chan nes.VirtualScreen, 1)
+                bufferReady := make(chan nes.VirtualScreen, 1)
+
+                buffer := nes.MakeVirtualScreen(256, 240)
+                bufferReady <- buffer
+
+                saveFrames := make(chan nes.VirtualScreen, 10)
+                go func(){
+                    count := 0
+                    for {
+                        select {
+                            case <-quit.Done():
+                                return
+                            case screen := <-toDraw:
+                                count += 1
+                                if count == 60 {
+                                    saveFrames <- screen.Copy()
+                                    count = 0
+                                }
+
+                                bufferReady <- screen
+                        }
+                    }
+                }()
 
                 log.Printf("Start loading %v", rom)
                 err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
-                log.Printf("Done running %v: %v", rom, err)
                 if err == MaxCyclesReached {
                     log.Printf("%v complete", rom)
                 }
+
+                cancel()
+                close(saveFrames)
+
+                count := 0
+                for frame := range saveFrames {
+                    _ = frame
+                    count += 1
+                }
+
+                log.Printf("%v had %v frames", rom, count)
             }
         }()
     }
