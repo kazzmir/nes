@@ -11,6 +11,7 @@ import (
     "path/filepath"
     "fmt"
     "math"
+    "strings"
     "math/rand"
     "time"
     "log"
@@ -272,7 +273,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
         }(RomId(uint64(i) * 1000000))
     }
 
-    err := filepath.Walk("tmp/f", func(path string, info os.FileInfo, err error) error {
+    err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
         if mainQuit.Err() != nil {
             return fmt.Errorf("quitting")
         }
@@ -393,7 +394,7 @@ func doRender(width int, height int, raw_pixels []byte, destX int, destY int, de
     return nil
 }
 
-type SortRomIds []RomId
+type SortRomIds []RomIdAndPath
 
 func (data SortRomIds) Len() int {
     return len(data)
@@ -404,10 +405,16 @@ func (data SortRomIds) Swap(left, right int){
 }
 
 func (data SortRomIds) Less(left, right int) bool {
-    return data[left] < data[right]
+    return strings.Compare(data[left].Path, data[right].Path) == -1
+}
+
+type RomIdAndPath struct {
+    Id RomId
+    Path string
 }
 
 func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, renderer *sdl.Renderer) {
+    /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
 
@@ -421,17 +428,19 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, renderer *sdl.
     raw_pixels := make([]byte, width*height * 4)
     pixelFormat := common.FindPixelFormat()
 
-    romIds := make([]RomId, 0, len(loader.Roms))
+    romIds := make([]RomIdAndPath, 0, len(loader.Roms))
     for romId := range loader.Roms {
-        romIds = append(romIds, romId)
+        info := loader.Roms[romId]
+        romIds = append(romIds, RomIdAndPath{Id: romId, Path: filepath.Base(info.Path)})
     }
     sort.Sort(SortRomIds(romIds))
 
+    /* if the rom doesn't have any frames loaded then show a blank thumbnail */
     blankScreen := nes.MakeVirtualScreen(256, 240)
 
     thumbnail := 3
-    for _, romId := range romIds {
-        info := loader.Roms[romId]
+    for _, romIdAndPath := range romIds {
+        info := loader.Roms[romIdAndPath.Id]
         frame, has := info.GetFrame()
         if !has {
             frame = blankScreen
@@ -509,8 +518,8 @@ func MakeRomLoaderState(quit context.Context) *RomLoaderState {
 
 func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) *Menu {
     quit, cancel := context.WithCancel(mainQuit)
-    events := make(chan sdl.Event)
-    menuInput := make(chan MenuInput)
+    events := make(chan sdl.Event, 1)
+    menuInput := make(chan MenuInput, 1)
 
     menu := &Menu{
         active: false,
