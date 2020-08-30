@@ -363,6 +363,8 @@ type RomLoaderState struct {
     NewRom chan RomLoaderAdd
     AddFrame chan RomLoaderFrame
     Lock sync.Mutex
+
+    SelectedRom RomId
 }
 
 func (loader *RomLoaderState) AdvanceFrames() {
@@ -444,6 +446,9 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, renderer *sdl.
     x := startingXPosition
     y := 50
 
+    err := renderer.SetDrawBlendMode(sdl.BLENDMODE_NONE)
+    _ = err
+
     raw_pixels := make([]byte, width*height * 4)
     pixelFormat := common.FindPixelFormat()
 
@@ -465,6 +470,10 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, renderer *sdl.
         if !has {
             frame = blankScreen
         }
+
+        if loader.SelectedRom == romIdAndPath.Id {
+        }
+
         common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
         doRender(width, height, raw_pixels, x, y, width / thumbnail, height / thumbnail, pixelFormat, renderer)
 
@@ -493,6 +502,12 @@ func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
     loader.Roms[rom.Id] = &RomLoaderInfo{
         Path: rom.Path,
         Frames: nil,
+    }
+
+    /* there is no selected rom, so choose this one */
+    _, ok = loader.Roms[loader.SelectedRom]
+    if !ok {
+        loader.SelectedRom = rom.Id
     }
 }
 
@@ -566,6 +581,8 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
         menuState := MenuStateTop
 
         baseRenderer := func(renderer *sdl.Renderer) error {
+            err := renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
+            _ = err
             renderer.SetDrawColor(32, 0, 0, 192)
             renderer.FillRect(nil)
             return nil
@@ -655,7 +672,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     } else {
                                         choice = 0
                                         menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                                        renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
                                         programActions <- common.ProgramPauseEmulator
                                     }
 
@@ -664,13 +681,13 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     if menu.IsActive() {
                                         choice = (choice + 1) % len(choices)
                                         menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                                        renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
                                     }
                                 case MenuPrevious:
                                     if menu.IsActive() {
                                         choice = (choice - 1 + len(choices)) % len(choices)
                                         menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                                        renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
                                     }
                                 case MenuSelect:
                                     if menu.IsActive() {
@@ -685,13 +702,13 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                                 go romLoader(loadRomQuit, romLoaderState)
 
                                                 menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                                renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                                                renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
 
                                             case MenuActionSound:
                                                 programActions <- common.ProgramToggleSound
                                                 audio = !audio
                                                 menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                                renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                                                renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
                                         }
                                     }
                             }
@@ -704,7 +721,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     romLoaderState = nil
                                     menuState = MenuStateTop
                                     menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                    renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                                    renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
                             }
                     }
 
@@ -712,7 +729,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                     if menuState == MenuStateLoadRom {
                         if romLoaderState != nil {
                             menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                            renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                            renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
                         }
                     }
                 case <-snowTicker.C:
@@ -752,7 +769,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                         }
 
                         snowRenderer = makeSnowRenderer(snow)
-                        renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                        renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
                     }
                 case event := <-events:
                     if event.GetType() == sdl.QUIT {

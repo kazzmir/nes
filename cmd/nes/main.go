@@ -281,10 +281,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
     defer font.Close()
 
+    /*
     err = renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
     if err != nil {
         log.Printf("Could not set blend mode: %v", err)
     }
+    */
 
     /* Show black bars on the sides or top/bottom when the window changes size */
     // renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
