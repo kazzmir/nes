@@ -8,7 +8,6 @@ import (
     "fmt"
     "log"
     "strconv"
-    "errors"
     "os"
     "path/filepath"
     "math/rand"
@@ -31,36 +30,6 @@ import (
 
     // rdebug "runtime/debug"
 )
-
-func setupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
-    cpu := nes.StartupState()
-
-    cpu.PPU.SetHorizontalMirror(nesFile.HorizontalMirror)
-    cpu.PPU.SetVerticalMirror(nesFile.VerticalMirror)
-
-    mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom, nesFile.CharacterRom)
-    if err != nil {
-        return cpu, err
-    }
-    cpu.SetMapper(mapper)
-
-    maxCharacterRomLength := len(nesFile.CharacterRom)
-    if maxCharacterRomLength > 0x2000 {
-        maxCharacterRomLength = 0x2000
-    }
-    cpu.PPU.CopyCharacterRom(0x0000, nesFile.CharacterRom[:maxCharacterRomLength])
-
-    cpu.Input = nes.MakeInput(&SDLButtons{})
-
-    if debug {
-        cpu.Debug = 1
-        cpu.PPU.Debug = 1
-    }
-
-    cpu.Reset()
-
-    return cpu, nil
-}
 
 func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     var audioSpec sdl.AudioSpec
@@ -97,19 +66,6 @@ func (buttons *SDLButtons) Get() nes.ButtonMapping {
     return mapping
 }
 
-type EmulatorAction int
-const (
-    EmulatorNormal = iota
-    EmulatorTurbo
-    EmulatorInfinite
-    EmulatorSlowDown
-    EmulatorSpeedUp
-    EmulatorTogglePause
-    EmulatorTogglePPUDebug
-    EmulatorStepFrame
-    EmulatorSetPause
-    EmulatorUnpause
-)
 
 func stripExtension(path string) string {
     extension := filepath.Ext(path)
@@ -120,7 +76,7 @@ func stripExtension(path string) string {
     return path
 }
 
-func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleRate int, screenListeners *ScreenListeners) error {
+func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleRate int, screenListeners *common.ScreenListeners) error {
     video_channel := make(chan nes.VirtualScreen, 2)
     audio_channel := make(chan []float32, 2)
 
@@ -139,89 +95,6 @@ func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleR
     }()
 
     return nil
-}
-
-type ScreenListeners struct {
-    VideoListeners []chan nes.VirtualScreen
-    AudioListeners []chan []float32
-    Lock sync.Mutex
-}
-
-func (listeners *ScreenListeners) ObserveVideo(screen nes.VirtualScreen){
-    listeners.Lock.Lock()
-    defer listeners.Lock.Unlock()
-
-    if len(listeners.VideoListeners) == 0 {
-        return
-    }
-
-    buffer := screen.Copy()
-
-    for _, listener := range listeners.VideoListeners {
-        select {
-            case listener<- buffer:
-            default:
-        }
-    }
-}
-
-func (listeners *ScreenListeners) AddVideoListener(listener chan nes.VirtualScreen){
-    listeners.Lock.Lock()
-    defer listeners.Lock.Unlock()
-
-    listeners.VideoListeners = append(listeners.VideoListeners, listener)
-}
-
-func (listeners *ScreenListeners) RemoveVideoListener(remove chan nes.VirtualScreen){
-    listeners.Lock.Lock()
-    defer listeners.Lock.Unlock()
-
-    var out []chan nes.VirtualScreen
-    for _, listener := range listeners.VideoListeners {
-        if listener != remove {
-            out = append(out, listener)
-        }
-    }
-
-    listeners.VideoListeners = out
-}
-
-func (listeners *ScreenListeners) ObserveAudio(pcm []float32){
-    listeners.Lock.Lock()
-    defer listeners.Lock.Unlock()
-
-    if len(listeners.AudioListeners) == 0 {
-        return
-    }
-
-    for _, listener := range listeners.AudioListeners {
-        select {
-            case listener<- pcm:
-            default:
-                log.Printf("Cannot observe audio")
-        }
-    }
-}
-
-func (listeners *ScreenListeners) AddAudioListener(listener chan []float32){
-    listeners.Lock.Lock()
-    defer listeners.Lock.Unlock()
-
-    listeners.AudioListeners = append(listeners.AudioListeners, listener)
-}
-
-func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
-    listeners.Lock.Lock()
-    defer listeners.Lock.Unlock()
-
-    var out []chan []float32
-    for _, listener := range listeners.AudioListeners {
-        if listener != remove {
-            out = append(out, listener)
-        }
-    }
-
-    listeners.AudioListeners = out
 }
 
 func renderPixelsRGBA(screen nes.VirtualScreen, raw_pixels []byte, overscanPixels int){
@@ -350,127 +223,6 @@ func doRender(width int, height int, raw_pixels []byte, pixelFormat PixelFormat,
     return nil
 }
 
-type NullInput struct {
-}
-
-func (buttons *NullInput) Get() nes.ButtonMapping {
-    return make(nes.ButtonMapping)
-}
-
-/* Find roms and show thumbnails of them, then let the user select one */
-func romLoader(mainQuit context.Context) (nes.NESFile, error) {
-    /* for each rom call runNES() and pass in EmulatorInfiniteSpeed to let
-     * the emulator run as fast as possible. Pass in a maxCycle of whatever
-     * correlates to about 4 seconds of runtime. Save the screens produced
-     * every 1s, so there should be about 4 screenshots. Then the thumbnail
-     * should cycle through all the screenshots.
-     * Let the user pick a thumbnail, and when selecting a thumbnail
-     * return that nesfile so it can be played normally.
-     */
-
-    possibleRoms := make(chan string, 1000)
-
-    loaderQuit, loaderCancel := context.WithCancel(mainQuit)
-    _ = loaderCancel
-
-    /* 4 seconds worth of cycles */
-    const maxCycles = uint64(4 * nes.CPUSpeed)
-
-    var wait sync.WaitGroup
-
-    /* Have 4 go routines running roms */
-    for i := 0; i < 4; i++ {
-        go func(){
-            wait.Add(1)
-            defer wait.Done()
-
-            for rom := range possibleRoms {
-                nesFile, err := nes.ParseNesFile(rom, false)
-                if err != nil {
-                    log.Printf("Unable to parse nes file %v: %v", rom, err)
-                    continue
-                }
-
-                cpu, err := setupCPU(nesFile, false)
-                if err != nil {
-                    log.Printf("Unable to setup cpu for %v: %v", rom, err)
-                    continue
-                }
-
-                quit, cancel := context.WithCancel(loaderQuit)
-
-                cpu.Input = nes.MakeInput(&NullInput{})
-
-                audioOutput := make(chan []float32, 1)
-                emulatorActionsInput := make(chan EmulatorAction, 5)
-                emulatorActionsInput <- EmulatorInfinite
-                var screenListeners ScreenListeners
-                const AudioSampleRate float32 = 44100.0
-
-                toDraw := make(chan nes.VirtualScreen, 1)
-                bufferReady := make(chan nes.VirtualScreen, 1)
-
-                buffer := nes.MakeVirtualScreen(256, 240)
-                bufferReady <- buffer
-
-                saveFrames := make(chan nes.VirtualScreen, 10)
-                go func(){
-                    count := 0
-                    for {
-                        select {
-                            case <-quit.Done():
-                                return
-                            case screen := <-toDraw:
-                                count += 1
-                                if count == 60 {
-                                    saveFrames <- screen.Copy()
-                                    count = 0
-                                }
-
-                                bufferReady <- screen
-                        }
-                    }
-                }()
-
-                log.Printf("Start loading %v", rom)
-                err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
-                if err == MaxCyclesReached {
-                    log.Printf("%v complete", rom)
-                }
-
-                cancel()
-                close(saveFrames)
-
-                count := 0
-                for frame := range saveFrames {
-                    _ = frame
-                    count += 1
-                }
-
-                log.Printf("%v had %v frames", rom, count)
-            }
-        }()
-    }
-
-    err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
-        if mainQuit.Err() != nil {
-            return fmt.Errorf("quitting")
-        }
-
-        if nes.IsNESFile(path){
-            // log.Printf("Possible nes file %v", path)
-            possibleRoms <- path
-        }
-
-        return nil
-    })
-
-    close(possibleRoms)
-
-    wait.Wait()
-
-    return nes.NESFile{}, err
-}
 
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
     nesFile, err := nes.ParseNesFile(path, true)
@@ -618,11 +370,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         }
     }()
 
-    emulatorActions := make(chan EmulatorAction, 50)
-    emulatorActionsInput := (<-chan EmulatorAction)(emulatorActions)
-    emulatorActionsOutput := (chan<- EmulatorAction)(emulatorActions)
+    emulatorActions := make(chan common.EmulatorAction, 50)
+    emulatorActionsInput := (<-chan common.EmulatorAction)(emulatorActions)
+    emulatorActionsOutput := (chan<- common.EmulatorAction)(emulatorActions)
 
-    var screenListeners ScreenListeners
+    var screenListeners common.ScreenListeners
 
     audioActions := make(chan AudioActions, 2)
     audioActionsInput := (<-chan AudioActions)(audioActions)
@@ -638,7 +390,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         waiter.Add(1)
         defer waiter.Done()
 
-        cpu, err := setupCPU(nesFile, debug)
+        cpu, err := common.SetupCPU(nesFile, debug)
+
+        cpu.Input = nes.MakeInput(&SDLButtons{})
 
         var quitEvent sdl.QuitEvent
         quitEvent.Type = sdl.QUIT
@@ -650,9 +404,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             sdl.PushEvent(&quitEvent)
         } else {
             log.Printf("Run NES")
-            err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 1)
+            err = common.RunNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 1)
             if err != nil {
-                if err == MaxCyclesReached {
+                if err == common.MaxCyclesReached {
                 } else {
                     log.Printf("Error running NES: %v", err)
                 }
@@ -700,8 +454,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     programActionsInput := (<-chan common.ProgramActions)(programActions)
     programActionsOutput := (chan<- common.ProgramActions)(programActions)
 
-    theMenu := menu.MakeMenu(font, mainQuit, mainCancel, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
-    menuActive := false
+    theMenu := menu.MakeMenu(font, mainQuit, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
 
     go func(){
         for {
@@ -712,11 +465,17 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     switch action {
                         case common.ProgramToggleSound:
                             audioActionsOutput <- AudioToggle
-                        case common.ProgramLoadRom:
-                            nesFile, err := romLoader(mainQuit)
-                            _ = nesFile
-                            if err != nil {
-                                log.Printf("Could not load a rom: %v", err)
+                        case common.ProgramQuit:
+                            mainCancel()
+                        case common.ProgramPauseEmulator:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorSetPause:
+                                default:
+                            }
+                        case common.ProgramUnpauseEmulator:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorUnpause:
+                                default:
                             }
                     }
             }
@@ -750,22 +509,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
 
                     if quit_pressed {
-                        // mainCancel()
                         theMenu.Input <- menu.MenuToggle
-                        menuActive = !menuActive
-
-                        var action EmulatorAction = EmulatorSetPause
-                        if !menuActive {
-                            action = EmulatorUnpause
-                        }
-
-                        select {
-                            case emulatorActionsOutput <- action:
-                            default:
-                        }
                     }
 
-                    if menuActive {
+                    if theMenu.IsActive() {
                         switch keyboard_event.Keysym.Scancode {
                             case sdl.SCANCODE_LEFT, sdl.SCANCODE_H:
                                 theMenu.Input <- menu.MenuPrevious
@@ -778,12 +525,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         switch keyboard_event.Keysym.Scancode {
                             case turboKey:
                                 select {
-                                    case emulatorActionsOutput <- EmulatorTurbo:
+                                    case emulatorActionsOutput <- common.EmulatorTurbo:
                                     default:
                                 }
                             case stepFrameKey:
                                 select {
-                                    case emulatorActionsOutput <- EmulatorStepFrame:
+                                    case emulatorActionsOutput <- common.EmulatorStepFrame:
                                     default:
                                 }
                             case recordKey:
@@ -799,27 +546,27 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             case pauseKey:
                                 log.Printf("Pause/unpause")
                                 select {
-                                    case emulatorActionsOutput <- EmulatorTogglePause:
+                                    case emulatorActionsOutput <- common.EmulatorTogglePause:
                                     default:
                                 }
                             case ppuDebugKey:
                                 select {
-                                    case emulatorActionsOutput <- EmulatorTogglePPUDebug:
+                                    case emulatorActionsOutput <- common.EmulatorTogglePPUDebug:
                                     default:
                                 }
                             case slowDownKey:
                                 select {
-                                    case emulatorActionsOutput <- EmulatorSlowDown:
+                                    case emulatorActionsOutput <- common.EmulatorSlowDown:
                                     default:
                                 }
                             case speedUpKey:
                                 select {
-                                    case emulatorActionsOutput <- EmulatorSpeedUp:
+                                    case emulatorActionsOutput <- common.EmulatorSpeedUp:
                                     default:
                                 }
                             case normalKey:
                                 select {
-                                    case emulatorActionsOutput <- EmulatorNormal:
+                                    case emulatorActionsOutput <- common.EmulatorNormal:
                                     default:
                                 }
                             case hardResetKey:
@@ -833,12 +580,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         }
                     }
                 case sdl.KEYUP:
-                    if !menuActive {
+                    if !theMenu.IsActive() {
                         keyboard_event := event.(*sdl.KeyboardEvent)
                         scancode := keyboard_event.Keysym.Scancode
                         if scancode == turboKey || scancode == pauseKey {
                             select {
-                                case emulatorActionsOutput <- EmulatorNormal:
+                                case emulatorActionsOutput <- common.EmulatorNormal:
                                 default:
                             }
                         }
@@ -889,163 +636,6 @@ func get_pixel_format(format uint32) string {
     }
 
     return fmt.Sprintf("%v?", format)
-}
-
-var MaxCyclesReached error = errors.New("maximum cycles reached")
-func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen,
-            bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32,
-            emulatorActions <-chan EmulatorAction, screenListeners *ScreenListeners,
-            sampleRate float32, verbose int) error {
-    instructionTable := nes.MakeInstructionDescriptiontable()
-
-    screen := nes.MakeVirtualScreen(256, 240)
-
-    var cycleCounter float64
-
-    /* run the host timer at this frequency (in ms) so that the counter
-     * doesn't tick too fast
-     *
-     * anything higher than 1 seems ok, with 10 probably being an upper limit
-     */
-    hostTickSpeed := 5
-    cycleDiff := nes.CPUSpeed / (1000.0 / float64(hostTickSpeed))
-
-    /* about 20.292 */
-    baseCyclesPerSample := nes.CPUSpeed / 2 / float64(sampleRate)
-
-    cycleTimer := time.NewTicker(time.Duration(hostTickSpeed) * time.Millisecond)
-    defer cycleTimer.Stop()
-
-    turboMultiplier := float64(1)
-
-    lastCpuCycle := cpu.Cycle
-
-    paused := false
-
-    stepFrame := false
-
-    /* run without delays when this is true */
-    infiniteSpeed := false
-
-    for quit.Err() == nil {
-        if maxCycles > 0 && cpu.Cycle >= maxCycles {
-            if verbose > 0 {
-                log.Printf("Maximum cycles %v reached", maxCycles)
-            }
-            return MaxCyclesReached
-        }
-
-        /* always run the system */
-        if infiniteSpeed {
-            cycleCounter = 1
-        }
-
-        for cycleCounter <= 0 {
-            select {
-                case <-quit.Done():
-                    return nil
-                case action := <-emulatorActions:
-                    switch action {
-                        case EmulatorTurbo:
-                            turboMultiplier = 3
-                        case EmulatorInfinite:
-                            infiniteSpeed = true
-                        case EmulatorNormal:
-                            turboMultiplier = 1
-                            if verbose > 0 {
-                                log.Printf("Emulator speed set to %v", turboMultiplier)
-                            }
-                        case EmulatorSlowDown:
-                            turboMultiplier -= 0.1
-                            if turboMultiplier < 0.1 {
-                                turboMultiplier = 0.1
-                            }
-                            if verbose > 0 {
-                                log.Printf("Emulator speed set to %v", turboMultiplier)
-                            }
-                        case EmulatorStepFrame:
-                            stepFrame = !stepFrame
-                            if verbose > 0 {
-                                log.Printf("Emulator step frame is %v", stepFrame)
-                            }
-                        case EmulatorSpeedUp:
-                            turboMultiplier += 0.1
-                            if verbose > 0 {
-                                log.Printf("Emulator speed set to %v", turboMultiplier)
-                            }
-                        case EmulatorTogglePause:
-                            paused = !paused
-                        case EmulatorSetPause:
-                            paused = true
-                        case EmulatorUnpause:
-                            paused = false
-                        case EmulatorTogglePPUDebug:
-                            cpu.PPU.ToggleDebug()
-                    }
-                case <-cycleTimer.C:
-                    cycleCounter += cycleDiff * turboMultiplier
-            }
-
-            if paused {
-                cycleCounter = 0
-            }
-        }
-
-        // log.Printf("Cycle counter %v\n", cycleCounter)
-
-        err := cpu.Run(instructionTable)
-        if err != nil {
-            return err
-        }
-        usedCycles := cpu.Cycle
-
-        cycleCounter -= float64(usedCycles - lastCpuCycle)
-
-        audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
-
-        if audioData != nil {
-            screenListeners.ObserveAudio(audioData)
-
-            // log.Printf("Send audio data via channel")
-            select {
-                case audio<- audioData:
-                default:
-                    if verbose > 0 {
-                        log.Printf("Warning: audio falling behind")
-                    }
-            }
-        }
-
-        /* ppu runs 3 times faster than cpu */
-        nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen)
-
-        if drawn {
-            screenListeners.ObserveVideo(screen)
-
-            select {
-                case buffer := <-bufferReady:
-                    buffer.CopyFrom(&screen)
-                    toDraw <- buffer
-                    if stepFrame {
-                        paused = true
-                    }
-                default:
-            }
-        }
-
-        lastCpuCycle = usedCycles
-
-        if nmi {
-            if cpu.Debug > 0 && verbose > 0 {
-                log.Printf("Cycle %v Do NMI\n", cpu.Cycle)
-            }
-            cpu.NMI()
-        }
-    }
-
-    // log.Printf("CPU cycles %v waited %v nanoseconds out of %v", cpu.Cycle, totalWait, time.Now().Sub(realStart).Nanoseconds())
-
-    return nil
 }
 
 type Arguments struct {

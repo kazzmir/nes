@@ -3,12 +3,17 @@ package menu
 import (
     "context"
 
+    "os"
+    "path/filepath"
+    "fmt"
     "math"
     "math/rand"
     "time"
-    _ "log"
+    "log"
+    "sync"
 
     "github.com/kazzmir/nes/cmd/nes/common"
+    nes "github.com/kazzmir/nes/lib"
 
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
@@ -23,11 +28,13 @@ const (
 )
 
 type Menu struct {
+    active bool
     quit context.Context
     cancel context.CancelFunc
     font *ttf.Font
     events chan sdl.Event
     Input chan MenuInput
+    Lock sync.Mutex
 }
 
 type MenuAction int
@@ -66,6 +73,7 @@ func MakeSnow(screenWidth int) Snow {
     }
 }
 
+/* FIXME: good use-case for generics */
 func copySnow(snow []Snow) []Snow {
     out := make([]Snow, len(snow))
     copy(out, snow)
@@ -134,33 +142,217 @@ func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message str
     return nil
 }
 
-func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.CancelFunc, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) Menu {
+type MenuState int
+const (
+    MenuStateTop = iota
+    MenuStateLoadRom
+)
+
+func chainRenders(functions ...common.RenderFunction) common.RenderFunction {
+    return func(renderer *sdl.Renderer) error {
+        for _, f := range functions {
+            err := f(renderer)
+            if err != nil {
+                return err
+            }
+        }
+
+        return nil
+    }
+}
+
+type NullInput struct {
+}
+
+func (buttons *NullInput) Get() nes.ButtonMapping {
+    return make(nes.ButtonMapping)
+}
+
+/* Find roms and show thumbnails of them, then let the user select one */
+func romLoader(mainQuit context.Context) (nes.NESFile, error) {
+    /* for each rom call runNES() and pass in EmulatorInfiniteSpeed to let
+     * the emulator run as fast as possible. Pass in a maxCycle of whatever
+     * correlates to about 4 seconds of runtime. Save the screens produced
+     * every 1s, so there should be about 4 screenshots. Then the thumbnail
+     * should cycle through all the screenshots.
+     * Let the user pick a thumbnail, and when selecting a thumbnail
+     * return that nesfile so it can be played normally.
+     */
+
+    possibleRoms := make(chan string, 1000)
+
+    loaderQuit, loaderCancel := context.WithCancel(mainQuit)
+    _ = loaderCancel
+
+    /* 4 seconds worth of cycles */
+    const maxCycles = uint64(4 * nes.CPUSpeed)
+
+    var wait sync.WaitGroup
+
+    /* Have 4 go routines running roms */
+    for i := 0; i < 4; i++ {
+        go func(){
+            wait.Add(1)
+            defer wait.Done()
+
+            for rom := range possibleRoms {
+                nesFile, err := nes.ParseNesFile(rom, false)
+                if err != nil {
+                    log.Printf("Unable to parse nes file %v: %v", rom, err)
+                    continue
+                }
+
+                cpu, err := common.SetupCPU(nesFile, false)
+                if err != nil {
+                    log.Printf("Unable to setup cpu for %v: %v", rom, err)
+                    continue
+                }
+
+                quit, cancel := context.WithCancel(loaderQuit)
+
+                cpu.Input = nes.MakeInput(&NullInput{})
+
+                audioOutput := make(chan []float32, 1)
+                emulatorActionsInput := make(chan common.EmulatorAction, 5)
+                emulatorActionsInput <- common.EmulatorInfinite
+                var screenListeners common.ScreenListeners
+                const AudioSampleRate float32 = 44100.0
+
+                toDraw := make(chan nes.VirtualScreen, 1)
+                bufferReady := make(chan nes.VirtualScreen, 1)
+
+                buffer := nes.MakeVirtualScreen(256, 240)
+                bufferReady <- buffer
+
+                saveFrames := make(chan nes.VirtualScreen, 10)
+                go func(){
+                    count := 0
+                    for {
+                        select {
+                            case <-quit.Done():
+                                return
+                            case screen := <-toDraw:
+                                count += 1
+                                if count == 60 {
+                                    /* Try to save the frame in the channel */
+                                    select {
+                                        case saveFrames <- screen.Copy():
+                                        default:
+                                    }
+                                    count = 0
+                                }
+
+                                bufferReady <- screen
+                        }
+                    }
+                }()
+
+                log.Printf("Start loading %v", rom)
+                err = common.RunNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
+                if err == common.MaxCyclesReached {
+                    log.Printf("%v complete", rom)
+                }
+
+                cancel()
+                close(saveFrames)
+
+                count := 0
+                for frame := range saveFrames {
+                    _ = frame
+                    count += 1
+                }
+
+                log.Printf("%v had %v frames", rom, count)
+            }
+        }()
+    }
+
+    err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+        if mainQuit.Err() != nil {
+            return fmt.Errorf("quitting")
+        }
+
+        if nes.IsNESFile(path){
+            // log.Printf("Possible nes file %v", path)
+            possibleRoms <- path
+        }
+
+        return nil
+    })
+
+    close(possibleRoms)
+
+    wait.Wait()
+
+    return nes.NESFile{}, err
+}
+
+func (menu *Menu) IsActive() bool {
+    menu.Lock.Lock()
+    defer menu.Lock.Unlock()
+
+    return menu.active
+}
+
+func (menu *Menu) ToggleActive(){
+    menu.Lock.Lock()
+    defer menu.Lock.Unlock()
+
+    menu.active = ! menu.active
+}
+
+func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) *Menu {
     quit, cancel := context.WithCancel(mainQuit)
     events := make(chan sdl.Event)
     menuInput := make(chan MenuInput)
 
-    go func(){
-        active := false
+    menu := &Menu{
+        active: false,
+        quit: quit,
+        cancel: cancel,
+        font: font,
+        events: events,
+        Input: menuInput,
+    }
+
+    go func(menu *Menu){
         snowTicker := time.NewTicker(time.Second / 20)
         defer snowTicker.Stop()
 
         choices := []MenuAction{MenuActionQuit, MenuActionLoadRom, MenuActionSound}
         choice := 0
 
-        update := func(choice int, maxWidth int, maxHeight int, audioEnabled bool, snowflakes []Snow){
-            snowCopy := copySnow(snowflakes)
-            renderUpdates <- func (renderer *sdl.Renderer) error {
-                var err error
-                yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
-                white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-                renderer.SetDrawColor(32, 0, 0, 192)
-                renderer.FillRect(nil)
+        var snow []Snow
 
+        wind := rand.Float32() - 0.5
+        var windowSize common.WindowSize
+        audio := true
+
+        menuState := MenuStateTop
+
+        baseRenderer := func(renderer *sdl.Renderer) error {
+            renderer.SetDrawColor(32, 0, 0, 192)
+            renderer.FillRect(nil)
+            return nil
+        }
+
+        makeSnowRenderer := func(snowflakes []Snow) common.RenderFunction {
+            snowCopy := copySnow(snowflakes)
+            return func(renderer *sdl.Renderer) error {
                 for _, snow := range snowCopy {
                     c := snow.color
                     renderer.SetDrawColor(c, c, c, 255)
                     renderer.DrawPoint(int32(snow.x), int32(snow.y))
                 }
+                return nil
+            }
+        }
+
+        makeMenuRenderer := func(choice int, maxWidth int, maxHeight int, audioEnabled bool) common.RenderFunction {
+            return func(renderer *sdl.Renderer) error {
+                var err error
+                yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+                white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
                 sound := "Sound enabled"
                 if !audioEnabled {
@@ -186,16 +378,24 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                 err = writeFont(font, renderer, maxWidth - 200, maxHeight - font.Height() * 3, "NES Emulator", white)
                 err = writeFont(font, renderer, maxWidth - 200, maxHeight - font.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
                 _ = err
+                return err
+            }
+        }
 
+        makeLoadRomRenderer := func() common.RenderFunction {
+            return func(renderer *sdl.Renderer) error {
+                white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+                writeFont(font, renderer, 1, 1, "Load a rom", white)
                 return nil
             }
         }
 
-        var snow []Snow
+        menuRenderer := func(renderer *sdl.Renderer) error {
+            return nil
+        }
+        snowRenderer := makeSnowRenderer(nil)
 
-        wind := rand.Float32() - 0.5
-        var windowSize common.WindowSize
-        audio := true
+        loadRomQuit, loadRomCancel := context.WithCancel(mainQuit)
 
         /* Reset the default renderer */
         for {
@@ -203,45 +403,67 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                 case <-quit.Done():
                     return
                 case input := <-menuInput:
-                    switch input {
-                        case MenuToggle:
-                            if active {
-                                renderUpdates <- func(renderer *sdl.Renderer) error {
-                                    return nil
-                                }
-                            } else {
-                                choice = 0
-                                update(choice, windowSize.X, windowSize.Y, audio, snow)
+                    switch menuState {
+                        case MenuStateTop:
+                            switch input {
+                                case MenuToggle:
+                                    if menu.IsActive() {
+                                        renderUpdates <- func(renderer *sdl.Renderer) error {
+                                            return nil
+                                        }
+                                        programActions <- common.ProgramUnpauseEmulator
+                                    } else {
+                                        choice = 0
+                                        menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
+                                        renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                                        programActions <- common.ProgramPauseEmulator
+                                    }
+
+                                    menu.ToggleActive()
+                                case MenuNext:
+                                    if menu.IsActive() {
+                                        choice = (choice + 1) % len(choices)
+                                        menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
+                                        renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                                    }
+                                case MenuPrevious:
+                                    if menu.IsActive() {
+                                        choice = (choice - 1 + len(choices)) % len(choices)
+                                        menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
+                                        renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                                    }
+                                case MenuSelect:
+                                    if menu.IsActive() {
+                                        switch choices[choice] {
+                                            case MenuActionQuit:
+                                                programActions <- common.ProgramQuit
+                                            case MenuActionLoadRom:
+                                                menuState = MenuStateLoadRom
+                                                loadRomQuit, loadRomCancel = context.WithCancel(mainQuit)
+                                                go romLoader(loadRomQuit)
+
+                                                menuRenderer = makeLoadRomRenderer()
+
+                                            case MenuActionSound:
+                                                programActions <- common.ProgramToggleSound
+                                                audio = !audio
+                                                menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
+                                        }
+                                    }
                             }
 
-                            active = ! active
-                        case MenuNext:
-                            if active {
-                                choice = (choice + 1) % len(choices)
-                                update(choice, windowSize.X, windowSize.Y, audio, snow)
-                            }
-                        case MenuPrevious:
-                            if active {
-                                choice = (choice - 1 + len(choices)) % len(choices)
-                                update(choice, windowSize.X, windowSize.Y, audio, snow)
-                            }
-                        case MenuSelect:
-                            if active {
-                                switch choices[choice] {
-                                    case MenuActionQuit:
-                                        mainCancel()
-                                    case MenuActionLoadRom:
-                                        programActions <- common.ProgramLoadRom
-                                    case MenuActionSound:
-                                        programActions <- common.ProgramToggleSound
-                                        audio = !audio
-                                }
+                        case MenuStateLoadRom:
+                            switch input {
+                                case MenuToggle:
+                                    loadRomCancel()
+                                    menuState = MenuStateTop
+                                    menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
                             }
                     }
 
                 case windowSize = <-windowSizeUpdates:
                 case <-snowTicker.C:
-                    if active {
+                    if menu.IsActive() {
                         if len(snow) < 300 {
                             snow = append(snow, MakeSnow(windowSize.X))
                         }
@@ -276,23 +498,18 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                             }
                         }
 
-                        update(choice, windowSize.X, windowSize.Y, audio, snow)
+                        snowRenderer = makeSnowRenderer(snow)
+                        renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
                     }
                 case event := <-events:
                     if event.GetType() == sdl.QUIT {
-                        cancel()
+                        programActions <- common.ProgramQuit
                     }
             }
         }
-    }()
+    }(menu)
 
-    return Menu{
-        quit: quit,
-        cancel: cancel,
-        font: font,
-        events: events,
-        Input: menuInput,
-    }
+    return menu
 }
 
 func (menu *Menu) Close() {
