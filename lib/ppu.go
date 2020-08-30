@@ -614,15 +614,19 @@ func (screen *VirtualScreen) DrawPoint(x int32, y int32, rgb []uint8){
     screen.Buffer[address] = (r << 24) | (g << 16) | (b << 8) | a
 }
 
-func (screen *VirtualScreen) Clear() {
+func (screen *VirtualScreen) ClearToColor(red uint8, green uint8, blue uint8){
     max := len(screen.Buffer)
     /* for debugging screen glitches */
 
     // color := (uint32(255) << 24) | (uint32(20) << 16) | (uint32(20) << 8) | uint32(255)
-    var color uint32 = 0
+    var color uint32 = (uint32(red) << 24) | (uint32(green) << 16) | (uint32(blue) << 8) | uint32(255)
     for i := 0; i < max; i++ {
         screen.Buffer[i] = color
     }
+}
+
+func (screen *VirtualScreen) Clear() {
+    screen.ClearToColor(0, 0, 0)
 }
 
 func (screen *VirtualScreen) CopyFrom(copyFrom *VirtualScreen){
