@@ -364,7 +364,8 @@ type RomLoaderState struct {
     AddFrame chan RomLoaderFrame
     Lock sync.Mutex
 
-    SelectedRom RomId
+    SortedRomIdsAndPaths []RomIdAndPath
+    SelectedRom string
 }
 
 func (loader *RomLoaderState) AdvanceFrames() {
@@ -415,6 +416,20 @@ func doRender(width int, height int, raw_pixels []byte, destX int, destY int, de
     return nil
 }
 
+func (loader *RomLoaderState) FindRomIdByPath(path string) RomId {
+    /* must hold the loader.Lock before calling this */
+    index := sort.Search(len(loader.SortedRomIdsAndPaths), func (check int) bool {
+        info := loader.SortedRomIdsAndPaths[check]
+        return strings.Compare(path, info.Path) == -1
+    })
+
+    if index == len(loader.SortedRomIdsAndPaths) {
+        return 0
+    }
+
+    return loader.SortedRomIdsAndPaths[index].Id
+}
+
 type SortRomIds []RomIdAndPath
 
 func (data SortRomIds) Len() int {
@@ -452,26 +467,25 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, renderer *sdl.
     raw_pixels := make([]byte, width*height * 4)
     pixelFormat := common.FindPixelFormat()
 
-    romIds := make([]RomIdAndPath, 0, len(loader.Roms))
-    for romId := range loader.Roms {
-        info := loader.Roms[romId]
-        romIds = append(romIds, RomIdAndPath{Id: romId, Path: filepath.Base(info.Path)})
-    }
-    sort.Sort(SortRomIds(romIds))
-
     /* if the rom doesn't have any frames loaded then show a blank thumbnail */
     blankScreen := nes.MakeVirtualScreen(256, 240)
     blankScreen.ClearToColor(0, 0, 0)
 
+    selectedId := loader.FindRomIdByPath(loader.SelectedRom)
+
     thumbnail := 3
-    for _, romIdAndPath := range romIds {
+    outlineSize := 3
+    for _, romIdAndPath := range loader.SortedRomIdsAndPaths {
         info := loader.Roms[romIdAndPath.Id]
         frame, has := info.GetFrame()
         if !has {
             frame = blankScreen
         }
 
-        if loader.SelectedRom == romIdAndPath.Id {
+        if selectedId == romIdAndPath.Id {
+            renderer.SetDrawColor(255, 255, 0, 255)
+            rect := sdl.Rect{X: int32(x-outlineSize), Y: int32(y-outlineSize), W: int32(width / thumbnail + outlineSize*2), H: int32(height / thumbnail + outlineSize*2)}
+            renderer.FillRect(&rect)
         }
 
         common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
@@ -504,10 +518,12 @@ func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
         Frames: nil,
     }
 
-    /* there is no selected rom, so choose this one */
-    _, ok = loader.Roms[loader.SelectedRom]
-    if !ok {
-        loader.SelectedRom = rom.Id
+    loader.SortedRomIdsAndPaths = append(loader.SortedRomIdsAndPaths, RomIdAndPath{Id: rom.Id, Path: filepath.Base(rom.Path)})
+
+    sort.Sort(SortRomIds(loader.SortedRomIdsAndPaths))
+
+    if loader.SelectedRom == "" {
+        loader.SelectedRom = rom.Path
     }
 }
 
