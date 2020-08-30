@@ -101,6 +101,7 @@ type EmulatorAction int
 const (
     EmulatorNormal = iota
     EmulatorTurbo
+    EmulatorInfinite
     EmulatorSlowDown
     EmulatorSpeedUp
     EmulatorTogglePause
@@ -349,13 +350,104 @@ func doRender(width int, height int, raw_pixels []byte, pixelFormat PixelFormat,
     return nil
 }
 
+type NullInput struct {
+}
+
+func (buttons *NullInput) Get() nes.ButtonMapping {
+    return make(nes.ButtonMapping)
+}
+
+/* Find roms and show thumbnails of them, then let the user select one */
+func romLoader(mainQuit context.Context) (nes.NESFile, error) {
+    /* for each rom call runNES() and pass in EmulatorInfiniteSpeed to let
+     * the emulator run as fast as possible. Pass in a maxCycle of whatever
+     * correlates to about 4 seconds of runtime. Save the screens produced
+     * every 1s, so there should be about 4 screenshots. Then the thumbnail
+     * should cycle through all the screenshots.
+     * Let the user pick a thumbnail, and when selecting a thumbnail
+     * return that nesfile so it can be played normally.
+     */
+
+    possibleRoms := make(chan string, 1000)
+
+    quit, cancel := context.WithCancel(mainQuit)
+    _ = cancel
+
+    /* 4 seconds worth of cycles */
+    const maxCycles = uint64(4 * nes.CPUSpeed)
+
+    var wait sync.WaitGroup
+
+    /* Have 4 go routines running roms */
+    for i := 0; i < 4; i++ {
+        go func(){
+            wait.Add(1)
+            defer wait.Done()
+
+            for rom := range possibleRoms {
+                nesFile, err := nes.ParseNesFile(rom, false)
+                if err != nil {
+                    log.Printf("Unable to parse nes file %v: %v", rom, err)
+                    continue
+                }
+
+                cpu, err := setupCPU(nesFile, false)
+                if err != nil {
+                    log.Printf("Unable to setup cpu for %v: %v", rom, err)
+                    continue
+                }
+
+
+                cpu.Input = nes.MakeInput(&NullInput{})
+
+                audioOutput := make(chan []float32)
+                emulatorActionsInput := make(chan EmulatorAction, 5)
+                emulatorActionsInput <- EmulatorInfinite
+                var screenListeners ScreenListeners
+                const AudioSampleRate float32 = 44100.0
+
+                toDraw := make(chan nes.VirtualScreen)
+                bufferReady := make(chan nes.VirtualScreen)
+
+                log.Printf("Start loading %v", rom)
+                err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
+                log.Printf("Done running %v: %v", rom, err)
+                if err == MaxCyclesReached {
+                    log.Printf("%v complete", rom)
+                }
+            }
+        }()
+    }
+
+    err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+        if mainQuit.Err() != nil {
+            return fmt.Errorf("quitting")
+        }
+
+        if nes.IsNESFile(path){
+            // log.Printf("Possible nes file %v", path)
+            possibleRoms <- path
+        }
+
+        return nil
+    })
+
+    close(possibleRoms)
+
+    wait.Wait()
+
+    return nes.NESFile{}, err
+}
+
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
     nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
         return err
     }
 
-    rand.Seed(time.Now().UnixNano())
+    randomSeed := time.Now().UnixNano()
+
+    rand.Seed(randomSeed)
 
     // force a software renderer
     // sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
@@ -525,7 +617,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             sdl.PushEvent(&quitEvent)
         } else {
             log.Printf("Run NES")
-            err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate)
+            err = runNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 1)
             if err != nil {
                 if err == MaxCyclesReached {
                 } else {
@@ -587,6 +679,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     switch action {
                         case common.ProgramToggleSound:
                             audioActionsOutput <- AudioToggle
+                        case common.ProgramLoadRom:
+                            nesFile, err := romLoader(mainQuit)
+                            _ = nesFile
+                            if err != nil {
+                                log.Printf("Could not load a rom: %v", err)
+                            }
                     }
             }
         }
@@ -764,7 +862,7 @@ var MaxCyclesReached error = errors.New("maximum cycles reached")
 func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen,
             bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32,
             emulatorActions <-chan EmulatorAction, screenListeners *ScreenListeners,
-            sampleRate float32) error {
+            sampleRate float32, verbose int) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
     screen := nes.MakeVirtualScreen(256, 240)
@@ -793,10 +891,20 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
 
     stepFrame := false
 
+    /* run without delays when this is true */
+    infiniteSpeed := false
+
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
-            log.Printf("Maximum cycles %v reached", maxCycles)
+            if verbose > 0 {
+                log.Printf("Maximum cycles %v reached", maxCycles)
+            }
             return MaxCyclesReached
+        }
+
+        /* always run the system */
+        if infiniteSpeed {
+            cycleCounter = 1
         }
 
         for cycleCounter <= 0 {
@@ -807,21 +915,31 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
                     switch action {
                         case EmulatorTurbo:
                             turboMultiplier = 3
+                        case EmulatorInfinite:
+                            infiniteSpeed = true
                         case EmulatorNormal:
                             turboMultiplier = 1
-                            log.Printf("Emulator speed set to %v", turboMultiplier)
+                            if verbose > 0 {
+                                log.Printf("Emulator speed set to %v", turboMultiplier)
+                            }
                         case EmulatorSlowDown:
                             turboMultiplier -= 0.1
                             if turboMultiplier < 0.1 {
                                 turboMultiplier = 0.1
                             }
-                            log.Printf("Emulator speed set to %v", turboMultiplier)
+                            if verbose > 0 {
+                                log.Printf("Emulator speed set to %v", turboMultiplier)
+                            }
                         case EmulatorStepFrame:
                             stepFrame = !stepFrame
-                            log.Printf("Emulator step frame is %v", stepFrame)
+                            if verbose > 0 {
+                                log.Printf("Emulator step frame is %v", stepFrame)
+                            }
                         case EmulatorSpeedUp:
                             turboMultiplier += 0.1
-                            log.Printf("Emulator speed set to %v", turboMultiplier)
+                            if verbose > 0 {
+                                log.Printf("Emulator speed set to %v", turboMultiplier)
+                            }
                         case EmulatorTogglePause:
                             paused = !paused
                         case EmulatorSetPause:
@@ -859,7 +977,9 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
             select {
                 case audio<- audioData:
                 default:
-                    log.Printf("Warning: audio falling behind")
+                    if verbose > 0 {
+                        log.Printf("Warning: audio falling behind")
+                    }
             }
         }
 
@@ -883,7 +1003,7 @@ func runNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
         lastCpuCycle = usedCycles
 
         if nmi {
-            if cpu.Debug > 0 {
+            if cpu.Debug > 0 && verbose > 0 {
                 log.Printf("Cycle %v Do NMI\n", cpu.Cycle)
             }
             cpu.NMI()

@@ -6,7 +6,7 @@ import (
     "math"
     "math/rand"
     "time"
-    "log"
+    _ "log"
 
     "github.com/kazzmir/nes/cmd/nes/common"
 
@@ -231,7 +231,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, mainCancel context.Cance
                                     case MenuActionQuit:
                                         mainCancel()
                                     case MenuActionLoadRom:
-                                        log.Printf("Load a rom")
+                                        programActions <- common.ProgramLoadRom
                                     case MenuActionSound:
                                         programActions <- common.ProgramToggleSound
                                         audio = !audio

@@ -14,4 +14,5 @@ type WindowSize struct {
 type ProgramActions int
 const (
     ProgramToggleSound = iota
+    ProgramLoadRom
 )
