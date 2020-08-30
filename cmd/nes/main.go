@@ -296,8 +296,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     renderFuncUpdate := make(chan common.RenderFunction, 1)
     renderNow := make(chan bool, 2)
 
+    waiter.Add(1)
     go func(){
-        waiter.Add(1)
         buffer := nes.MakeVirtualScreen(256, 240)
         bufferReady <- buffer
         defer waiter.Done()
