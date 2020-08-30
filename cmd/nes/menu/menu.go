@@ -196,7 +196,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
     var wait sync.WaitGroup
     var generatorWait sync.WaitGroup
 
-    generatorChannel := make(chan func(), 50)
+    generatorChannel := make(chan func(), 500)
 
     for i := 0; i < 4; i++ {
         generatorWait.Add(1)
