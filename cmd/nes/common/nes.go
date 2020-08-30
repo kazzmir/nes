@@ -182,6 +182,12 @@ func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
         /* always run the system */
         if infiniteSpeed {
             cycleCounter = 1
+
+            /* ignore anything on the emulatorActions channel, but dont let it fill up */
+            select {
+                case <- emulatorActions:
+                default:
+            }
         }
 
         for cycleCounter <= 0 {

@@ -291,7 +291,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     /* create a surface from the pixels in one call, then create a texture and render it */
 
-    renderFuncUpdate := make(chan common.RenderFunction)
+    renderFuncUpdate := make(chan common.RenderFunction, 1)
     renderNow := make(chan bool, 2)
 
     go func(){

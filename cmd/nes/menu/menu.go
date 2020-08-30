@@ -272,7 +272,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
         }(RomId(uint64(i) * 1000000))
     }
 
-    err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+    err := filepath.Walk("tmp/f", func(path string, info os.FileInfo, err error) error {
         if mainQuit.Err() != nil {
             return fmt.Errorf("quitting")
         }
@@ -322,6 +322,14 @@ type RomLoaderInfo struct {
     Path string
     Frames []nes.VirtualScreen
     ShowFrame int
+}
+
+func (info *RomLoaderInfo) GetFrame() (nes.VirtualScreen, bool) {
+    if len(info.Frames) > 0 {
+        return info.Frames[info.ShowFrame], true
+    }
+
+    return nes.VirtualScreen{}, false
 }
 
 func (info *RomLoaderInfo) NextFrame() {
@@ -399,14 +407,15 @@ func (data SortRomIds) Less(left, right int) bool {
     return data[left] < data[right]
 }
 
-func (loader *RomLoaderState) Render(renderer *sdl.Renderer) {
+func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, renderer *sdl.Renderer) {
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
 
     overscanPixels := 8
     width := 256
     height := 240-overscanPixels*2
-    x := 50
+    startingXPosition := 50
+    x := startingXPosition
     y := 50
 
     raw_pixels := make([]byte, width*height * 4)
@@ -418,18 +427,27 @@ func (loader *RomLoaderState) Render(renderer *sdl.Renderer) {
     }
     sort.Sort(SortRomIds(romIds))
 
+    blankScreen := nes.MakeVirtualScreen(256, 240)
+
     thumbnail := 3
     for _, romId := range romIds {
         info := loader.Roms[romId]
-        if len(info.Frames) > 0 {
-            frame := info.Frames[info.ShowFrame]
-            common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
-
-            doRender(width, height, raw_pixels, x, y, width / thumbnail, height / thumbnail, pixelFormat, renderer)
-
+        frame, has := info.GetFrame()
+        if !has {
+            frame = blankScreen
         }
+        common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
+        doRender(width, height, raw_pixels, x, y, width / thumbnail, height / thumbnail, pixelFormat, renderer)
 
         x += width / thumbnail + 20
+        if x + width / thumbnail + 5 > maxWidth {
+            x = startingXPosition
+            y += height / thumbnail + 10
+
+            if y + height / thumbnail > maxHeight {
+                break
+            }
+        }
     }
 }
 
@@ -570,12 +588,12 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
             }
         }
 
-        makeLoadRomRenderer := func(romLoadState *RomLoaderState) common.RenderFunction {
+        makeLoadRomRenderer := func(maxWidth int, maxHeight int, romLoadState *RomLoaderState) common.RenderFunction {
             return func(renderer *sdl.Renderer) error {
                 white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
                 writeFont(font, renderer, 1, 1, "Load a rom", white)
 
-                romLoadState.Render(renderer)
+                romLoadState.Render(maxWidth, maxHeight, renderer)
 
                 return nil
             }
@@ -637,12 +655,14 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                                 romLoaderState = MakeRomLoaderState(loadRomQuit)
                                                 go romLoader(loadRomQuit, romLoaderState)
 
-                                                menuRenderer = makeLoadRomRenderer(romLoaderState)
+                                                menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
+                                                renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
 
                                             case MenuActionSound:
                                                 programActions <- common.ProgramToggleSound
                                                 audio = !audio
                                                 menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
+                                                renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
                                         }
                                     }
                             }
@@ -655,10 +675,17 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     romLoaderState = nil
                                     menuState = MenuStateTop
                                     menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
+                                    renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
                             }
                     }
 
                 case windowSize = <-windowSizeUpdates:
+                    if menuState == MenuStateLoadRom {
+                        if romLoaderState != nil {
+                            menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
+                            renderUpdates <- chainRenders(baseRenderer, menuRenderer, snowRenderer)
+                        }
+                    }
                 case <-snowTicker.C:
                     if menu.IsActive() {
                         if len(snow) < 300 {
