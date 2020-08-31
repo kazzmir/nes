@@ -368,6 +368,37 @@ type RomLoaderState struct {
     SelectedRom string
 }
 
+func (loader *RomLoaderState) NextSelection() {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    if len(loader.SortedRomIdsAndPaths) == 0 {
+        return
+    }
+
+    currentIndex := loader.FindSortedIdIndex(loader.SelectedRom)
+    if currentIndex != -1 {
+        currentIndex = (currentIndex + 1) % int64(len(loader.SortedRomIdsAndPaths))
+        loader.SelectedRom = loader.SortedRomIdsAndPaths[currentIndex].Path
+    }
+}
+
+func (loader *RomLoaderState) PreviousSelection() {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    if len(loader.SortedRomIdsAndPaths) == 0 {
+        return
+    }
+
+    currentIndex := loader.FindSortedIdIndex(loader.SelectedRom)
+    if currentIndex != -1 {
+        length := int64(len(loader.SortedRomIdsAndPaths))
+        currentIndex = (currentIndex - 1 + length) % length
+        loader.SelectedRom = loader.SortedRomIdsAndPaths[currentIndex].Path
+    }
+}
+
 func (loader *RomLoaderState) AdvanceFrames() {
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
@@ -416,14 +447,23 @@ func doRender(width int, height int, raw_pixels []byte, destX int, destY int, de
     return nil
 }
 
-func (loader *RomLoaderState) FindRomIdByPath(path string) RomId {
+func (loader *RomLoaderState) FindSortedIdIndex(path string) int64 {
     /* must hold the loader.Lock before calling this */
     index := sort.Search(len(loader.SortedRomIdsAndPaths), func (check int) bool {
         info := loader.SortedRomIdsAndPaths[check]
-        return strings.Compare(path, info.Path) == -1
+        return strings.Compare(path, info.Path) <= 0
     })
 
     if index == len(loader.SortedRomIdsAndPaths) {
+        return -1
+    }
+
+    return int64(index)
+}
+
+func (loader *RomLoaderState) FindRomIdByPath(path string) RomId {
+    index := loader.FindSortedIdIndex(path)
+    if index == -1 {
         return 0
     }
 
@@ -753,6 +793,24 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     select {
                                         case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
                                         default:
+                                    }
+                                case MenuNext:
+                                    if romLoaderState != nil {
+                                        romLoaderState.NextSelection()
+                                        menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
+                                        select {
+                                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
+                                            default:
+                                        }
+                                    }
+                                case MenuPrevious:
+                                    if romLoaderState != nil {
+                                        romLoaderState.PreviousSelection()
+                                        menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
+                                        select {
+                                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
+                                            default:
+                                        }
                                     }
                             }
                     }
