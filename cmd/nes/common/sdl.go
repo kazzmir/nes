@@ -13,13 +13,24 @@ type WindowSize struct {
     Y int
 }
 
-type ProgramActions int
-const (
-    ProgramToggleSound = iota
-    ProgramQuit
-    ProgramPauseEmulator
-    ProgramUnpauseEmulator
-)
+type ProgramActions interface {
+}
+
+type ProgramToggleSound struct {
+}
+
+type ProgramQuit struct {
+}
+
+type ProgramPauseEmulator struct {
+}
+
+type ProgramUnpauseEmulator struct {
+}
+
+type ProgramLoadRom struct {
+    Path string
+}
 
 type PixelFormat uint32
 

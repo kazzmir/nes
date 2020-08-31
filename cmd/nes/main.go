@@ -441,21 +441,48 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 case <-mainQuit.Done():
                     return
                 case action := <-programActionsInput:
-                    switch action {
-                        case common.ProgramToggleSound:
-                            audioActionsOutput <- AudioToggle
-                        case common.ProgramQuit:
-                            mainCancel()
-                        case common.ProgramPauseEmulator:
-                            select {
-                                case emulatorActionsOutput <- common.EmulatorSetPause:
-                                default:
-                            }
-                        case common.ProgramUnpauseEmulator:
-                            select {
-                                case emulatorActionsOutput <- common.EmulatorUnpause:
-                                default:
-                            }
+                    _, ok := action.(*common.ProgramToggleSound)
+                    if ok {
+                        audioActionsOutput <- AudioToggle
+                    }
+
+                    _, ok = action.(*common.ProgramQuit)
+                    if ok {
+                        mainCancel()
+                    }
+
+                    _, ok = action.(*common.ProgramPauseEmulator)
+                    if ok {
+                        select {
+                            case emulatorActionsOutput <- common.EmulatorSetPause:
+                            default:
+                        }
+                    }
+
+                    _, ok = action.(*common.ProgramUnpauseEmulator)
+                    if ok {
+                        select {
+                            case emulatorActionsOutput <- common.EmulatorUnpause:
+                            default:
+                        }
+                    }
+
+                    loadRom, ok := action.(*common.ProgramLoadRom)
+                    if ok {
+                        path := loadRom.Path
+
+                        /* FIXME: run the nes loader in its own goroutine that responds
+                         * to its own set of actions, like NesLoad, NesRestart, etc
+                         */
+                        var err error
+                        nesFile, err = nes.ParseNesFile(path, true)
+                        if err != nil {
+                            log.Printf("Could not load rom '%v'", path)
+                        } else {
+                            nesCancel()
+                            nesQuit, nesCancel = context.WithCancel(mainQuit)
+                            go startNES(nesFile, nesQuit, &nesWaiter)
+                        }
                     }
             }
         }

@@ -38,7 +38,6 @@ type Menu struct {
     quit context.Context
     cancel context.CancelFunc
     font *ttf.Font
-    events chan sdl.Event
     Input chan MenuInput
     Lock sync.Mutex
 }
@@ -368,6 +367,17 @@ type RomLoaderState struct {
     SelectedRom string
 }
 
+func (loader *RomLoaderState) GetSelectedRom() (string, bool) {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    if loader.SelectedRom != "" {
+        return loader.SelectedRom, true
+    }
+
+    return "", false
+}
+
 func (loader *RomLoaderState) NextSelection() {
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
@@ -609,15 +619,13 @@ func MakeRomLoaderState(quit context.Context) *RomLoaderState {
 
 func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) *Menu {
     quit, cancel := context.WithCancel(mainQuit)
-    events := make(chan sdl.Event, 1)
-    menuInput := make(chan MenuInput, 1)
+    menuInput := make(chan MenuInput, 5)
 
     menu := &Menu{
         active: false,
         quit: quit,
         cancel: cancel,
         font: font,
-        events: events,
         Input: menuInput,
     }
 
@@ -725,7 +733,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                         renderUpdates <- func(renderer *sdl.Renderer) error {
                                             return nil
                                         }
-                                        programActions <- common.ProgramUnpauseEmulator
+                                        programActions <- &common.ProgramUnpauseEmulator{}
                                     } else {
                                         choice = 0
                                         menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
@@ -733,7 +741,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                             case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
                                             default:
                                         }
-                                        programActions <- common.ProgramPauseEmulator
+                                        programActions <- &common.ProgramPauseEmulator{}
                                     }
 
                                     menu.ToggleActive()
@@ -759,7 +767,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     if menu.IsActive() {
                                         switch choices[choice] {
                                             case MenuActionQuit:
-                                                programActions <- common.ProgramQuit
+                                                programActions <- &common.ProgramQuit{}
                                             case MenuActionLoadRom:
                                                 menuState = MenuStateLoadRom
                                                 loadRomQuit, loadRomCancel = context.WithCancel(mainQuit)
@@ -774,7 +782,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                                 }
 
                                             case MenuActionSound:
-                                                programActions <- common.ProgramToggleSound
+                                                programActions <- &common.ProgramToggleSound{}
                                                 audio = !audio
                                                 menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
                                                 renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
@@ -811,6 +819,25 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                             case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
                                             default:
                                         }
+                                    }
+                                case MenuSelect:
+                                    loadRomCancel()
+                                    /* have the main program load the selected rom */
+                                    if romLoaderState != nil {
+                                        rom, ok := romLoaderState.GetSelectedRom()
+                                        if ok {
+                                            menuState = MenuStateTop
+                                            /* This could block the current goroutine, so we run it in a
+                                             * separate goroutine. This isn't super different from just
+                                             * making menuInput have a larger backlog, instead we are
+                                             * basically using the heap as a giant unbufferd channel.
+                                             */
+                                            go func(){
+                                                menuInput <- MenuToggle
+                                            }()
+                                            programActions <- &common.ProgramLoadRom{Path: rom}
+                                        }
+                                        romLoaderState = nil
                                     }
                             }
                     }
@@ -876,10 +903,6 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                             case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
                             default:
                         }
-                    }
-                case event := <-events:
-                    if event.GetType() == sdl.QUIT {
-                        programActions <- common.ProgramQuit
                     }
             }
         }
