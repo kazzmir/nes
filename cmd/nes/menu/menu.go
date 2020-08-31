@@ -681,6 +681,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                             switch input {
                                 case MenuToggle:
                                     if menu.IsActive() {
+                                        /* This channel put must succeed */
                                         renderUpdates <- func(renderer *sdl.Renderer) error {
                                             return nil
                                         }
@@ -688,7 +689,10 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     } else {
                                         choice = 0
                                         menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
+                                        select {
+                                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
+                                            default:
+                                        }
                                         programActions <- common.ProgramPauseEmulator
                                     }
 
@@ -697,13 +701,19 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     if menu.IsActive() {
                                         choice = (choice + 1) % len(choices)
                                         menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
+                                        select {
+                                            default:
+                                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
+                                        }
                                     }
                                 case MenuPrevious:
                                     if menu.IsActive() {
                                         choice = (choice - 1 + len(choices)) % len(choices)
                                         menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
+                                        select {
+                                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
+                                            default:
+                                        }
                                     }
                                 case MenuSelect:
                                     if menu.IsActive() {
@@ -718,7 +728,10 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                                 go romLoader(loadRomQuit, romLoaderState)
 
                                                 menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                                renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
+                                                select {
+                                                    case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
+                                                    default:
+                                                }
 
                                             case MenuActionSound:
                                                 programActions <- common.ProgramToggleSound
@@ -737,17 +750,33 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     romLoaderState = nil
                                     menuState = MenuStateTop
                                     menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                    renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
+                                    select {
+                                        case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
+                                        default:
+                                    }
                             }
                     }
 
                 case windowSize = <-windowSizeUpdates:
-                    if menuState == MenuStateLoadRom {
-                        if romLoaderState != nil {
-                            menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                            renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
+                    if menu.IsActive() {
+                        switch menuState {
+                            case MenuStateTop:
+                                menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
+                                select {
+                                    case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
+                                    default:
+                                }
+                            case MenuStateLoadRom:
+                                if romLoaderState != nil {
+                                    menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
+                                    select {
+                                        case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
+                                        default:
+                                    }
+                                }
                         }
                     }
+
                 case <-snowTicker.C:
                     if menu.IsActive() {
                         if len(snow) < 300 {
@@ -785,7 +814,10 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                         }
 
                         snowRenderer = makeSnowRenderer(snow)
-                        renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
+                        select {
+                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
+                            default:
+                        }
                     }
                 case event := <-events:
                     if event.GetType() == sdl.QUIT {
