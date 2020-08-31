@@ -499,17 +499,23 @@ type RomIdAndPath struct {
     Path string
 }
 
-func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, renderer *sdl.Renderer) {
+func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, renderer *sdl.Renderer) {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
+
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
     overscanPixels := 8
     width := 256
     height := 240-overscanPixels*2
     startingXPosition := 50
     x := startingXPosition
-    y := 50
+    y := 80
+
+    if loader.SelectedRom != "" {
+        writeFont(font, renderer, 100, 20, loader.SelectedRom, white)
+    }
 
     err := renderer.SetDrawBlendMode(sdl.BLENDMODE_NONE)
     _ = err
@@ -703,7 +709,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                 white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
                 writeFont(font, renderer, 1, 1, "Load a rom", white)
 
-                romLoadState.Render(maxWidth, maxHeight, renderer)
+                romLoadState.Render(maxWidth, maxHeight, font, renderer)
 
                 return nil
             }
