@@ -524,6 +524,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                 theMenu.Input <- menu.MenuPrevious
                             case sdl.SCANCODE_RIGHT, sdl.SCANCODE_L:
                                 theMenu.Input <- menu.MenuNext
+                            case sdl.SCANCODE_UP, sdl.SCANCODE_K:
+                                theMenu.Input <- menu.MenuUp
+                            case sdl.SCANCODE_DOWN, sdl.SCANCODE_J:
+                                theMenu.Input <- menu.MenuDown
                             case sdl.SCANCODE_RETURN:
                                 theMenu.Input <- menu.MenuSelect
                         }

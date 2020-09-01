@@ -30,6 +30,8 @@ const (
     MenuToggle = iota
     MenuNext
     MenuPrevious
+    MenuUp
+    MenuDown
     MenuSelect
 )
 
@@ -378,22 +380,7 @@ func (loader *RomLoaderState) GetSelectedRom() (string, bool) {
     return "", false
 }
 
-func (loader *RomLoaderState) NextSelection() {
-    loader.Lock.Lock()
-    defer loader.Lock.Unlock()
-
-    if len(loader.SortedRomIdsAndPaths) == 0 {
-        return
-    }
-
-    currentIndex := loader.FindSortedIdIndex(loader.SelectedRom)
-    if currentIndex != -1 {
-        currentIndex = (currentIndex + 1) % int64(len(loader.SortedRomIdsAndPaths))
-        loader.SelectedRom = loader.SortedRomIdsAndPaths[currentIndex].Path
-    }
-}
-
-func (loader *RomLoaderState) PreviousSelection() {
+func (loader *RomLoaderState) moveSelection(count int){
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
 
@@ -404,9 +391,25 @@ func (loader *RomLoaderState) PreviousSelection() {
     currentIndex := loader.FindSortedIdIndex(loader.SelectedRom)
     if currentIndex != -1 {
         length := int64(len(loader.SortedRomIdsAndPaths))
-        currentIndex = (currentIndex - 1 + length) % length
+        currentIndex = (currentIndex + int64(count) + length) % length
         loader.SelectedRom = loader.SortedRomIdsAndPaths[currentIndex].Path
     }
+}
+
+func (loader *RomLoaderState) NextSelection() {
+    loader.moveSelection(1)
+}
+
+func (loader *RomLoaderState) PreviousUpSelection(width int, height int) {
+    loader.moveSelection(-loader.TilesPerRow(width))
+}
+
+func (loader *RomLoaderState) NextDownSelection(width int, height int) {
+    loader.moveSelection(loader.TilesPerRow(width))
+}
+
+func (loader *RomLoaderState) PreviousSelection() {
+    loader.moveSelection(-1)
 }
 
 func (loader *RomLoaderState) AdvanceFrames() {
@@ -499,6 +502,25 @@ type RomIdAndPath struct {
     Path string
 }
 
+func (loader *RomLoaderState) TilesPerRow(maxWidth int) int {
+    /* FIXME: this grossly reuses the logic and constants from the Render() method.
+     * come up with a cleaner way to compute the layout
+     */
+    count := 0
+    startingXPosition := 50
+    x := startingXPosition
+    width := 256
+    thumbnail := 3
+    xSpacing := 20
+
+    for x + width / thumbnail + 5 < maxWidth {
+        x += width / thumbnail + xSpacing
+        count += 1
+    }
+
+    return count
+}
+
 func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, renderer *sdl.Renderer) {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
@@ -510,6 +532,8 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     width := 256
     height := 240-overscanPixels*2
     startingXPosition := 50
+    xSpacing := 20
+    ySpacing := 10
     x := startingXPosition
     y := 80
 
@@ -547,10 +571,10 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
         doRender(width, height, raw_pixels, x, y, width / thumbnail, height / thumbnail, pixelFormat, renderer)
 
-        x += width / thumbnail + 20
+        x += width / thumbnail + xSpacing
         if x + width / thumbnail + 5 > maxWidth {
             x = startingXPosition
-            y += height / thumbnail + 10
+            y += height / thumbnail + ySpacing
 
             if y + height / thumbnail > maxHeight {
                 break
@@ -726,6 +750,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
 
         /* Reset the default renderer */
         for {
+            updateRender := false
             select {
                 case <-quit.Done():
                     return
@@ -743,10 +768,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     } else {
                                         choice = 0
                                         menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        select {
-                                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
-                                            default:
-                                        }
+                                        updateRender = true
                                         programActions <- &common.ProgramPauseEmulator{}
                                     }
 
@@ -755,19 +777,13 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     if menu.IsActive() {
                                         choice = (choice + 1) % len(choices)
                                         menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        select {
-                                            default:
-                                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
-                                        }
+                                        updateRender = true
                                     }
                                 case MenuPrevious:
                                     if menu.IsActive() {
                                         choice = (choice - 1 + len(choices)) % len(choices)
                                         menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        select {
-                                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
-                                            default:
-                                        }
+                                        updateRender = true
                                     }
                                 case MenuSelect:
                                     if menu.IsActive() {
@@ -782,16 +798,13 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                                 go romLoader(loadRomQuit, romLoaderState)
 
                                                 menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                                select {
-                                                    case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
-                                                    default:
-                                                }
+                                                updateRender = true
 
                                             case MenuActionSound:
                                                 programActions <- &common.ProgramToggleSound{}
                                                 audio = !audio
                                                 menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                                renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer)
+                                                updateRender = true
                                         }
                                     }
                             }
@@ -804,27 +817,30 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                                     romLoaderState = nil
                                     menuState = MenuStateTop
                                     menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                    select {
-                                        case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
-                                        default:
-                                    }
+                                    updateRender = true
                                 case MenuNext:
                                     if romLoaderState != nil {
                                         romLoaderState.NextSelection()
                                         menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                        select {
-                                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
-                                            default:
-                                        }
+                                        updateRender = true
                                     }
                                 case MenuPrevious:
                                     if romLoaderState != nil {
                                         romLoaderState.PreviousSelection()
                                         menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                        select {
-                                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
-                                            default:
-                                        }
+                                        updateRender = true
+                                    }
+                                case MenuUp:
+                                    if romLoaderState != nil {
+                                        romLoaderState.PreviousUpSelection(windowSize.X, windowSize.Y)
+                                        menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
+                                        updateRender = true
+                                    }
+                                case MenuDown:
+                                    if romLoaderState != nil {
+                                        romLoaderState.NextDownSelection(windowSize.X, windowSize.Y)
+                                        menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
+                                        updateRender = true
                                     }
                                 case MenuSelect:
                                     loadRomCancel()
@@ -853,17 +869,11 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                         switch menuState {
                             case MenuStateTop:
                                 menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                select {
-                                    case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
-                                    default:
-                                }
+                                updateRender = true
                             case MenuStateLoadRom:
                                 if romLoaderState != nil {
                                     menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                    select {
-                                        case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
-                                        default:
-                                    }
+                                    updateRender = true
                                 }
                         }
                     }
@@ -905,11 +915,16 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                         }
 
                         snowRenderer = makeSnowRenderer(snow)
-                        select {
-                            case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
-                            default:
-                        }
+                        updateRender = true
                     }
+            }
+
+            if updateRender {
+                /* If there is a graphics update then send it to the renderer */
+                select {
+                    case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
+                    default:
+                }
             }
         }
     }(menu)
