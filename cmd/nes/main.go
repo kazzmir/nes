@@ -200,6 +200,15 @@ func doRender(width int, height int, raw_pixels []byte, pixelFormat common.Pixel
     return nil
 }
 
+type NesAction interface {
+}
+
+type NesActionLoad struct {
+    File nes.NESFile
+}
+
+type NesActionRestart struct {
+}
 
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
     nesFile, err := nes.ParseNesFile(path, true)
@@ -260,8 +269,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     var waiter sync.WaitGroup
 
+    nesChannel := make(chan NesAction, 10)
+    nesChannel <- &NesActionLoad{File: nesFile}
+
     mainQuit, mainCancel := context.WithCancel(context.Background())
     defer mainCancel()
+
     toDraw := make(chan nes.VirtualScreen, 1)
     bufferReady := make(chan nes.VirtualScreen, 1)
 
@@ -365,10 +378,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     go makeAudioWorker(audioDevice, audioInput, audioActionsInput, mainQuit)()
 
-    startNES := func(nesFile nes.NESFile, quit context.Context, waiter *sync.WaitGroup){
-        waiter.Add(1)
-        defer waiter.Done()
-
+    startNES := func(nesFile nes.NESFile, quit context.Context){
         cpu, err := common.SetupCPU(nesFile, debug)
 
         cpu.Input = nes.MakeInput(&SDLButtons{})
@@ -395,9 +405,49 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         }
     }
 
-    var nesWaiter sync.WaitGroup
-    nesQuit, nesCancel := context.WithCancel(mainQuit)
-    go startNES(nesFile, nesQuit, &nesWaiter)
+    /* runs the nes emulator */
+    waiter.Add(1)
+    go func(){
+        defer waiter.Done()
+
+        var nesWaiter sync.WaitGroup
+        nesQuit, nesCancel := context.WithCancel(mainQuit)
+
+        var currentFile nes.NESFile
+
+        for {
+            select {
+                case <-mainQuit.Done():
+                    return
+                case action := <-nesChannel:
+                    doRestart := false
+                    load, ok := action.(*NesActionLoad)
+                    if ok {
+                        currentFile = load.File
+                        doRestart = true
+                    }
+
+                    _, ok = action.(*NesActionRestart)
+                    if ok {
+                        doRestart = true
+                    }
+
+                    if doRestart {
+                        nesCancel()
+                        nesWaiter.Wait()
+                        nesQuit, nesCancel = context.WithCancel(mainQuit)
+
+                        nesWaiter.Add(1)
+                        go func(nesFile nes.NESFile, quit context.Context){
+                            defer nesWaiter.Done()
+                            startNES(nesFile, quit)
+                        }(currentFile, nesQuit)
+                    }
+            }
+        }
+
+        nesWaiter.Wait()
+    }()
 
     var turboKey sdl.Scancode = sdl.SCANCODE_GRAVE
     var pauseKey sdl.Scancode = sdl.SCANCODE_SPACE
@@ -469,19 +519,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
                     loadRom, ok := action.(*common.ProgramLoadRom)
                     if ok {
-                        path := loadRom.Path
-
-                        /* FIXME: run the nes loader in its own goroutine that responds
-                         * to its own set of actions, like NesLoad, NesRestart, etc
-                         */
-                        var err error
-                        nesFile, err = nes.ParseNesFile(path, true)
+                        nesFile, err := nes.ParseNesFile(loadRom.Path, true)
                         if err != nil {
                             log.Printf("Could not load rom '%v'", path)
                         } else {
-                            nesCancel()
-                            nesQuit, nesCancel = context.WithCancel(mainQuit)
-                            go startNES(nesFile, nesQuit, &nesWaiter)
+                            nesChannel <- &NesActionLoad{File: nesFile}
                         }
                     }
             }
@@ -586,12 +628,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                 }
                             case hardResetKey:
                                 log.Printf("Hard reset")
-                                nesCancel()
-
-                                nesWaiter.Wait()
-
-                                nesQuit, nesCancel = context.WithCancel(mainQuit)
-                                go startNES(nesFile, nesQuit, &nesWaiter)
+                                nesChannel <- &NesActionRestart{}
                         }
                     }
                 case sdl.KEYUP:
@@ -614,7 +651,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
 
     log.Printf("Waiting to quit..")
-    nesWaiter.Wait()
     waiter.Wait()
 
     return nil
