@@ -240,6 +240,9 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
 
                 /* Run the actual frame generation in a separate goroutine */
                 generatorChannel <- func(){
+                    if loaderQuit.Err() != nil {
+                        return
+                    }
                     quit, cancel := context.WithCancel(loaderQuit)
 
                     cpu.Input = nes.MakeInput(&NullInput{})

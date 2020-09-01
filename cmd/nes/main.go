@@ -523,6 +523,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         if err != nil {
                             log.Printf("Could not load rom '%v'", path)
                         } else {
+                            log.Printf("Loaded rom '%v'", loadRom.Path)
                             nesChannel <- &NesActionLoad{File: nesFile}
                         }
                     }
