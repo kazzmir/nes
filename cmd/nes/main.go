@@ -424,7 +424,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
      * Where the reader gets the <-chan and the writer gets the chan<-
      */
     /* Notify the menu when the window changes size */
-    windowSizeUpdates := make(chan common.WindowSize, 2)
+    windowSizeUpdates := make(chan common.WindowSize, 10)
     windowSizeUpdatesInput := (<-chan common.WindowSize)(windowSizeUpdates)
     windowSizeUpdatesOutput := (chan<- common.WindowSize)(windowSizeUpdates)
 
@@ -508,7 +508,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
 
                     width, height := window.GetSize()
-                    windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}
+                    /* Not great but tolerate not updating the system when the window changes */
+                    select {
+                        case windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}:
+                        default:
+                    }
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
