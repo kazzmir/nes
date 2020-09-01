@@ -512,6 +512,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     select {
                         case windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}:
                         default:
+                            log.Printf("Warning: dropping a window event")
                     }
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
