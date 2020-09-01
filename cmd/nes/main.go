@@ -294,6 +294,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
     defer font.Close()
 
+    smallFont, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "font/DejaVuSans.ttf"), 10)
+    if err != nil {
+        return err
+    }
+    defer smallFont.Close()
+
     /*
     err = renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
     if err != nil {
@@ -483,7 +489,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     programActionsInput := (<-chan common.ProgramActions)(programActions)
     programActionsOutput := (chan<- common.ProgramActions)(programActions)
 
-    theMenu := menu.MakeMenu(font, mainQuit, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
+    theMenu := menu.MakeMenu(font, smallFont, mainQuit, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
 
     go func(){
         for {

@@ -524,7 +524,7 @@ func (loader *RomLoaderState) TilesPerRow(maxWidth int) int {
     return count
 }
 
-func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, renderer *sdl.Renderer) {
+func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer) {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
@@ -536,7 +536,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     height := 240-overscanPixels*2
     startingXPosition := 50
     xSpacing := 20
-    ySpacing := 10
+    ySpacing := 15
     x := startingXPosition
     y := 80
 
@@ -573,6 +573,13 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
 
         common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
         doRender(width, height, raw_pixels, x, y, width / thumbnail, height / thumbnail, pixelFormat, renderer)
+
+        name := filepath.Base(info.Path)
+        if len(name) > 15 {
+            name = fmt.Sprintf("%v..", name[0:13])
+        }
+
+        writeFont(smallFont, renderer, x, y + height / thumbnail + 1, name, white)
 
         x += width / thumbnail + xSpacing
         if x + width / thumbnail + 5 > maxWidth {
@@ -650,7 +657,7 @@ func MakeRomLoaderState(quit context.Context) *RomLoaderState {
     return &state
 }
 
-func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) *Menu {
+func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) *Menu {
     quit, cancel := context.WithCancel(mainQuit)
     menuInput := make(chan MenuInput, 5)
 
@@ -736,7 +743,7 @@ func MakeMenu(font *ttf.Font, mainQuit context.Context, renderUpdates chan commo
                 white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
                 writeFont(font, renderer, 1, 1, "Load a rom", white)
 
-                romLoadState.Render(maxWidth, maxHeight, font, renderer)
+                romLoadState.Render(maxWidth, maxHeight, font, smallFont, renderer)
 
                 return nil
             }
