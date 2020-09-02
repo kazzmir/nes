@@ -368,8 +368,28 @@ type RomLoaderState struct {
     AddFrame chan RomLoaderFrame
     Lock sync.Mutex
 
+    /* Keep track of which tile to start with when rendering the rows
+     * in the loading screen, and the last tile to render.
+     * min <= indexof(selectedrom) <= max
+     *
+     * These values will change as new roms get added, and as
+     * the user moves around the tiles using up/down/left/right
+     */
+    MinRenderIndex int
+
+    WindowSizeWidth int
+    WindowSizeHeight int
+
     SortedRomIdsAndPaths []RomIdAndPath
     SelectedRom string
+}
+
+func (loader *RomLoaderState) UpdateWindowSize(width int, height int){
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    loader.WindowSizeWidth = width
+    loader.WindowSizeHeight = height
 }
 
 func (loader *RomLoaderState) GetSelectedRom() (string, bool) {
@@ -393,9 +413,24 @@ func (loader *RomLoaderState) moveSelection(count int){
 
     currentIndex := loader.FindSortedIdIndex(loader.SelectedRom)
     if currentIndex != -1 {
-        length := int64(len(loader.SortedRomIdsAndPaths))
-        currentIndex = (currentIndex + int64(count) + length) % length
+        length := len(loader.SortedRomIdsAndPaths)
+        currentIndex = (currentIndex + count + length) % length
         loader.SelectedRom = loader.SortedRomIdsAndPaths[currentIndex].Path
+    }
+
+    maximumTiles := loader.MaximumTiles()
+    tilesPerRow := loader.TilesPerRow(loader.WindowSizeWidth)
+
+    for currentIndex >= loader.MinRenderIndex + maximumTiles {
+        loader.MinRenderIndex += tilesPerRow
+    }
+
+    for currentIndex < loader.MinRenderIndex {
+        loader.MinRenderIndex -= tilesPerRow
+    }
+
+    if loader.MinRenderIndex < 0 {
+        loader.MinRenderIndex = 0
     }
 }
 
@@ -403,12 +438,12 @@ func (loader *RomLoaderState) NextSelection() {
     loader.moveSelection(1)
 }
 
-func (loader *RomLoaderState) PreviousUpSelection(width int, height int) {
-    loader.moveSelection(-loader.TilesPerRow(width))
+func (loader *RomLoaderState) PreviousUpSelection() {
+    loader.moveSelection(-loader.TilesPerRow(loader.WindowSizeWidth))
 }
 
-func (loader *RomLoaderState) NextDownSelection(width int, height int) {
-    loader.moveSelection(loader.TilesPerRow(width))
+func (loader *RomLoaderState) NextDownSelection() {
+    loader.moveSelection(loader.TilesPerRow(loader.WindowSizeWidth))
 }
 
 func (loader *RomLoaderState) PreviousSelection() {
@@ -463,7 +498,7 @@ func doRender(width int, height int, raw_pixels []byte, destX int, destY int, de
     return nil
 }
 
-func (loader *RomLoaderState) FindSortedIdIndex(path string) int64 {
+func (loader *RomLoaderState) FindSortedIdIndex(path string) int {
     basePath := filepath.Base(path)
     /* must hold the loader.Lock before calling this */
     index := sort.Search(len(loader.SortedRomIdsAndPaths), func (check int) bool {
@@ -475,7 +510,7 @@ func (loader *RomLoaderState) FindSortedIdIndex(path string) int64 {
         return -1
     }
 
-    return int64(index)
+    return int(index)
 }
 
 func (loader *RomLoaderState) FindRomIdByPath(path string) RomId {
@@ -506,6 +541,11 @@ type RomIdAndPath struct {
     Path string
 }
 
+/* Must hold the lock before calling this */
+func (loader *RomLoaderState) MaximumTiles() int {
+    return loader.TilesPerRow(loader.WindowSizeWidth) * loader.TileRows(loader.WindowSizeHeight)
+}
+
 func (loader *RomLoaderState) TilesPerRow(maxWidth int) int {
     /* FIXME: this grossly reuses the logic and constants from the Render() method.
      * come up with a cleaner way to compute the layout
@@ -525,6 +565,25 @@ func (loader *RomLoaderState) TilesPerRow(maxWidth int) int {
     return count
 }
 
+func (loader *RomLoaderState) TileRows(maxHeight int) int {
+    startingYPosition := 80
+    ySpacing := 15
+    overscanPixels := 8
+    height := 240 - overscanPixels * 2
+
+    y := startingYPosition
+    count := 0
+    thumbnail := 3
+
+    yDiff := height / thumbnail + ySpacing
+    for y + yDiff < maxHeight {
+        count += 1
+        y += yDiff
+    }
+
+    return count
+}
+
 func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer) {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
@@ -536,10 +595,11 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     width := 256
     height := 240-overscanPixels*2
     startingXPosition := 50
+    startingYPosition := 80
     xSpacing := 20
     ySpacing := 15
     x := startingXPosition
-    y := 80
+    y := startingYPosition
 
     if loader.SelectedRom != "" {
         writeFont(font, renderer, 100, 20, loader.SelectedRom, white)
@@ -559,7 +619,18 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
 
     thumbnail := 3
     outlineSize := 3
-    for _, romIdAndPath := range loader.SortedRomIdsAndPaths {
+
+    start := loader.MinRenderIndex
+    if start < 0 {
+        start = 0
+    }
+
+    end := start + loader.MaximumTiles()
+    if end >= len(loader.SortedRomIdsAndPaths) {
+        end = len(loader.SortedRomIdsAndPaths) - 1
+    }
+
+    for _, romIdAndPath := range loader.SortedRomIdsAndPaths[start:end+1] {
         info := loader.Roms[romIdAndPath.Id]
         frame, has := info.GetFrame()
         if !has {
@@ -609,12 +680,23 @@ func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
         Frames: nil,
     }
 
+    distanceToMin := 0
+    // distanceToMax := 0
+    if loader.SelectedRom != "" {
+        selectedIndex := loader.FindSortedIdIndex(loader.SelectedRom)
+        distanceToMin = selectedIndex - loader.MinRenderIndex
+    }
+
     loader.SortedRomIdsAndPaths = append(loader.SortedRomIdsAndPaths, RomIdAndPath{Id: rom.Id, Path: rom.Path})
 
     sort.Sort(SortRomIds(loader.SortedRomIdsAndPaths))
 
     if loader.SelectedRom == "" {
+        loader.MinRenderIndex = 0
         loader.SelectedRom = rom.Path
+    } else {
+        selectedIndex := loader.FindSortedIdIndex(loader.SelectedRom)
+        loader.MinRenderIndex = selectedIndex - distanceToMin
     }
 }
 
@@ -631,11 +713,14 @@ func (loader *RomLoaderState) AddRomFrame(frame RomLoaderFrame) {
     info.Frames = append(info.Frames, frame.Frame)
 }
 
-func MakeRomLoaderState(quit context.Context) *RomLoaderState {
+func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int) *RomLoaderState {
     state := RomLoaderState{
         Roms: make(map[RomId]*RomLoaderInfo),
         NewRom: make(chan RomLoaderAdd, 5),
         AddFrame: make(chan RomLoaderFrame, 5),
+        MinRenderIndex: 0,
+        WindowSizeWidth: windowWidth,
+        WindowSizeHeight: windowHeight,
     }
 
     go func(){
@@ -805,7 +890,7 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
                                                 menuState = MenuStateLoadRom
                                                 loadRomQuit, loadRomCancel = context.WithCancel(mainQuit)
 
-                                                romLoaderState = MakeRomLoaderState(loadRomQuit)
+                                                romLoaderState = MakeRomLoaderState(loadRomQuit, windowSize.X, windowSize.Y)
                                                 go romLoader(loadRomQuit, romLoaderState)
 
                                                 menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
@@ -843,13 +928,13 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
                                     }
                                 case MenuUp:
                                     if romLoaderState != nil {
-                                        romLoaderState.PreviousUpSelection(windowSize.X, windowSize.Y)
+                                        romLoaderState.PreviousUpSelection()
                                         menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
                                         updateRender = true
                                     }
                                 case MenuDown:
                                     if romLoaderState != nil {
-                                        romLoaderState.NextDownSelection(windowSize.X, windowSize.Y)
+                                        romLoaderState.NextDownSelection()
                                         menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
                                         updateRender = true
                                     }
@@ -876,6 +961,10 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
                     }
 
                 case windowSize = <-windowSizeUpdates:
+                    if romLoaderState != nil {
+                        romLoaderState.UpdateWindowSize(windowSize.X, windowSize.Y)
+                    }
+
                     if menu.IsActive() {
                         switch menuState {
                             case MenuStateTop:
