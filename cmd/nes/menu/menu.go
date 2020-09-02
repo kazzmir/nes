@@ -464,10 +464,11 @@ func doRender(width int, height int, raw_pixels []byte, destX int, destY int, de
 }
 
 func (loader *RomLoaderState) FindSortedIdIndex(path string) int64 {
+    basePath := filepath.Base(path)
     /* must hold the loader.Lock before calling this */
     index := sort.Search(len(loader.SortedRomIdsAndPaths), func (check int) bool {
         info := loader.SortedRomIdsAndPaths[check]
-        return strings.Compare(path, info.Path) <= 0
+        return strings.Compare(basePath, filepath.Base(info.Path)) <= 0
     })
 
     if index == len(loader.SortedRomIdsAndPaths) {
@@ -497,7 +498,7 @@ func (data SortRomIds) Swap(left, right int){
 }
 
 func (data SortRomIds) Less(left, right int) bool {
-    return strings.Compare(data[left].Path, data[right].Path) == -1
+    return strings.Compare(filepath.Base(data[left].Path), filepath.Base(data[right].Path)) == -1
 }
 
 type RomIdAndPath struct {
@@ -608,7 +609,7 @@ func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
         Frames: nil,
     }
 
-    loader.SortedRomIdsAndPaths = append(loader.SortedRomIdsAndPaths, RomIdAndPath{Id: rom.Id, Path: filepath.Base(rom.Path)})
+    loader.SortedRomIdsAndPaths = append(loader.SortedRomIdsAndPaths, RomIdAndPath{Id: rom.Id, Path: rom.Path})
 
     sort.Sort(SortRomIds(loader.SortedRomIdsAndPaths))
 
