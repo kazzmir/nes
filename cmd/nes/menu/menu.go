@@ -381,7 +381,7 @@ type RomLoaderState struct {
     WindowSizeHeight int
 
     SortedRomIdsAndPaths []RomIdAndPath
-    SelectedRom string
+    SelectedRomKey string
 }
 
 func (loader *RomLoaderState) UpdateWindowSize(width int, height int){
@@ -396,8 +396,9 @@ func (loader *RomLoaderState) GetSelectedRom() (string, bool) {
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
 
-    if loader.SelectedRom != "" {
-        return loader.SelectedRom, true
+    if loader.SelectedRomKey != "" {
+        index := loader.FindSortedIdIndex(loader.SelectedRomKey)
+        return loader.SortedRomIdsAndPaths[index].Path, true
     }
 
     return "", false
@@ -411,11 +412,11 @@ func (loader *RomLoaderState) moveSelection(count int){
         return
     }
 
-    currentIndex := loader.FindSortedIdIndex(loader.SelectedRom)
+    currentIndex := loader.FindSortedIdIndex(loader.SelectedRomKey)
     if currentIndex != -1 {
         length := len(loader.SortedRomIdsAndPaths)
         currentIndex = (currentIndex + count + length) % length
-        loader.SelectedRom = loader.SortedRomIdsAndPaths[currentIndex].Path
+        loader.SelectedRomKey = loader.SortedRomIdsAndPaths[currentIndex].SortKey()
     }
 
     maximumTiles := loader.MaximumTiles()
@@ -499,11 +500,11 @@ func doRender(width int, height int, raw_pixels []byte, destX int, destY int, de
 }
 
 func (loader *RomLoaderState) FindSortedIdIndex(path string) int {
-    basePath := filepath.Base(path)
+    baseKey := filepath.Base(path)
     /* must hold the loader.Lock before calling this */
     index := sort.Search(len(loader.SortedRomIdsAndPaths), func (check int) bool {
         info := loader.SortedRomIdsAndPaths[check]
-        return strings.Compare(basePath, filepath.Base(info.Path)) <= 0
+        return strings.Compare(baseKey, info.SortKey()) <= 0
     })
 
     if index == len(loader.SortedRomIdsAndPaths) {
@@ -533,12 +534,16 @@ func (data SortRomIds) Swap(left, right int){
 }
 
 func (data SortRomIds) Less(left, right int) bool {
-    return strings.Compare(filepath.Base(data[left].Path), filepath.Base(data[right].Path)) == -1
+    return strings.Compare(data[left].SortKey(), data[right].SortKey()) == -1
 }
 
 type RomIdAndPath struct {
     Id RomId
     Path string
+}
+
+func (info *RomIdAndPath) SortKey() string {
+    return fmt.Sprintf("%v_%v", filepath.Base(info.Path), info.Id)
 }
 
 /* Must hold the lock before calling this */
@@ -601,8 +606,13 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     x := startingXPosition
     y := startingYPosition
 
-    if loader.SelectedRom != "" {
-        writeFont(font, renderer, 100, 20, loader.SelectedRom, white)
+    selectedIndex := -1
+    selectedId := RomId(0)
+
+    if loader.SelectedRomKey != "" {
+        selectedIndex = loader.FindSortedIdIndex(loader.SelectedRomKey)
+        selectedId = loader.SortedRomIdsAndPaths[selectedIndex].Id
+        writeFont(font, renderer, 100, 20, loader.SortedRomIdsAndPaths[selectedIndex].Path, white)
     }
 
     err := renderer.SetDrawBlendMode(sdl.BLENDMODE_NONE)
@@ -615,7 +625,6 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     blankScreen := nes.MakeVirtualScreen(256, 240)
     blankScreen.ClearToColor(0, 0, 0)
 
-    selectedId := loader.FindRomIdByPath(loader.SelectedRom)
 
     thumbnail := 3
     outlineSize := 3
@@ -682,20 +691,21 @@ func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
 
     distanceToMin := 0
     // distanceToMax := 0
-    if loader.SelectedRom != "" {
-        selectedIndex := loader.FindSortedIdIndex(loader.SelectedRom)
+    if loader.SelectedRomKey != "" {
+        selectedIndex := loader.FindSortedIdIndex(loader.SelectedRomKey)
         distanceToMin = selectedIndex - loader.MinRenderIndex
     }
 
-    loader.SortedRomIdsAndPaths = append(loader.SortedRomIdsAndPaths, RomIdAndPath{Id: rom.Id, Path: rom.Path})
+    newRomIdAndPath := RomIdAndPath{Id: rom.Id, Path: rom.Path}
+    loader.SortedRomIdsAndPaths = append(loader.SortedRomIdsAndPaths, newRomIdAndPath)
 
     sort.Sort(SortRomIds(loader.SortedRomIdsAndPaths))
 
-    if loader.SelectedRom == "" {
+    if loader.SelectedRomKey == "" {
         loader.MinRenderIndex = 0
-        loader.SelectedRom = rom.Path
+        loader.SelectedRomKey = newRomIdAndPath.SortKey()
     } else {
-        selectedIndex := loader.FindSortedIdIndex(loader.SelectedRom)
+        selectedIndex := loader.FindSortedIdIndex(loader.SelectedRomKey)
         loader.MinRenderIndex = selectedIndex - distanceToMin
     }
 }
