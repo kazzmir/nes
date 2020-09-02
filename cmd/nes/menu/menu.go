@@ -615,7 +615,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     if loader.SelectedRomKey != "" {
         selectedIndex = loader.FindSortedIdIndex(loader.SelectedRomKey)
         selectedId = loader.SortedRomIdsAndPaths[selectedIndex].Id
-        writeFont(font, renderer, 100, 20, loader.SortedRomIdsAndPaths[selectedIndex].Path, white)
+        writeFont(font, renderer, 100, font.Height() + 3, loader.SortedRomIdsAndPaths[selectedIndex].Path, white)
     }
 
     err := renderer.SetDrawBlendMode(sdl.BLENDMODE_NONE)
