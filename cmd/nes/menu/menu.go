@@ -543,7 +543,10 @@ type RomIdAndPath struct {
 }
 
 func (info *RomIdAndPath) SortKey() string {
-    return fmt.Sprintf("%v_%v", filepath.Base(info.Path), info.Id)
+    /* construct a string that combines the path and id, but make it
+     * a weird so it has little chance to collide with a real filename
+     */
+    return fmt.Sprintf("%v_#!#-%v", filepath.Base(info.Path), info.Id)
 }
 
 /* Must hold the lock before calling this */
