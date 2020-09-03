@@ -11,12 +11,17 @@ import (
     "path/filepath"
     "fmt"
     "math"
-    "strings"
     "math/rand"
     "time"
+    "strings"
+    "bytes"
     "log"
     "sync"
     "sort"
+
+    "image"
+    "image/png"
+    "golang.org/x/image/bmp"
 
     "github.com/kazzmir/nes/cmd/nes/common"
     nes "github.com/kazzmir/nes/lib"
@@ -368,6 +373,8 @@ type RomLoaderState struct {
     AddFrame chan RomLoaderFrame
     Lock sync.Mutex
 
+    Arrow image.Image
+
     /* Keep track of which tile to start with when rendering the rows
      * in the loading screen, and the last tile to render.
      * min <= indexof(selectedrom) <= max
@@ -546,7 +553,7 @@ func (info *RomIdAndPath) SortKey() string {
     /* construct a string that combines the path and id, but make it
      * a weird so it has little chance to collide with a real filename
      */
-    return fmt.Sprintf("%v_#!#-%v", filepath.Base(info.Path), info.Id)
+    return fmt.Sprintf("%v_#!#-%v", strings.ToLower(filepath.Base(info.Path)), info.Id)
 }
 
 /* Must hold the lock before calling this */
@@ -592,6 +599,65 @@ func (loader *RomLoaderState) TileRows(maxHeight int) int {
     return count
 }
 
+func renderUpArrow(x int, y int, texture *sdl.Texture, renderer *sdl.Renderer){
+    _, _, width, height, err := texture.Query()
+    if err == nil {
+        dest := sdl.Rect{X: int32(x), Y: int32(y), W: width, H: height}
+        renderer.Copy(texture, nil, &dest)
+    }
+}
+
+func renderDownArrow(x int, y int, texture *sdl.Texture, renderer *sdl.Renderer){
+    _, _, width, height, err := texture.Query()
+    if err == nil {
+        dest := sdl.Rect{X: int32(x), Y: int32(y), W: width, H: height}
+        renderer.CopyEx(texture, nil, &dest, 0, nil, sdl.FLIP_VERTICAL)
+    }
+}
+
+func renderUpArrow2(x int, y int, renderer *sdl.Renderer){
+    rect := sdl.Rect{X: int32(x), Y: int32(y), W: 10, H: 10}
+    renderer.SetDrawColor(255, 255, 255, 255)
+    renderer.FillRect(&rect)
+}
+
+func renderDownArrow2(x int, y int, renderer *sdl.Renderer){
+    rect := sdl.Rect{X: int32(x), Y: int32(y), W: 10, H: 10}
+    renderer.SetDrawColor(255, 255, 255, 255)
+    renderer.FillRect(&rect)
+}
+
+/* FIXME: cache the resulting texture */
+func imageToTexture(data image.Image, renderer *sdl.Renderer) (*sdl.Texture, error) {
+    /* encode image to bmp to a raw memory stream
+     * use sdl.RWFromMem to get an rwops
+     * use sdl.LoadBMPRW from rwops to get a surface
+     * convert surface to texture
+     *
+     * could we go directly from an image to a surface and skip the bmp step?
+     * probably, but this way is much simpler to implement.
+     */
+
+    var memory bytes.Buffer
+    err := bmp.Encode(&memory, data)
+    if err != nil {
+        return nil, err
+    }
+
+    rwops, err := sdl.RWFromMem(memory.Bytes())
+    if err != nil {
+        return nil, err
+    }
+
+    surface, err := sdl.LoadBMPRW(rwops, false)
+    if err != nil {
+        return nil, err
+    }
+    defer surface.Free()
+
+    return renderer.CreateTextureFromSurface(surface)
+}
+
 func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer) {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
@@ -628,7 +694,6 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     blankScreen := nes.MakeVirtualScreen(256, 240)
     blankScreen.ClearToColor(0, 0, 0)
 
-
     thumbnail := 3
     outlineSize := 3
 
@@ -640,6 +705,33 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     end := start + loader.MaximumTiles()
     if end >= len(loader.SortedRomIdsAndPaths) {
         end = len(loader.SortedRomIdsAndPaths) - 1
+    }
+
+    var arrowTexture *sdl.Texture
+
+    if loader.Arrow != nil {
+        arrowTexture, err = imageToTexture(loader.Arrow, renderer)
+        if err != nil {
+            log.Printf("Could not create arrow texture: %v", err)
+        } else {
+            defer arrowTexture.Destroy()
+        }
+    }
+
+    if loader.MinRenderIndex != 0 {
+        if arrowTexture != nil {
+            renderUpArrow(10, 30, arrowTexture, renderer)
+        }
+    }
+
+    if loader.MinRenderIndex + loader.MaximumTiles() < len(loader.SortedRomIdsAndPaths) {
+        if arrowTexture != nil {
+            downY := maxHeight - 50
+            if downY < 30 {
+                downY = 30
+            }
+            renderDownArrow(10, downY, arrowTexture, renderer)
+        }
     }
 
     for _, romIdAndPath := range loader.SortedRomIdsAndPaths[start:end+1] {
@@ -726,7 +818,22 @@ func (loader *RomLoaderState) AddRomFrame(frame RomLoaderFrame) {
     info.Frames = append(info.Frames, frame.Frame)
 }
 
+func loadPng(path string) (image.Image, error) {
+    file, err := os.Open(path)
+    if err != nil {
+        return nil, err
+    }
+    defer file.Close()
+
+    return png.Decode(file)
+}
+
 func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int) *RomLoaderState {
+    arrow, err := loadPng("data/arrow.png")
+    if err != nil {
+        log.Printf("Could not load arrow image: %v", err)
+        arrow = nil
+    }
     state := RomLoaderState{
         Roms: make(map[RomId]*RomLoaderInfo),
         NewRom: make(chan RomLoaderAdd, 5),
@@ -734,6 +841,7 @@ func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int)
         MinRenderIndex: 0,
         WindowSizeWidth: windowWidth,
         WindowSizeHeight: windowHeight,
+        Arrow: arrow,
     }
 
     go func(){
