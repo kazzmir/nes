@@ -288,13 +288,13 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     defer ttf.Quit()
 
-    font, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "font/DejaVuSans.ttf"), 20)
+    font, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "data/DejaVuSans.ttf"), 20)
     if err != nil {
         return err
     }
     defer font.Close()
 
-    smallFont, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "font/DejaVuSans.ttf"), 10)
+    smallFont, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "data/DejaVuSans.ttf"), 10)
     if err != nil {
         return err
     }
