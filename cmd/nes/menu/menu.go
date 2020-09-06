@@ -19,6 +19,8 @@ import (
     "sync"
     "sort"
 
+    "crypto/md5"
+
     "image"
     "image/png"
     "golang.org/x/image/bmp"
@@ -92,10 +94,91 @@ func copySnow(snow []Snow) []Snow {
     return out
 }
 
-func drawButton(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) (int, int, error) {
+type TextureInfo struct {
+    Texture *sdl.Texture
+    Width int
+    Height int
+}
+
+type TextureId uint64
+
+type TextureManager struct {
+    id TextureId
+    Textures map[TextureId]TextureInfo
+    Lock sync.Mutex
+}
+
+func (manager *TextureManager) NextId() TextureId {
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+    out := manager.id
+    manager.id += 1
+    return out
+}
+
+func MakeTextureManager() *TextureManager {
+    return &TextureManager{
+        id: 0,
+        Textures: make(map[TextureId]TextureInfo),
+    }
+}
+
+func (manager *TextureManager) Destroy() {
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
+    for _, info := range manager.Textures {
+        info.Texture.Destroy()
+    }
+
+    manager.Textures = nil
+}
+
+var TextureManagerDestroyed = fmt.Errorf("texture manager has been destroyed")
+
+func (manager *TextureManager) RenderText(font *ttf.Font, renderer *sdl.Renderer, text string, color sdl.Color, id TextureId) (TextureInfo, error) {
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
+    if manager.Textures == nil {
+        return TextureInfo{}, TextureManagerDestroyed
+    }
+
+    info, ok := manager.Textures[id]
+    if ok {
+        return info, nil
+    }
+
+    surface, err := font.RenderUTF8Blended(text, color)
+    if err != nil {
+        return TextureInfo{}, err
+    }
+
+    defer surface.Free()
+
+    texture, err := renderer.CreateTextureFromSurface(surface)
+    if err != nil {
+        return TextureInfo{}, err
+    }
+
+    bounds := surface.Bounds()
+
+    info = TextureInfo{
+        Texture: texture,
+        Width: bounds.Max.X,
+        Height: bounds.Max.Y,
+    }
+
+    manager.Textures[id] = info
+
+    return info, nil
+}
+
+func drawButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, textureId TextureId, x int, y int, message string, color sdl.Color) (int, int, error) {
     buttonInside := sdl.Color{R: 64, G: 64, B: 64, A: 255}
     buttonOutline := sdl.Color{R: 32, G: 32, B: 32, A: 255}
 
+    /*
     surface, err := font.RenderUTF8Blended(message, color)
     if err != nil {
         return 0, 0, err
@@ -110,22 +193,37 @@ func drawButton(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message st
     defer texture.Destroy()
 
     surfaceBounds := surface.Bounds()
+    */
+
+    info, err := textureManager.RenderText(font, renderer, message, color, textureId)
+    if err != nil {
+        return 0, 0, err
+    }
 
     margin := 12
 
     renderer.SetDrawColor(buttonOutline.R, buttonOutline.G, buttonOutline.B, buttonOutline.A)
-    renderer.FillRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(surfaceBounds.Max.X + margin), H: int32(surfaceBounds.Max.Y + margin)})
+    renderer.FillRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(info.Width + margin), H: int32(info.Height + margin)})
 
     renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
-    renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(surfaceBounds.Max.X + margin - 3), H: int32(surfaceBounds.Max.Y + margin - 3)})
+    renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(info.Width + margin - 3), H: int32(info.Height + margin - 3)})
 
-    sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(surfaceBounds.Max.X), H: int32(surfaceBounds.Max.Y)}
+    sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(info.Width), H: int32(info.Height)}
     destRect := sourceRect
     destRect.X = int32(x + margin/2)
     destRect.Y = int32(y + margin/2)
 
-    renderer.Copy(texture, &sourceRect, &destRect)
-    return surfaceBounds.Max.X, surfaceBounds.Max.Y, nil
+    renderer.Copy(info.Texture, &sourceRect, &destRect)
+    return info.Width, info.Height, nil
+}
+
+func copyTexture(texture *sdl.Texture, renderer *sdl.Renderer, width int, height int, x int, y int) error {
+    sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(width), H: int32(height)}
+    destRect := sourceRect
+    destRect.X = int32(x)
+    destRect.Y = int32(y)
+
+    return renderer.Copy(texture, &sourceRect, &destRect)
 }
 
 func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) error {
@@ -144,14 +242,15 @@ func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message str
 
     surfaceBounds := surface.Bounds()
 
-    sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(surfaceBounds.Max.X), H: int32(surfaceBounds.Max.Y)}
-    destRect := sourceRect
-    destRect.X = int32(x)
-    destRect.Y = int32(y)
+    return copyTexture(texture, renderer, surfaceBounds.Max.X, surfaceBounds.Max.Y, x, y)
+}
 
-    renderer.Copy(texture, &sourceRect, &destRect)
-
-    return nil
+func writeFontCached(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, id TextureId, x int, y int, message string, color sdl.Color) error {
+    info, err := textureManager.RenderText(font, renderer, message, color, id)
+    if err != nil {
+        return err
+    }
+    return copyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
 }
 
 type MenuState int
@@ -196,8 +295,8 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
     loaderQuit, loaderCancel := context.WithCancel(mainQuit)
     _ = loaderCancel
 
-    /* 4 seconds worth of cycles */
-    const maxCycles = uint64(4 * nes.CPUSpeed)
+    /* 3 seconds worth of cycles */
+    const maxCycles = uint64(3 * nes.CPUSpeed)
 
     var wait sync.WaitGroup
     var generatorWait sync.WaitGroup
@@ -864,6 +963,52 @@ func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int)
     return &state
 }
 
+/* Maps a hash of a string and the 32-bit representation of a color to a texture id */
+type ButtonManager struct {
+    Ids map[uint64]map[uint32]TextureId
+    Lock sync.Mutex
+}
+
+func MakeButtonManager() ButtonManager {
+    return ButtonManager{
+        Ids: make(map[uint64]map[uint32]TextureId),
+    }
+}
+
+/* md5 the string then add up the first 8 bytes to produce a 64-bit value */
+func computeStringHash(value string) uint64 {
+    hash := md5.New().Sum([]byte(value))
+    var out uint64
+    for i := 0; i < 8; i++ {
+        out = (out << 8) + uint64(hash[i])
+    }
+
+    return out
+}
+
+func (manager *ButtonManager) GetButtonTextureId(textureManager *TextureManager, message string, color sdl.Color) TextureId {
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
+    stringHash := computeStringHash(message)
+    colorValue := (uint32(color.R) << 24) | (uint32(color.G) << 16) | (uint32(color.B) << 8) | uint32(color.A)
+
+    colorMap, ok := manager.Ids[stringHash]
+    if !ok {
+        colorMap = make(map[uint32]TextureId)
+        manager.Ids[stringHash] = colorMap
+    }
+
+    id, ok := colorMap[colorValue]
+    if ok {
+        return id
+    }
+
+    id = textureManager.NextId()
+    colorMap[colorValue] = id
+    return id
+}
+
 func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) *Menu {
     quit, cancel := context.WithCancel(mainQuit)
     menuInput := make(chan MenuInput, 5)
@@ -877,6 +1022,9 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
     }
 
     go func(menu *Menu){
+        textureManager := MakeTextureManager()
+        defer textureManager.Destroy()
+
         snowTicker := time.NewTicker(time.Second / 20)
         defer snowTicker.Stop()
 
@@ -911,6 +1059,24 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
             }
         }
 
+        buttonManager := MakeButtonManager()
+        nesEmulatorTextureId := textureManager.NextId()
+        myNameTextureId := textureManager.NextId()
+
+        /*
+        buttonTextures := [][]TextureId{
+            []TextureId{
+                textureManager.NextId(), textureManager.NextId(),
+            },
+            []TextureId{
+                textureManager.NextId(), textureManager.NextId(),
+            },
+            []TextureId{
+                textureManager.NextId(), textureManager.NextId(),
+            },
+        }
+        */
+
         makeMenuRenderer := func(choice int, maxWidth int, maxHeight int, audioEnabled bool) common.RenderFunction {
             return func(renderer *sdl.Renderer) error {
                 var err error
@@ -931,15 +1097,16 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
                     if i == choice {
                         color = yellow
                     }
-                    width, height, err := drawButton(font, renderer, x, y, button, color)
+                    textureId := buttonManager.GetButtonTextureId(textureManager, button, color)
+                    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button, color)
                     x += width + 50
                     _ = height
                     _ = err
                 }
 
                 // err = writeFont(font, renderer, 50, 50, "Quit", colors[0])
-                err = writeFont(font, renderer, maxWidth - 200, maxHeight - font.Height() * 3, "NES Emulator", white)
-                err = writeFont(font, renderer, maxWidth - 200, maxHeight - font.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
+                err = writeFontCached(font, renderer, textureManager, nesEmulatorTextureId, maxWidth - 200, maxHeight - font.Height() * 3, "NES Emulator", white)
+                err = writeFontCached(font, renderer, textureManager, myNameTextureId, maxWidth - 200, maxHeight - font.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
                 _ = err
                 return err
             }
