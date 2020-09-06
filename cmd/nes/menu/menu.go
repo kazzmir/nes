@@ -763,6 +763,8 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
 
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
+    writeFont(font, renderer, 1, 1, fmt.Sprintf("Load a rom. Roms found %v", len(loader.SortedRomIdsAndPaths)), white)
+
     layout := loader.TileLayout()
 
     overscanPixels := 8
@@ -1110,8 +1112,6 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
 
         makeLoadRomRenderer := func(maxWidth int, maxHeight int, romLoadState *RomLoaderState) common.RenderFunction {
             return func(renderer *sdl.Renderer) error {
-                white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-                writeFont(font, renderer, 1, 1, "Load a rom", white)
 
                 romLoadState.Render(maxWidth, maxHeight, font, smallFont, renderer, textureManager)
 
