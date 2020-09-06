@@ -232,7 +232,7 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
             } else if address >= 0xc000 && address <= 0xdfff {
                 /* chr bank 1 */
                 if mapper.chrBankMode == 1 {
-                    base := uint16(mapper.register) * 0x1000
+                    base := uint32(mapper.register) * 0x1000
                     if len(mapper.CharacterMemory) != 0 {
                         if int(base + 0x1000) < len(mapper.CharacterMemory) {
                             cpu.PPU.CopyCharacterRom(0x1000, mapper.CharacterMemory[base:base + 0x1000])
