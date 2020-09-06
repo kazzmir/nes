@@ -136,7 +136,9 @@ func (manager *TextureManager) Destroy() {
 
 var TextureManagerDestroyed = fmt.Errorf("texture manager has been destroyed")
 
-func (manager *TextureManager) RenderText(font *ttf.Font, renderer *sdl.Renderer, text string, color sdl.Color, id TextureId) (TextureInfo, error) {
+type TextureMaker func() (TextureInfo, error)
+
+func (manager *TextureManager) GetCachedTexture(id TextureId, makeTexture TextureMaker) (TextureInfo, error) {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
@@ -149,24 +151,10 @@ func (manager *TextureManager) RenderText(font *ttf.Font, renderer *sdl.Renderer
         return info, nil
     }
 
-    surface, err := font.RenderUTF8Blended(text, color)
+    var err error
+    info, err = makeTexture()
     if err != nil {
         return TextureInfo{}, err
-    }
-
-    defer surface.Free()
-
-    texture, err := renderer.CreateTextureFromSurface(surface)
-    if err != nil {
-        return TextureInfo{}, err
-    }
-
-    bounds := surface.Bounds()
-
-    info = TextureInfo{
-        Texture: texture,
-        Width: bounds.Max.X,
-        Height: bounds.Max.Y,
     }
 
     manager.Textures[id] = info
@@ -174,26 +162,35 @@ func (manager *TextureManager) RenderText(font *ttf.Font, renderer *sdl.Renderer
     return info, nil
 }
 
+func (manager *TextureManager) RenderText(font *ttf.Font, renderer *sdl.Renderer, text string, color sdl.Color, id TextureId) (TextureInfo, error) {
+    return manager.GetCachedTexture(id, func() (TextureInfo, error){
+        surface, err := font.RenderUTF8Blended(text, color)
+        if err != nil {
+            return TextureInfo{}, err
+        }
+
+        defer surface.Free()
+
+        texture, err := renderer.CreateTextureFromSurface(surface)
+        if err != nil {
+            return TextureInfo{}, err
+        }
+
+        bounds := surface.Bounds()
+
+        info := TextureInfo{
+            Texture: texture,
+            Width: bounds.Max.X,
+            Height: bounds.Max.Y,
+        }
+
+        return info, nil
+    })
+}
+
 func drawButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, textureId TextureId, x int, y int, message string, color sdl.Color) (int, int, error) {
     buttonInside := sdl.Color{R: 64, G: 64, B: 64, A: 255}
     buttonOutline := sdl.Color{R: 32, G: 32, B: 32, A: 255}
-
-    /*
-    surface, err := font.RenderUTF8Blended(message, color)
-    if err != nil {
-        return 0, 0, err
-    }
-
-    defer surface.Free()
-
-    texture, err := renderer.CreateTextureFromSurface(surface)
-    if err != nil {
-        return 0, 0, err
-    }
-    defer texture.Destroy()
-
-    surfaceBounds := surface.Bounds()
-    */
 
     info, err := textureManager.RenderText(font, renderer, message, color, textureId)
     if err != nil {
@@ -208,13 +205,16 @@ func drawButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureM
     renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
     renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(info.Width + margin - 3), H: int32(info.Height + margin - 3)})
 
+    err = copyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
+    /*
     sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(info.Width), H: int32(info.Height)}
     destRect := sourceRect
     destRect.X = int32(x + margin/2)
     destRect.Y = int32(y + margin/2)
 
     renderer.Copy(info.Texture, &sourceRect, &destRect)
-    return info.Width, info.Height, nil
+    */
+    return info.Width, info.Height, err
 }
 
 func copyTexture(texture *sdl.Texture, renderer *sdl.Renderer, width int, height int, x int, y int) error {
