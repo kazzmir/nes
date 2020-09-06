@@ -6,6 +6,14 @@ import (
     _ "time"
 )
 
+/* The standard size that the PPU will output */
+const VideoWidth = 256
+const VideoHeight = 240
+/* The number of pixels to hide on the top and bottom. Note
+ * that the total visible height is VideoHeight-OverscanPixels*2
+ */
+const OverscanPixels = 8
+
 type PPUState struct {
     Flags byte
     Mask byte

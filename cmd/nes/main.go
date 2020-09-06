@@ -232,11 +232,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     sdl.DisableScreenSaver()
     defer sdl.EnableScreenSaver()
 
-    /* Number of pixels on the top and bottom of the screen to hide */
-    overscanPixels := 8
-
     /* to resize the window */
-    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(256 * windowSizeMultiple), int32((240 - overscanPixels * 2) * windowSizeMultiple), sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
+    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(nes.VideoWidth * windowSizeMultiple), int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple), sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
     if err != nil {
         return err
     }
@@ -317,10 +314,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     waiter.Add(1)
     go func(){
-        buffer := nes.MakeVirtualScreen(256, 240)
+        buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
         bufferReady <- buffer
         defer waiter.Done()
-        raw_pixels := make([]byte, 256*(240-overscanPixels*2) * 4)
+        raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
         fpsCounter := 2.0
         fps := 0
         fpsTimer := time.NewTicker(time.Duration(fpsCounter) * time.Second)
@@ -335,7 +332,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         }
 
         render := func (){
-            err := doRender(256, 240-overscanPixels*2, raw_pixels, pixelFormat, renderer, renderFunc)
+            err := doRender(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, renderer, renderFunc)
             if err != nil {
                 log.Printf("Could not render: %v\n", err)
             }
@@ -348,7 +345,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 case screen := <-toDraw:
                     if canRender {
                         fps += 1
-                        common.RenderPixelsRGBA(screen, raw_pixels, overscanPixels)
+                        common.RenderPixelsRGBA(screen, raw_pixels, nes.OverscanPixels)
                         sdl.Do(render)
                     }
                     canRender = false
@@ -467,7 +464,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     recordQuit, recordCancel := context.WithCancel(mainQuit)
     if recordOnStart {
-        err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), overscanPixels, int(AudioSampleRate), &screenListeners)
+        err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
         if err != nil {
             log.Printf("Error: could not record: %v", err)
         }
@@ -602,7 +599,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                     recordCancel()
                                 } else {
                                     recordQuit, recordCancel = context.WithCancel(mainQuit)
-                                    err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), overscanPixels, int(AudioSampleRate), &screenListeners)
+                                    err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
                                     if err != nil {
                                         log.Printf("Could not record video: %v", err)
                                     }

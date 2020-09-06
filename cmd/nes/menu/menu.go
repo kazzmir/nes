@@ -356,7 +356,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
                     toDraw := make(chan nes.VirtualScreen, 1)
                     bufferReady := make(chan nes.VirtualScreen, 1)
 
-                    buffer := nes.MakeVirtualScreen(256, 240)
+                    buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
                     bufferReady <- buffer
 
                     go func(){
@@ -682,7 +682,7 @@ func (loader *RomLoaderState) TilesPerRow(maxWidth int) int {
     count := 0
     layout := loader.TileLayout()
     x := layout.XStart
-    width := 256
+    width := nes.VideoWidth
 
     for x + width / layout.Thumbnail + 5 < maxWidth {
         x += width / layout.Thumbnail + layout.XSpace
@@ -695,8 +695,7 @@ func (loader *RomLoaderState) TilesPerRow(maxWidth int) int {
 func (loader *RomLoaderState) TileRows(maxHeight int) int {
     layout := loader.TileLayout()
 
-    overscanPixels := 8
-    height := 240 - overscanPixels * 2
+    height := nes.VideoHeight - nes.OverscanPixels * 2
 
     y := layout.YStart
     count := 0
@@ -767,8 +766,8 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     layout := loader.TileLayout()
 
     overscanPixels := 8
-    width := 256
-    height := 240-overscanPixels*2
+    width := nes.VideoWidth
+    height := nes.VideoHeight-nes.OverscanPixels*2
     x := layout.XStart
     y := layout.YStart
 
@@ -788,7 +787,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     pixelFormat := common.FindPixelFormat()
 
     /* if the rom doesn't have any frames loaded then show a blank thumbnail */
-    blankScreen := nes.MakeVirtualScreen(256, 240)
+    blankScreen := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
     blankScreen.ClearToColor(0, 0, 0)
 
     outlineSize := 3
