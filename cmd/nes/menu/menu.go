@@ -842,6 +842,8 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         }
     }
 
+    const MaxNameSize = 15
+
     for _, romIdAndPath := range loader.SortedRomIdsAndPaths[start:end+1] {
         info := loader.Roms[romIdAndPath.Id]
         frame, has := info.GetFrame()
@@ -861,8 +863,8 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         doRender(width, height, raw_pixels, x, y, width / layout.Thumbnail, height / layout.Thumbnail, pixelFormat, renderer)
 
         name := filepath.Base(info.Path)
-        if len(name) > 15 {
-            name = fmt.Sprintf("%v..", name[0:13])
+        if len(name) > MaxNameSize {
+            name = fmt.Sprintf("%v..", name[0:MaxNameSize-2])
         }
 
         writeFont(smallFont, renderer, x, y + height / layout.Thumbnail + 1, name, white)
