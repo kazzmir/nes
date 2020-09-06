@@ -657,19 +657,35 @@ func (loader *RomLoaderState) MaximumTiles() int {
     return loader.TilesPerRow(loader.WindowSizeWidth) * loader.TileRows(loader.WindowSizeHeight)
 }
 
-func (loader *RomLoaderState) TilesPerRow(maxWidth int) int {
-    /* FIXME: this grossly reuses the logic and constants from the Render() method.
-     * come up with a cleaner way to compute the layout
-     */
-    count := 0
-    startingXPosition := 50
-    x := startingXPosition
-    width := 256
-    thumbnail := 3
-    xSpacing := 20
+type TileLayout struct {
+    /* Where the first tile starts */
+    XStart int
+    YStart int
+    /* How much to increase x/y by for each tile */
+    XSpace int
+    YSpace int
+    /* amount to divide the nes screen by to make a thumbnail */
+    Thumbnail int
+}
 
-    for x + width / thumbnail + 5 < maxWidth {
-        x += width / thumbnail + xSpacing
+func (loader *RomLoaderState) TileLayout() TileLayout {
+    return TileLayout{
+        XStart: 50,
+        YStart: 80,
+        XSpace: 20,
+        YSpace: 25,
+        Thumbnail: 2,
+    }
+}
+
+func (loader *RomLoaderState) TilesPerRow(maxWidth int) int {
+    count := 0
+    layout := loader.TileLayout()
+    x := layout.XStart
+    width := 256
+
+    for x + width / layout.Thumbnail + 5 < maxWidth {
+        x += width / layout.Thumbnail + layout.XSpace
         count += 1
     }
 
@@ -677,16 +693,15 @@ func (loader *RomLoaderState) TilesPerRow(maxWidth int) int {
 }
 
 func (loader *RomLoaderState) TileRows(maxHeight int) int {
-    startingYPosition := 80
-    ySpacing := 15
+    layout := loader.TileLayout()
+
     overscanPixels := 8
     height := 240 - overscanPixels * 2
 
-    y := startingYPosition
+    y := layout.YStart
     count := 0
-    thumbnail := 3
 
-    yDiff := height / thumbnail + ySpacing
+    yDiff := height / layout.Thumbnail + layout.YSpace
     for y + yDiff < maxHeight {
         count += 1
         y += yDiff
@@ -749,15 +764,13 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
 
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
+    layout := loader.TileLayout()
+
     overscanPixels := 8
     width := 256
     height := 240-overscanPixels*2
-    startingXPosition := 50
-    startingYPosition := 80
-    xSpacing := 20
-    ySpacing := 15
-    x := startingXPosition
-    y := startingYPosition
+    x := layout.XStart
+    y := layout.YStart
 
     selectedIndex := -1
     selectedId := RomId(0)
@@ -778,7 +791,6 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     blankScreen := nes.MakeVirtualScreen(256, 240)
     blankScreen.ClearToColor(0, 0, 0)
 
-    thumbnail := 3
     outlineSize := 3
 
     start := loader.MinRenderIndex
@@ -836,28 +848,30 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
             frame = blankScreen
         }
 
+        /* Highlight the selected rom with a yellow outline */
         if selectedId == romIdAndPath.Id {
             renderer.SetDrawColor(255, 255, 0, 255)
-            rect := sdl.Rect{X: int32(x-outlineSize), Y: int32(y-outlineSize), W: int32(width / thumbnail + outlineSize*2), H: int32(height / thumbnail + outlineSize*2)}
+            rect := sdl.Rect{X: int32(x-outlineSize), Y: int32(y-outlineSize), W: int32(width / layout.Thumbnail + outlineSize*2), H: int32(height / layout.Thumbnail + outlineSize*2)}
             renderer.FillRect(&rect)
         }
 
+        /* FIXME: cache these textures with the texture manager */
         common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
-        doRender(width, height, raw_pixels, x, y, width / thumbnail, height / thumbnail, pixelFormat, renderer)
+        doRender(width, height, raw_pixels, x, y, width / layout.Thumbnail, height / layout.Thumbnail, pixelFormat, renderer)
 
         name := filepath.Base(info.Path)
         if len(name) > 15 {
             name = fmt.Sprintf("%v..", name[0:13])
         }
 
-        writeFont(smallFont, renderer, x, y + height / thumbnail + 1, name, white)
+        writeFont(smallFont, renderer, x, y + height / layout.Thumbnail + 1, name, white)
 
-        x += width / thumbnail + xSpacing
-        if x + width / thumbnail + 5 > maxWidth {
-            x = startingXPosition
-            y += height / thumbnail + ySpacing
+        x += width / layout.Thumbnail + layout.XSpace
+        if x + width / layout.Thumbnail + 5 > maxWidth {
+            x = layout.XStart
+            y += height / layout.Thumbnail + layout.YSpace
 
-            if y + height / thumbnail > maxHeight {
+            if y + height / layout.Thumbnail > maxHeight {
                 break
             }
         }
