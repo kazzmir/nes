@@ -94,6 +94,9 @@ func copySnow(snow []Snow) []Snow {
     return out
 }
 
+/* We could juse use sdl.Texture.Query() to get the width/height. The downsides
+ * of doing that are that it involves an extra cgo call.
+ */
 type TextureInfo struct {
     Texture *sdl.Texture
     Width int
@@ -206,14 +209,7 @@ func drawButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureM
     renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(info.Width + margin - 3), H: int32(info.Height + margin - 3)})
 
     err = copyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
-    /*
-    sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(info.Width), H: int32(info.Height)}
-    destRect := sourceRect
-    destRect.X = int32(x + margin/2)
-    destRect.Y = int32(y + margin/2)
 
-    renderer.Copy(info.Texture, &sourceRect, &destRect)
-    */
     return info.Width, info.Height, err
 }
 
@@ -473,6 +469,7 @@ type RomLoaderState struct {
     Lock sync.Mutex
 
     Arrow image.Image
+    ArrowId TextureId
 
     /* Keep track of which tile to start with when rendering the rows
      * in the loading screen, and the last tile to render.
@@ -714,18 +711,6 @@ func renderDownArrow(x int, y int, texture *sdl.Texture, renderer *sdl.Renderer)
     }
 }
 
-func renderUpArrow2(x int, y int, renderer *sdl.Renderer){
-    rect := sdl.Rect{X: int32(x), Y: int32(y), W: 10, H: 10}
-    renderer.SetDrawColor(255, 255, 255, 255)
-    renderer.FillRect(&rect)
-}
-
-func renderDownArrow2(x int, y int, renderer *sdl.Renderer){
-    rect := sdl.Rect{X: int32(x), Y: int32(y), W: 10, H: 10}
-    renderer.SetDrawColor(255, 255, 255, 255)
-    renderer.FillRect(&rect)
-}
-
 /* FIXME: cache the resulting texture */
 func imageToTexture(data image.Image, renderer *sdl.Renderer) (*sdl.Texture, error) {
     /* encode image to bmp to a raw memory stream
@@ -757,7 +742,7 @@ func imageToTexture(data image.Image, renderer *sdl.Renderer) (*sdl.Texture, err
     return renderer.CreateTextureFromSurface(surface)
 }
 
-func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer) {
+func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager) {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
@@ -806,30 +791,41 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         end = len(loader.SortedRomIdsAndPaths) - 1
     }
 
-    var arrowTexture *sdl.Texture
-
-    if loader.Arrow != nil {
-        arrowTexture, err = imageToTexture(loader.Arrow, renderer)
-        if err != nil {
-            log.Printf("Could not create arrow texture: %v", err)
+    arrowInfo, _ := textureManager.GetCachedTexture(loader.ArrowId, func() (TextureInfo, error){
+        if loader.Arrow != nil {
+            arrowTexture, err := imageToTexture(loader.Arrow, renderer)
+            if err != nil {
+                return TextureInfo{}, err
+            } else {
+                _, _, width, height, err := arrowTexture.Query()
+                if err != nil {
+                    arrowTexture.Destroy()
+                    return TextureInfo{}, err
+                }
+                return TextureInfo{
+                    Texture: arrowTexture,
+                    Width: int(width),
+                    Height: int(height),
+                }, nil
+            }
         } else {
-            defer arrowTexture.Destroy()
+            return TextureInfo{}, fmt.Errorf("No arrow image")
         }
-    }
+    })
 
     if loader.MinRenderIndex != 0 {
-        if arrowTexture != nil {
-            renderUpArrow(10, 30, arrowTexture, renderer)
+        if arrowInfo.Texture != nil {
+            renderUpArrow(10, 30, arrowInfo.Texture, renderer)
         }
     }
 
     if loader.MinRenderIndex + loader.MaximumTiles() < len(loader.SortedRomIdsAndPaths) {
-        if arrowTexture != nil {
+        if arrowInfo.Texture != nil {
             downY := maxHeight - 50
             if downY < 30 {
                 downY = 30
             }
-            renderDownArrow(10, downY, arrowTexture, renderer)
+            renderDownArrow(10, downY, arrowInfo.Texture, renderer)
         }
     }
 
@@ -927,7 +923,7 @@ func loadPng(path string) (image.Image, error) {
     return png.Decode(file)
 }
 
-func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int) *RomLoaderState {
+func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int, arrowId TextureId) *RomLoaderState {
     arrow, err := loadPng("data/arrow.png")
     if err != nil {
         log.Printf("Could not load arrow image: %v", err)
@@ -941,6 +937,7 @@ func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int)
         WindowSizeWidth: windowWidth,
         WindowSizeHeight: windowHeight,
         Arrow: arrow,
+        ArrowId: arrowId,
     }
 
     go func(){
@@ -1063,20 +1060,6 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
         nesEmulatorTextureId := textureManager.NextId()
         myNameTextureId := textureManager.NextId()
 
-        /*
-        buttonTextures := [][]TextureId{
-            []TextureId{
-                textureManager.NextId(), textureManager.NextId(),
-            },
-            []TextureId{
-                textureManager.NextId(), textureManager.NextId(),
-            },
-            []TextureId{
-                textureManager.NextId(), textureManager.NextId(),
-            },
-        }
-        */
-
         makeMenuRenderer := func(choice int, maxWidth int, maxHeight int, audioEnabled bool) common.RenderFunction {
             return func(renderer *sdl.Renderer) error {
                 var err error
@@ -1117,7 +1100,7 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
                 white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
                 writeFont(font, renderer, 1, 1, "Load a rom", white)
 
-                romLoadState.Render(maxWidth, maxHeight, font, smallFont, renderer)
+                romLoadState.Render(maxWidth, maxHeight, font, smallFont, renderer, textureManager)
 
                 return nil
             }
@@ -1178,7 +1161,7 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
                                                 menuState = MenuStateLoadRom
                                                 loadRomQuit, loadRomCancel = context.WithCancel(mainQuit)
 
-                                                romLoaderState = MakeRomLoaderState(loadRomQuit, windowSize.X, windowSize.Y)
+                                                romLoaderState = MakeRomLoaderState(loadRomQuit, windowSize.X, windowSize.Y, textureManager.NextId())
                                                 go romLoader(loadRomQuit, romLoaderState)
 
                                                 menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
