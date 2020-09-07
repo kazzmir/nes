@@ -513,6 +513,17 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
     return nil
 }
 
+func (mapper *Mapper4) Scanline() {
+    if mapper.irqCounter == 0 {
+        mapper.irqCounter = mapper.irqReload
+    } else {
+        mapper.irqCounter -= 1
+        if mapper.irqCounter == 0 && mapper.irqEnabled {
+            mapper.irqPending = true
+        }
+    }
+}
+
 func MakeMapper4(programRom []byte, chrMemory []byte) Mapper {
     pageSize := uint16(0x2000)
     pages := len(programRom) / int(pageSize)

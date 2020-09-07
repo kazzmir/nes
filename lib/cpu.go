@@ -4045,7 +4045,7 @@ func (cpu *CPUState) Interrupt() {
     cpu.PC = (high<<8) | low
     cpu.Cycle += 7
 
-    log.Printf("cpu: interrupt at 0x%x", cpu.PC)
+    // log.Printf("cpu: interrupt at 0x%x", cpu.PC)
 }
 
 /* NMI was set, so jump to the NMI routine */
