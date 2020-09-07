@@ -16,3 +16,5 @@ make-screenshot:
 
 count:
 	wc -l `find cmd -name "*.go"` `find lib -name "*.go"` `find test -name "*.go"` `find util -name "*.go"`
+
+all: nes nsf make-screenshot test
