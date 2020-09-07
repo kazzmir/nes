@@ -3988,7 +3988,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 }
 
 func (cpu *CPUState) IsIRQAsserted() bool {
-    return cpu.APU.IsIRQAsserted()
+    return cpu.APU.IsIRQAsserted() || (cpu.Mapper != nil && cpu.Mapper.IsIRQAsserted())
 }
 
 func (cpu *CPUState) Reset() {

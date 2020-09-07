@@ -51,6 +51,7 @@ import (
 type Mapper interface {
     Write(cpu *CPUState, address uint16, value byte) error
     Read(address uint16) byte
+    IsIRQAsserted() bool
 }
 
 func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, error) {
@@ -71,6 +72,10 @@ type Mapper0 struct {
 
 func (mapper *Mapper0) Write(cpu *CPUState, address uint16, value byte) error {
     return fmt.Errorf("mapper0 does not support bank switching at address 0x%x: 0x%x", address, value)
+}
+
+func (mapper *Mapper0) IsIRQAsserted() bool {
+    return false
 }
 
 func (mapper *Mapper0) Read(address uint16) byte {
@@ -151,6 +156,10 @@ func (mapper *Mapper1) Read(address uint16) byte {
     }
 
     return 0
+}
+
+func (mapper *Mapper1) IsIRQAsserted() bool {
+    return false
 }
 
 func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
@@ -279,6 +288,10 @@ type Mapper2 struct {
     bank byte
 }
 
+func (mapper *Mapper2) IsIRQAsserted() bool {
+    return false
+}
+
 func (mapper *Mapper2) Read(address uint16) byte {
     if address < 0xc000 {
         offset := uint32(address - 0x8000)
@@ -311,6 +324,10 @@ type Mapper3 struct {
     BankMemory []byte
 }
 
+func (mapper *Mapper3) IsIRQAsserted() bool {
+    return false
+}
+
 func (mapper *Mapper3) Read(address uint16) byte {
     if address >= 0x8000 {
         offset := address - 0x8000
@@ -341,6 +358,11 @@ type Mapper4 struct {
 
     lastBank int
 
+    irqEnabled bool
+    irqReload byte
+    irqCounter byte
+    irqPending bool
+
     chrMode byte
     prgMode byte
     /* used to select which of the chrRegister/prgRegister to write to */
@@ -348,6 +370,10 @@ type Mapper4 struct {
 
     chrRegister [6]byte
     prgRegister [2]byte
+}
+
+func (mapper *Mapper4) IsIRQAsserted() bool {
+    return mapper.irqPending
 }
 
 func (mapper *Mapper4) ProgramBlock(page byte) ([]byte, error) {
@@ -472,13 +498,14 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
             log.Printf("FIXME: mapper4: implement prg ram protect 0xa001")
             break
         case 0xc000:
-            log.Printf("FIXME: mapper4: implement irq reload 0xc000")
+            mapper.irqReload = value
         case 0xc001:
-            log.Printf("FIXME: mapper4: implement irq set to 0 0xc001")
+            mapper.irqCounter = value
         case 0xe000:
-            log.Printf("FIXME: mapper4: implement clear irq enable and pending 0xe000")
+            mapper.irqEnabled = false
+            mapper.irqPending = false
         case 0xe001:
-            log.Printf("FIXME: mapper4: implement set irq enable flag 0xe001")
+            mapper.irqEnabled = true
         default:
             log.Printf("FIXME: unknown mapper4 write to 0x%x with 0x%x", address, value)
     }
@@ -505,6 +532,10 @@ type Mapper9 struct {
 
     prgRegister byte
     chrRegister [4]byte
+}
+
+func (mapper *Mapper9) IsIRQAsserted() bool {
+    return false
 }
 
 func (mapper *Mapper9) ReadBank(offset uint16, bank int) byte {
