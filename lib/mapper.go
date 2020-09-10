@@ -495,7 +495,7 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
             }
         case 0xa001:
             /* prg ram protect */
-            log.Printf("FIXME: mapper4: implement prg ram protect 0xa001")
+            log.Printf("FIXME: mapper4: implement prg ram protect 0xa001 value 0x%x", value)
             break
         case 0xc000:
             mapper.irqReload = value

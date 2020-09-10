@@ -1263,7 +1263,9 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
             ppu.ScanlineCycle = 0
             ppu.Scanline += 1
 
-            ppu.UpdateMapper4Scanline(mapper)
+            if ppu.Scanline < 240 {
+                ppu.UpdateMapper4Scanline(mapper)
+            }
 
             /* Load the sprites for the next scanline */
             if ppu.IsSpriteEnabled() && ppu.Scanline < 240 {
@@ -1289,6 +1291,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
 
             if ppu.Scanline == 261 {
                 ppu.SetSpriteZeroHit(false)
+                ppu.UpdateMapper4Scanline(mapper)
             }
 
             /* Prerender line */
