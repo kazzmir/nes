@@ -462,7 +462,6 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
         return nil
     }
 
-
     // log.Printf("mapper4: write to 0x%x value 0x%x", address, value)
     switch address {
         case 0x8000:

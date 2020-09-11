@@ -1263,7 +1263,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
             ppu.ScanlineCycle = 0
             ppu.Scanline += 1
 
-            if ppu.Scanline < 240 {
+            if (ppu.IsSpriteEnabled() || ppu.IsBackgroundEnabled()) && ppu.Scanline < 240 {
                 ppu.UpdateMapper4Scanline(mapper)
             }
 
@@ -1291,7 +1291,10 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
 
             if ppu.Scanline == 261 {
                 ppu.SetSpriteZeroHit(false)
-                ppu.UpdateMapper4Scanline(mapper)
+
+                if ppu.IsSpriteEnabled() || ppu.IsBackgroundEnabled() {
+                    ppu.UpdateMapper4Scanline(mapper)
+                }
             }
 
             /* Prerender line */
