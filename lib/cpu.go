@@ -3988,7 +3988,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 }
 
 func (cpu *CPUState) IsIRQAsserted() bool {
-    return cpu.APU.IsIRQAsserted()
+    return cpu.APU.IsIRQAsserted() || (cpu.Mapper != nil && cpu.Mapper.IsIRQAsserted())
 }
 
 func (cpu *CPUState) Reset() {
@@ -4045,7 +4045,7 @@ func (cpu *CPUState) Interrupt() {
     cpu.PC = (high<<8) | low
     cpu.Cycle += 7
 
-    log.Printf("cpu: interrupt at 0x%x", cpu.PC)
+    // log.Printf("cpu: interrupt at 0x%x", cpu.PC)
 }
 
 /* NMI was set, so jump to the NMI routine */
