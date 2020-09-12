@@ -1189,7 +1189,15 @@ func (ppu *PPUState) PreloadTiles() {
     ppu.LoadBackgroundTile()
 }
 
-func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
+/* A bit of a hack, maybe make this more elegant later */
+func (ppu *PPUState) UpdateMapper4Scanline(mapper Mapper){
+    mapper4, ok := mapper.(*Mapper4)
+    if ok {
+        mapper4.Scanline()
+    }
+}
+
+func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bool, bool) {
     /* http://wiki.nesdev.com/w/index.php/PPU_rendering */
     oldNMI := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
     didDraw := false
@@ -1255,6 +1263,10 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
             ppu.ScanlineCycle = 0
             ppu.Scanline += 1
 
+            if (ppu.IsSpriteEnabled() || ppu.IsBackgroundEnabled()) && ppu.Scanline < 240 {
+                ppu.UpdateMapper4Scanline(mapper)
+            }
+
             /* Load the sprites for the next scanline */
             if ppu.IsSpriteEnabled() && ppu.Scanline < 240 {
                 sprites := ppu.GetSprites()
@@ -1279,6 +1291,10 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
 
             if ppu.Scanline == 261 {
                 ppu.SetSpriteZeroHit(false)
+
+                if ppu.IsSpriteEnabled() || ppu.IsBackgroundEnabled() {
+                    ppu.UpdateMapper4Scanline(mapper)
+                }
             }
 
             /* Prerender line */

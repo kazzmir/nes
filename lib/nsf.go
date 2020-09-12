@@ -159,6 +159,10 @@ func (mapper *NSFMapper) Read(address uint16) byte {
     return mapper.Data[use]
 }
 
+func (mapper *NSFMapper) IsIRQAsserted() bool {
+    return false
+}
+
 func MakeNSFMapper(data []byte, loadAddress uint16) Mapper {
     return &NSFMapper{
         Data: data,
