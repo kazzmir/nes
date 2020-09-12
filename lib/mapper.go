@@ -363,6 +363,9 @@ type Mapper4 struct {
     irqCounter byte
     irqPending bool
 
+    wramEnabled bool
+    wramWrite bool
+
     chrMode byte
     prgMode byte
     /* used to select which of the chrRegister/prgRegister to write to */
@@ -402,7 +405,13 @@ func (mapper *Mapper4) ReadBank(offset uint16, bank int) byte {
 
 func (mapper *Mapper4) Read(address uint16) byte {
     if address >= 0x6000 && address < 0x8000 {
-        return mapper.SaveRam[address - 0x6000]
+
+        if mapper.wramEnabled {
+            use := address - 0x6000
+            return mapper.SaveRam[use]
+        }
+
+        return 0
     }
 
     switch mapper.prgMode {
@@ -471,7 +480,13 @@ func (mapper *Mapper4) SetChrBank(ppu *PPUState) error {
 
 func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
     if address >= 0x6000 && address < 0x8000 {
-        mapper.SaveRam[address - 0x6000] = value
+
+        address -= 0x6000
+
+        if mapper.wramEnabled && mapper.wramWrite {
+            mapper.SaveRam[address] = value
+        }
+
         return nil
     }
 
@@ -480,6 +495,7 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
         case 0x8000:
             mapper.chrMode = (value >> 7) & 0x1
             mapper.prgMode = (value >> 6) & 0x1
+
             mapper.registerIndex = value & 0x7
             mapper.SetChrBank(&cpu.PPU)
         case 0x8001:
@@ -507,7 +523,10 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
             }
         case 0xa001:
             /* prg ram protect */
-            log.Printf("FIXME: mapper4: implement prg ram protect 0xa001 value 0x%x", value)
+
+            mapper.wramEnabled = (value >> 7) & 0x1 == 0x1
+            mapper.wramWrite = (value >> 6) & 0x1 == 0
+
             break
         case 0xc000:
             mapper.irqReload = value
