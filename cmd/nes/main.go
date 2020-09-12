@@ -221,7 +221,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     rand.Seed(randomSeed)
 
     // force a software renderer
-    // sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
+    if !util.HasGlxinfo() {
+        sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
+    }
 
     err = sdl.Init(sdl.INIT_EVERYTHING)
     if err != nil {
