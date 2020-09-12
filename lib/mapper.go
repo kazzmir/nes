@@ -389,7 +389,15 @@ func (mapper *Mapper4) ProgramBlock(page byte) ([]byte, error) {
 
 func (mapper *Mapper4) ReadBank(offset uint16, bank int) byte {
     base := bank * 0x2000
-    return mapper.ProgramRom[uint32(base)+uint32(offset)]
+
+    address := uint32(base)+uint32(offset)
+
+    if address < uint32(len(mapper.ProgramRom)){
+        return mapper.ProgramRom[address]
+    } else {
+        log.Printf("mapper4: Warning: reading out of bounds address 0x%x >= 0x%x", address, len(mapper.ProgramRom))
+        return 0
+    }
 }
 
 func (mapper *Mapper4) Read(address uint16) byte {
@@ -430,7 +438,12 @@ func (mapper *Mapper4) CharacterBlock(length uint32, page byte) []byte {
     /* Kind of weird but I guess a page is always 0x400 (1k) bytes */
     base := uint32(page) * 0x400
     // log.Printf("mapper4: character rom bank page 0x%x at 0x%x - 0x%x", page, base, base + length)
-    return mapper.CharacterRom[base:base+length]
+    if base+length <= uint32(len(mapper.CharacterRom)) {
+        return mapper.CharacterRom[base:base+length]
+    } else {
+        log.Printf("mapper4: warning: attempting to read out of bounds chr memory 0x%x to 0x%x, maximum 0x%x", base, base+length, len(mapper.CharacterRom))
+        return nil
+    }
 }
 
 func (mapper *Mapper4) SetChrBank(ppu *PPUState) error {
