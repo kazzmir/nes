@@ -38,7 +38,7 @@ O = stop the emulator after each frame, press O repeatedly
 
 Build instructions:
 
-Get go 1.14.x, currently 1.15 has a bug such that the compiler will crash (https://github.com/golang/go/issues/40746)
+Use go 1.15.2 or above, or go 1.14. Go 1.15 and 1.15.1 have a bug that crash the compiler: https://github.com/golang/go/issues/40746
 
 Install libSDL2 and libSDL2-ttf
 ```
