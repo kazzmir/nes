@@ -9,6 +9,7 @@ import (
     "log"
     "strconv"
     "os"
+    "os/signal"
     "path/filepath"
     "math/rand"
 
@@ -273,6 +274,18 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     mainQuit, mainCancel := context.WithCancel(context.Background())
     defer mainCancel()
+
+    signalChannel := make(chan os.Signal, 10)
+    signal.Notify(signalChannel, os.Interrupt)
+
+    go func(){
+        select {
+            case <-mainQuit.Done():
+            case <-signalChannel:
+                log.Printf("Shutting down")
+                mainCancel()
+        }
+    }()
 
     toDraw := make(chan nes.VirtualScreen, 1)
     bufferReady := make(chan nes.VirtualScreen, 1)
