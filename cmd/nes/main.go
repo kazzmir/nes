@@ -341,7 +341,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         select {
             case <-mainQuit.Done():
             case <-signalChannel:
-                log.Printf("Shutting down")
+                log.Printf("Shutting down due to signal")
                 mainCancel()
         }
     }()
