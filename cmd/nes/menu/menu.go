@@ -56,6 +56,7 @@ const (
     MenuActionQuit = iota
     MenuActionLoadRom
     MenuActionSound
+    MenuActionJoystick
 )
 
 type Snow struct {
@@ -1023,7 +1024,179 @@ func (manager *ButtonManager) GetButtonTextureId(textureManager *TextureManager,
     return id
 }
 
-func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) *Menu {
+func MakeMenu(mainQuit context.Context, font *ttf.Font) Menu {
+    quit, cancel := context.WithCancel(mainQuit)
+    menuInput := make(chan MenuInput, 5)
+    return Menu{
+        active: false,
+        quit: quit,
+        cancel: cancel,
+        font: font,
+        Input: menuInput,
+    }
+}
+
+func (menu *Menu) Run(window *sdl.Window, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
+
+    windowSizeUpdates := make(chan common.WindowSize, 10)
+
+    /* Render function */
+    go func(){
+    }()
+
+    eventFunction := func(){
+        event := sdl.WaitEventTimeout(1)
+        if event != nil {
+            // log.Printf("Event %+v\n", event)
+            switch event.GetType() {
+                case sdl.WINDOWEVENT:
+                    window_event := event.(*sdl.WindowEvent)
+                    switch window_event.Event {
+                        case sdl.WINDOWEVENT_EXPOSED:
+                            select {
+                                case renderNow <- true:
+                                default:
+                            }
+                        case sdl.WINDOWEVENT_RESIZED:
+                            // log.Printf("Window resized")
+
+                    }
+
+                    width, height := window.GetSize()
+                    /* Not great but tolerate not updating the system when the window changes */
+                    select {
+                        case windowSizeUpdates <- common.WindowSize{X: int(width), Y: int(height)}:
+                        default:
+                            log.Printf("Warning: dropping a window event")
+                    }
+
+                case sdl.KEYDOWN:
+                    keyboard_event := event.(*sdl.KeyboardEvent)
+                    // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
+                    quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
+
+                    if quit_pressed {
+                        menu.cancel()
+                    }
+            }
+        }
+    }
+
+    go func(){
+        snowTicker := time.NewTicker(time.Second / 20)
+        defer snowTicker.Stop()
+
+        var snow []Snow
+
+        baseRenderer := func(renderer *sdl.Renderer) error {
+            err := renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
+            _ = err
+            renderer.SetDrawColor(32, 0, 0, 192)
+            renderer.FillRect(nil)
+            return nil
+        }
+
+        makeSnowRenderer := func(snowflakes []Snow) common.RenderFunction {
+            snowCopy := copySnow(snowflakes)
+            return func(renderer *sdl.Renderer) error {
+                for _, snow := range snowCopy {
+                    c := snow.color
+                    renderer.SetDrawColor(c, c, c, 255)
+                    renderer.DrawPoint(int32(snow.x), int32(snow.y))
+                }
+                return nil
+            }
+        }
+
+        var windowSize common.WindowSize
+
+        wind := rand.Float32() - 0.5
+        snowRenderer := makeSnowRenderer(nil)
+
+        /* Reset the default renderer */
+        for {
+            updateRender := false
+            select {
+                case <-menu.quit.Done():
+                    return
+
+                case windowSize = <-windowSizeUpdates:
+
+                case <-snowTicker.C:
+                    if len(snow) < 300 {
+                        snow = append(snow, MakeSnow(windowSize.X))
+                    }
+
+                    wind += (rand.Float32() - 0.5) / 4
+                    if wind < -1 {
+                        wind = -1
+                    }
+                    if wind > 1 {
+                        wind = 1
+                    }
+
+                    for i := 0; i < len(snow); i++ {
+                        snow[i].truey += snow[i].fallSpeed
+                        snow[i].truex += wind
+                        snow[i].x = snow[i].truex + float32(math.Cos(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
+                        // snow[i].y = snow[i].truey + float32(-math.Sin(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
+                        snow[i].y = snow[i].truey
+                        snow[i].angle += float32(snow[i].direction) * snow[i].speed
+
+                        if snow[i].y > float32(windowSize.Y) {
+                            snow[i] = MakeSnow(windowSize.X)
+                        }
+
+                        if snow[i].angle < 0 {
+                            snow[i].angle = 0
+                            snow[i].direction = -snow[i].direction
+                        }
+                        if snow[i].angle >= 180  {
+                            snow[i].angle = 180
+                            snow[i].direction = -snow[i].direction
+                        }
+
+                        newColor := int(snow[i].color) + rand.Intn(11) - 5
+                        if newColor > 255 {
+                            newColor = 255
+                        }
+                        if newColor < 40 {
+                            newColor = 40
+                        }
+
+                        snow[i].color = uint8(newColor)
+                    }
+
+                    snowRenderer = makeSnowRenderer(snow)
+                    updateRender = true
+            }
+
+            if updateRender {
+                /* If there is a graphics update then send it to the renderer */
+                select {
+                    case renderFuncUpdate <- chainRenders(baseRenderer, snowRenderer):
+                    default:
+                }
+            }
+        }
+    }()
+
+    sdl.Do(func(){
+        width, height := window.GetSize()
+        windowSizeUpdates <- common.WindowSize{
+            X: int(width),
+            Y: int(height),
+        }
+    })
+
+    log.Printf("Running the menu")
+    for menu.quit.Err() == nil {
+        sdl.Do(eventFunction)
+    }
+    log.Printf("Menu is done")
+}
+
+func MakeMenu2(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) *Menu {
     quit, cancel := context.WithCancel(mainQuit)
     menuInput := make(chan MenuInput, 5)
 
@@ -1042,7 +1215,7 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
         snowTicker := time.NewTicker(time.Second / 20)
         defer snowTicker.Stop()
 
-        choices := []MenuAction{MenuActionQuit, MenuActionLoadRom, MenuActionSound}
+        choices := []MenuAction{MenuActionQuit, MenuActionLoadRom, MenuActionSound, MenuActionJoystick}
         choice := 0
 
         var snow []Snow
@@ -1088,7 +1261,7 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
                     sound = "Sound disabled"
                 }
 
-                buttons := []string{"Quit", "Load ROM", sound}
+                buttons := []string{"Quit", "Load ROM", sound, "Joystick"}
 
                 x := 50
                 y := 50
@@ -1187,6 +1360,7 @@ func MakeMenu(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, ren
                                                 audio = !audio
                                                 menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
                                                 updateRender = true
+                                            case MenuActionJoystick:
                                         }
                                     }
                             }

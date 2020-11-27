@@ -363,6 +363,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     canRender = false
                     bufferReady <- screen
                 case newFunction := <-renderFuncUpdate:
+                    if newFunction == nil {
+                        newFunction = func(renderer *sdl.Renderer) error {
+                            return nil
+                        }
+                    }
                     renderFunc = newFunction
                     sdl.Do(render)
                 case <-renderNow:
@@ -494,16 +499,18 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
      * Where the reader gets the <-chan and the writer gets the chan<-
      */
     /* Notify the menu when the window changes size */
+    /*
     windowSizeUpdates := make(chan common.WindowSize, 10)
     windowSizeUpdatesInput := (<-chan common.WindowSize)(windowSizeUpdates)
     windowSizeUpdatesOutput := (chan<- common.WindowSize)(windowSizeUpdates)
+    */
 
     /* Actions done in the menu that should affect the program */
     programActions := make(chan common.ProgramActions, 2)
     programActionsInput := (<-chan common.ProgramActions)(programActions)
     programActionsOutput := (chan<- common.ProgramActions)(programActions)
 
-    theMenu := menu.MakeMenu(font, smallFont, mainQuit, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
+    // theMenu := menu.MakeMenu(font, smallFont, mainQuit, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
 
     go func(){
         for {
@@ -551,6 +558,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         }
     }()
 
+    doMenu := make(chan bool, 5)
+
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
         if event != nil {
@@ -570,22 +579,29 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
                     }
 
+                    /*
                     width, height := window.GetSize()
-                    /* Not great but tolerate not updating the system when the window changes */
+                    / * Not great but tolerate not updating the system when the window changes * /
                     select {
                         case windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}:
                         default:
                             log.Printf("Warning: dropping a window event")
                     }
+                    */
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
 
                     if quit_pressed {
-                        theMenu.Input <- menu.MenuToggle
+                        select {
+                            case doMenu <- true:
+                        }
+
+                        // theMenu.Input <- menu.MenuToggle
                     }
 
+                    /*
                     if theMenu.IsActive() {
                         switch keyboard_event.Keysym.Scancode {
                             case sdl.SCANCODE_LEFT, sdl.SCANCODE_H:
@@ -600,6 +616,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                 theMenu.Input <- menu.MenuSelect
                         }
                     } else {
+                        */
                         switch keyboard_event.Keysym.Scancode {
                             case turboKey:
                                 select {
@@ -651,16 +668,14 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                 log.Printf("Hard reset")
                                 nesChannel <- &NesActionRestart{}
                         }
-                    }
+                    // }
                 case sdl.KEYUP:
-                    if !theMenu.IsActive() {
-                        keyboard_event := event.(*sdl.KeyboardEvent)
-                        scancode := keyboard_event.Keysym.Scancode
-                        if scancode == turboKey || scancode == pauseKey {
-                            select {
-                                case emulatorActionsOutput <- common.EmulatorNormal:
-                                default:
-                            }
+                    keyboard_event := event.(*sdl.KeyboardEvent)
+                    scancode := keyboard_event.Keysym.Scancode
+                    if scancode == turboKey || scancode == pauseKey {
+                        select {
+                            case emulatorActionsOutput <- common.EmulatorNormal:
+                            default:
                         }
                     }
             }
@@ -668,7 +683,16 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
 
     for mainQuit.Err() == nil {
-        sdl.Do(eventFunction)
+        select {
+            case <-doMenu:
+                activeMenu := menu.MakeMenu(mainQuit, font)
+                emulatorActionsOutput <- common.EmulatorSetPause
+                activeMenu.Run(window, programActionsOutput, renderNow, renderFuncUpdate)
+                emulatorActionsOutput <- common.EmulatorUnpause
+                renderFuncUpdate <- nil
+            default:
+                sdl.Do(eventFunction)
+        }
     }
 
     log.Printf("Waiting to quit..")
