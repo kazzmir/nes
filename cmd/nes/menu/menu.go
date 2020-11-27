@@ -1036,19 +1036,16 @@ func MakeMenu(mainQuit context.Context, font *ttf.Font) Menu {
     }
 }
 
-func (menu *Menu) Run(window *sdl.Window, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
+func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
 
     windowSizeUpdates := make(chan common.WindowSize, 10)
-
-    /* Render function */
-    go func(){
-    }()
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
         if event != nil {
             // log.Printf("Event %+v\n", event)
             switch event.GetType() {
+                case sdl.QUIT: mainCancel()
                 case sdl.WINDOWEVENT:
                     window_event := event.(*sdl.WindowEvent)
                     switch window_event.Event {
@@ -1083,6 +1080,9 @@ func (menu *Menu) Run(window *sdl.Window, programActions chan<- common.ProgramAc
     }
 
     go func(){
+        textureManager := MakeTextureManager()
+        defer textureManager.Destroy()
+
         snowTicker := time.NewTicker(time.Second / 20)
         defer snowTicker.Stop()
 
@@ -1105,6 +1105,45 @@ func (menu *Menu) Run(window *sdl.Window, programActions chan<- common.ProgramAc
                     renderer.DrawPoint(int32(snow.x), int32(snow.y))
                 }
                 return nil
+            }
+        }
+
+        buttonManager := MakeButtonManager()
+        nesEmulatorTextureId := textureManager.NextId()
+        myNameTextureId := textureManager.NextId()
+
+        makeMenuRenderer := func(choice int, maxWidth int, maxHeight int, audioEnabled bool) common.RenderFunction {
+            return func(renderer *sdl.Renderer) error {
+                var err error
+                yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+                white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+                sound := "Sound enabled"
+                if !audioEnabled {
+                    sound = "Sound disabled"
+                }
+
+                buttons := []string{"Quit", "Load ROM", sound, "Joystick"}
+
+                x := 50
+                y := 50
+                for i, button := range buttons {
+                    color := white
+                    if i == choice {
+                        color = yellow
+                    }
+                    textureId := buttonManager.GetButtonTextureId(textureManager, button, color)
+                    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button, color)
+                    x += width + 50
+                    _ = height
+                    _ = err
+                }
+
+                // err = writeFont(font, renderer, 50, 50, "Quit", colors[0])
+                err = writeFontCached(font, renderer, textureManager, nesEmulatorTextureId, maxWidth - 200, maxHeight - font.Height() * 3, "NES Emulator", white)
+                err = writeFontCached(font, renderer, textureManager, myNameTextureId, maxWidth - 200, maxHeight - font.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
+                _ = err
+                return err
             }
         }
 
@@ -1174,7 +1213,7 @@ func (menu *Menu) Run(window *sdl.Window, programActions chan<- common.ProgramAc
             if updateRender {
                 /* If there is a graphics update then send it to the renderer */
                 select {
-                    case renderFuncUpdate <- chainRenders(baseRenderer, snowRenderer):
+                    case renderFuncUpdate <- chainRenders(baseRenderer, snowRenderer, makeMenuRenderer(0, windowSize.X, windowSize.Y, true)):
                     default:
                 }
             }

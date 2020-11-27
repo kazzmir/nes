@@ -687,7 +687,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             case <-doMenu:
                 activeMenu := menu.MakeMenu(mainQuit, font)
                 emulatorActionsOutput <- common.EmulatorSetPause
-                activeMenu.Run(window, programActionsOutput, renderNow, renderFuncUpdate)
+                activeMenu.Run(window, mainCancel, font, programActionsOutput, renderNow, renderFuncUpdate)
                 emulatorActionsOutput <- common.EmulatorUnpause
                 renderFuncUpdate <- nil
             default:
