@@ -1036,9 +1036,74 @@ func MakeMenu(mainQuit context.Context, font *ttf.Font) Menu {
     }
 }
 
+type Button interface {
+    Text() string
+    Interact()
+}
+
+type StaticButtonFunc func()
+
+/* A button that does not change state */
+type StaticButton struct {
+    Name string
+    Func StaticButtonFunc
+}
+
+func (button *StaticButton) Text() string {
+    return button.Name
+}
+
+func (button *StaticButton) Interact() {
+    if button.Func != nil {
+        button.Func()
+    }
+}
+
+type MenuButtons struct {
+    Buttons []Button
+    Selected int
+    Lock sync.Mutex
+}
+
+func MakeMenuButtons() MenuButtons {
+    return MenuButtons{
+        Selected: 0,
+    }
+}
+
+func (buttons *MenuButtons) Previous(){
+    buttons.Selected -= 1
+    if buttons.Selected < 0 {
+        buttons.Selected = len(buttons.Buttons) - 1
+    }
+}
+
+func (buttons *MenuButtons) Next(){
+    buttons.Selected = (buttons.Selected + 1) % len(buttons.Buttons)
+}
+
+func (buttons *MenuButtons) Interact(){
+    buttons.Buttons[buttons.Selected].Interact()
+}
+
+func (buttons *MenuButtons) Add(button Button){
+    buttons.Buttons = append(buttons.Buttons, button)
+}
+
 func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
 
     windowSizeUpdates := make(chan common.WindowSize, 10)
+
+    userInput := make(chan MenuInput, 3)
+    defer close(userInput)
+
+    var buttons MenuButtons
+    buttons.Add(&StaticButton{Name: "Quit", Func: func(){
+        mainCancel()
+    }})
+    buttons.Add(&StaticButton{Name: "Load ROM"})
+    buttons.Add(&StaticButton{Name: "Sound enabled"})
+    buttons.Add(&StaticButton{Name: "Sound Joystick"})
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
@@ -1075,9 +1140,49 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                     if quit_pressed {
                         menu.cancel()
                     }
+
+                    switch keyboard_event.Keysym.Scancode {
+                        case sdl.SCANCODE_LEFT, sdl.SCANCODE_H:
+                            select {
+                                case userInput <- MenuPrevious:
+                            }
+                        case sdl.SCANCODE_RIGHT, sdl.SCANCODE_L:
+                            select {
+                                case userInput <- MenuNext:
+                            }
+                        case sdl.SCANCODE_UP, sdl.SCANCODE_K:
+                            select {
+                                case userInput <- MenuUp:
+                            }
+                        case sdl.SCANCODE_DOWN, sdl.SCANCODE_J:
+                            select {
+                                case userInput <- MenuDown:
+                            }
+                        case sdl.SCANCODE_RETURN:
+                            select {
+                                case userInput <- MenuSelect:
+                            }
+                    }
             }
         }
     }
+
+    go func(){
+        for input := range userInput {
+            buttons.Lock.Lock()
+
+            switch input {
+                case MenuPrevious:
+                    buttons.Previous()
+                case MenuNext:
+                    buttons.Next()
+                case MenuSelect:
+                    buttons.Interact()
+            }
+
+            buttons.Lock.Unlock()
+        }
+    }()
 
     go func(){
         textureManager := MakeTextureManager()
@@ -1112,28 +1217,33 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         nesEmulatorTextureId := textureManager.NextId()
         myNameTextureId := textureManager.NextId()
 
-        makeMenuRenderer := func(choice int, maxWidth int, maxHeight int, audioEnabled bool) common.RenderFunction {
+        makeMenuRenderer := func(maxWidth int, maxHeight int, audioEnabled bool) common.RenderFunction {
             return func(renderer *sdl.Renderer) error {
+                buttons.Lock.Lock()
+                defer buttons.Lock.Unlock()
+
                 var err error
                 yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
                 white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
+                /*
                 sound := "Sound enabled"
                 if !audioEnabled {
                     sound = "Sound disabled"
                 }
+                */
 
-                buttons := []string{"Quit", "Load ROM", sound, "Joystick"}
+                // buttons := []string{"Quit", "Load ROM", sound, "Joystick"}
 
                 x := 50
                 y := 50
-                for i, button := range buttons {
+                for i, button := range buttons.Buttons {
                     color := white
-                    if i == choice {
+                    if i == buttons.Selected {
                         color = yellow
                     }
-                    textureId := buttonManager.GetButtonTextureId(textureManager, button, color)
-                    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button, color)
+                    textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
+                    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
                     x += width + 50
                     _ = height
                     _ = err
@@ -1213,7 +1323,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
             if updateRender {
                 /* If there is a graphics update then send it to the renderer */
                 select {
-                    case renderFuncUpdate <- chainRenders(baseRenderer, snowRenderer, makeMenuRenderer(0, windowSize.X, windowSize.Y, true)):
+                    case renderFuncUpdate <- chainRenders(baseRenderer, snowRenderer, makeMenuRenderer(windowSize.X, windowSize.Y, true)):
                     default:
                 }
             }

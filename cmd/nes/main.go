@@ -260,11 +260,18 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     signal.Notify(signalChannel, os.Interrupt)
 
     go func(){
-        select {
-            case <-mainQuit.Done():
-            case <-signalChannel:
-                log.Printf("Shutting down due to signal")
-                mainCancel()
+        for i := 0; i < 2; i++ {
+            select {
+                case <-mainQuit.Done():
+                case <-signalChannel:
+                    if i == 0 {
+                        log.Printf("Shutting down due to signal")
+                        mainCancel()
+                    } else {
+                        log.Printf("Hard kill")
+                        os.Exit(1)
+                    }
+            }
         }
     }()
 
