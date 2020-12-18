@@ -1112,10 +1112,15 @@ func (buttons *MenuButtons) Add(button Button){
     buttons.Buttons = append(buttons.Buttons, button)
 }
 
-func isAudioEnabled(programActions chan<- common.ProgramActions) bool {
+func isAudioEnabled(quit context.Context, programActions chan<- common.ProgramActions) bool {
     response := make(chan bool)
     programActions <- &common.ProgramQueryAudioState{Response: response}
-    return <-response
+    select {
+        case value := <-response:
+            return value
+        case <-quit.Done():
+            return false
+    }
 }
 
 func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
@@ -1131,7 +1136,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
     }})
     buttons.Add(&StaticButton{Name: "Load ROM"})
 
-    buttons.Add(&ToggleButton{State1: "Sound enabled", State2: "Sound disabled", state: isAudioEnabled(programActions),
+    buttons.Add(&ToggleButton{State1: "Sound enabled", State2: "Sound disabled", state: isAudioEnabled(menu.quit, programActions),
                               Func: func(value bool){
                                   log.Printf("Set sound to %v", value)
                                   programActions <- &common.ProgramToggleSound{}
