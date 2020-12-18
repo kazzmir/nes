@@ -79,10 +79,15 @@ func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleR
     return nil
 }
 
-type AudioActions int
-const (
-    AudioToggle = iota
-)
+type AudioActions interface {
+}
+
+type AudioToggle struct {
+}
+
+type AudioQueryEnabled struct {
+    Response chan bool
+}
 
 func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audioActions <-chan AudioActions, mainQuit context.Context) func() {
     if audioDevice != 0 {
@@ -95,9 +100,14 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                     case <-mainQuit.Done():
                         return
                     case action := <-audioActions:
-                        switch action {
-                            case AudioToggle:
-                                enabled = !enabled
+                        _, ok := action.(*AudioToggle)
+                        if ok {
+                            enabled = !enabled
+                        }
+
+                        query, ok := action.(*AudioQueryEnabled)
+                        if ok {
+                            query.Response <- enabled
                         }
                     case samples := <-audio:
                         if !enabled {
@@ -125,6 +135,11 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                 select {
                     case <-mainQuit.Done():
                         return
+                    case action := <-audioActions:
+                        query, ok := action.(*AudioQueryEnabled)
+                        if ok {
+                            query.Response <- false
+                        }
                     case <-audio:
                 }
             }
@@ -527,7 +542,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 case action := <-programActionsInput:
                     _, ok := action.(*common.ProgramToggleSound)
                     if ok {
-                        audioActionsOutput <- AudioToggle
+                        audioActionsOutput <- &AudioToggle{}
+                    }
+
+                    query, ok := action.(*common.ProgramQueryAudioState)
+                    if ok {
+                        audioActionsOutput <- &AudioQueryEnabled{Response: query.Response}
                     }
 
                     _, ok = action.(*common.ProgramQuit)
@@ -603,6 +623,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     if quit_pressed {
                         select {
                             case doMenu <- true:
+                            default:
                         }
 
                         // theMenu.Input <- menu.MenuToggle

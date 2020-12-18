@@ -9,6 +9,12 @@ import (
     nes "github.com/kazzmir/nes/lib"
 )
 
+type AudioResponse int
+const (
+    AudioResponseEnabled AudioResponse = iota
+    AudioResponseDisabled
+)
+
 type ScreenListeners struct {
     VideoListeners []chan nes.VirtualScreen
     AudioListeners []chan []float32

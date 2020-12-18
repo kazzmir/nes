@@ -1059,6 +1059,28 @@ func (button *StaticButton) Interact() {
     }
 }
 
+type ToggleButtonFunc func(bool)
+
+type ToggleButton struct {
+    State1 string
+    State2 string
+    state bool
+    Func ToggleButtonFunc
+}
+
+func (toggle *ToggleButton) Text() string {
+    switch toggle.state {
+        case true: return toggle.State1
+        case false: return toggle.State2
+    }
+    return ""
+}
+
+func (toggle *ToggleButton) Interact(){
+    toggle.state = !toggle.state
+    toggle.Func(toggle.state)
+}
+
 type MenuButtons struct {
     Buttons []Button
     Selected int
@@ -1090,6 +1112,12 @@ func (buttons *MenuButtons) Add(button Button){
     buttons.Buttons = append(buttons.Buttons, button)
 }
 
+func isAudioEnabled(programActions chan<- common.ProgramActions) bool {
+    response := make(chan bool)
+    programActions <- &common.ProgramQueryAudioState{Response: response}
+    return <-response
+}
+
 func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
 
     windowSizeUpdates := make(chan common.WindowSize, 10)
@@ -1102,8 +1130,14 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         mainCancel()
     }})
     buttons.Add(&StaticButton{Name: "Load ROM"})
-    buttons.Add(&StaticButton{Name: "Sound enabled"})
-    buttons.Add(&StaticButton{Name: "Sound Joystick"})
+
+    buttons.Add(&ToggleButton{State1: "Sound enabled", State2: "Sound disabled", state: isAudioEnabled(programActions),
+                              Func: func(value bool){
+                                  log.Printf("Set sound to %v", value)
+                                  programActions <- &common.ProgramToggleSound{}
+                              },
+                })
+    buttons.Add(&StaticButton{Name: "Joystick"})
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
@@ -1167,23 +1201,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         }
     }
 
-    go func(){
-        for input := range userInput {
-            buttons.Lock.Lock()
-
-            switch input {
-                case MenuPrevious:
-                    buttons.Previous()
-                case MenuNext:
-                    buttons.Next()
-                case MenuSelect:
-                    buttons.Interact()
-            }
-
-            buttons.Lock.Unlock()
-        }
-    }()
-
+    /* Logic loop */
     go func(){
         textureManager := MakeTextureManager()
         defer textureManager.Destroy()
@@ -1271,6 +1289,23 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
                 case windowSize = <-windowSizeUpdates:
 
+                case input := <-userInput:
+                    buttons.Lock.Lock()
+
+                    switch input {
+                        case MenuPrevious:
+                            buttons.Previous()
+                        case MenuNext:
+                            buttons.Next()
+                        case MenuSelect:
+                            buttons.Interact()
+                    }
+
+                    buttons.Lock.Unlock()
+                    select {
+                        case renderNow <- true:
+                    }
+
                 case <-snowTicker.C:
                     if len(snow) < 300 {
                         snow = append(snow, MakeSnow(windowSize.X))
@@ -1338,11 +1373,11 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         }
     })
 
-    log.Printf("Running the menu")
+    // log.Printf("Running the menu")
     for menu.quit.Err() == nil {
         sdl.Do(eventFunction)
     }
-    log.Printf("Menu is done")
+    // log.Printf("Menu is done")
 }
 
 func MakeMenu2(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) *Menu {
