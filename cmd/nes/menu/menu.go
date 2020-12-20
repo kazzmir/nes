@@ -1038,7 +1038,7 @@ func MakeMenu(mainQuit context.Context, font *ttf.Font) Menu {
 
 type Button interface {
     Text() string
-    Interact()
+    Interact(SubMenu) SubMenu
 }
 
 type StaticButtonFunc func()
@@ -1053,10 +1053,12 @@ func (button *StaticButton) Text() string {
     return button.Name
 }
 
-func (button *StaticButton) Interact() {
+func (button *StaticButton) Interact(menu SubMenu) SubMenu {
     if button.Func != nil {
         button.Func()
     }
+
+    return menu
 }
 
 type ToggleButtonFunc func(bool)
@@ -1076,9 +1078,23 @@ func (toggle *ToggleButton) Text() string {
     return ""
 }
 
-func (toggle *ToggleButton) Interact(){
+func (toggle *ToggleButton) Interact(menu SubMenu) SubMenu {
     toggle.state = !toggle.state
     toggle.Func(toggle.state)
+    return menu
+}
+
+type SubMenuButton struct {
+    Name string
+    Menu SubMenu
+}
+
+func (button *SubMenuButton) Text() string {
+    return button.Name
+}
+
+func (button *SubMenuButton) Interact(menu SubMenu) SubMenu {
+    return button.Menu
 }
 
 type MenuButtons struct {
@@ -1104,8 +1120,8 @@ func (buttons *MenuButtons) Next(){
     buttons.Selected = (buttons.Selected + 1) % len(buttons.Buttons)
 }
 
-func (buttons *MenuButtons) Interact(){
-    buttons.Buttons[buttons.Selected].Interact()
+func (buttons *MenuButtons) Interact(menu SubMenu) SubMenu {
+    return buttons.Buttons[buttons.Selected].Interact(menu)
 }
 
 func (buttons *MenuButtons) Add(button Button){
@@ -1124,10 +1140,18 @@ func isAudioEnabled(quit context.Context, programActions chan<- common.ProgramAc
 }
 
 type SubMenu interface {
+    /* Returns the new menu based on what button was pressed */
+    Input(input MenuInput) SubMenu
+    MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction
+    SetParentMenu(SubMenu)
 }
 
 type MainMenu struct {
     Buttons MenuButtons
+}
+
+func (mainMenu *MainMenu) SetParentMenu(menu SubMenu){
+    log.Println("warning: cannot set parent menu of the main menu")
 }
 
 func (mainMenu *MainMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
@@ -1159,7 +1183,7 @@ func (mainMenu *MainMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
     }
 }
 
-func (mainMenu *MainMenu) Input(input MenuInput){
+func (mainMenu *MainMenu) Input(input MenuInput) SubMenu {
     mainMenu.Buttons.Lock.Lock()
     defer mainMenu.Buttons.Lock.Unlock()
 
@@ -1169,16 +1193,46 @@ func (mainMenu *MainMenu) Input(input MenuInput){
     case MenuNext:
         mainMenu.Buttons.Next()
     case MenuSelect:
-        mainMenu.Buttons.Interact()
+        return mainMenu.Buttons.Interact(mainMenu)
+    }
+
+    return mainMenu
+}
+
+type JoystickMenu struct {
+    Parent SubMenu
+}
+
+func (joystickMenu *JoystickMenu) Input(input MenuInput) SubMenu {
+    return joystickMenu
+}
+
+func (joystickMenu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
+    return func(renderer *sdl.Renderer) error {
+        return nil
     }
 }
 
-func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions) *MainMenu {
+func (joystickMenu *JoystickMenu) SetParentMenu(menu SubMenu){
+    joystickMenu.Parent = menu
+}
+
+func MakeJoystickMenu() SubMenu {
+    return &JoystickMenu{
+    }
+}
+
+func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions) SubMenu {
+
+    joystickMenu := MakeJoystickMenu()
+
     var buttons MenuButtons
 
     buttons.Add(&StaticButton{Name: "Quit", Func: func(){
         mainCancel()
     }})
+
+    /* FIXME: launch the load rom interface */
     buttons.Add(&StaticButton{Name: "Load ROM"})
 
     buttons.Add(&ToggleButton{State1: "Sound enabled", State2: "Sound disabled", state: isAudioEnabled(menu.quit, programActions),
@@ -1187,11 +1241,17 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
                                   programActions <- &common.ProgramToggleSound{}
                               },
                 })
-    buttons.Add(&StaticButton{Name: "Joystick"})
 
-    return &MainMenu{
+    buttons.Add(&SubMenuButton{Name: "Joystick", Menu: joystickMenu})
+
+    main := &MainMenu{
         Buttons: buttons,
     }
+
+    /* FIXME: ugly to put this set here */
+    joystickMenu.SetParentMenu(main)
+
+    return main
 }
 
 func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
@@ -1201,7 +1261,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
     userInput := make(chan MenuInput, 3)
     defer close(userInput)
 
-    mainMenu := MakeMainMenu(menu, mainCancel, programActions)
+    currentMenu := MakeMainMenu(menu, mainCancel, programActions)
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
@@ -1323,12 +1383,13 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                 case windowSize = <-windowSizeUpdates:
 
                 case input := <-userInput:
-                    mainMenu.Input(input)
+                    currentMenu = currentMenu.Input(input)
                     select {
                         case renderNow <- true:
                     }
 
                 case <-snowTicker.C:
+                    /* FIXME: move this code somewhere else to keep the main Run() method small */
                     if len(snow) < 300 {
                         snow = append(snow, MakeSnow(windowSize.X))
                     }
@@ -1382,7 +1443,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                 select {
                     case renderFuncUpdate <- chainRenders(baseRenderer, snowRenderer,
                                                           makeDefaultInfoRenderer(windowSize.X, windowSize.Y),
-                                                          mainMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font)):
+                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font)):
                     default:
                 }
             }
