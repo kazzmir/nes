@@ -1120,10 +1120,6 @@ func (buttons *MenuButtons) Next(){
     buttons.Selected = (buttons.Selected + 1) % len(buttons.Buttons)
 }
 
-func (buttons *MenuButtons) Interact(menu SubMenu) SubMenu {
-    return buttons.Buttons[buttons.Selected].Interact(menu)
-}
-
 func (buttons *MenuButtons) Add(button Button){
     buttons.Buttons = append(buttons.Buttons, button)
 }
@@ -1143,113 +1139,110 @@ type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
     Input(input MenuInput) SubMenu
     MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction
-    SetParentMenu(SubMenu)
 }
 
 type MainMenu struct {
     Buttons MenuButtons
 }
 
-func (mainMenu *MainMenu) SetParentMenu(menu SubMenu){
-    log.Println("warning: cannot set parent menu of the main menu")
+func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
+    buttons.Lock.Lock()
+    defer buttons.Lock.Unlock()
+
+    switch input {
+    case MenuPrevious:
+        buttons.Previous()
+    case MenuNext:
+        buttons.Next()
+    case MenuSelect:
+        return buttons.Buttons[buttons.Selected].Interact(menu)
+    }
+
+    return menu
+}
+
+func (buttons *MenuButtons) Render(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, renderer *sdl.Renderer) error {
+    buttons.Lock.Lock()
+    buttons.Lock.Unlock()
+
+    yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+    x := 50
+    y := 50
+    for i, button := range buttons.Buttons {
+        color := white
+        if i == buttons.Selected {
+            color = yellow
+        }
+        textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
+        width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
+        x += width + 50
+        _ = height
+        if err != nil {
+            return err
+        }
+    }
+
+    return nil
 }
 
 func (mainMenu *MainMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
-        mainMenu.Buttons.Lock.Lock()
-        defer mainMenu.Buttons.Lock.Unlock()
-
-        var err error
-        yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
-        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-
-        x := 50
-        y := 50
-        for i, button := range mainMenu.Buttons.Buttons {
-            color := white
-            if i == mainMenu.Buttons.Selected {
-                color = yellow
-            }
-            textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
-            width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
-            x += width + 50
-            _ = height
-            _ = err
-        }
-
-        // err = writeFont(font, renderer, 50, 50, "Quit", colors[0])
-        _ = err
-        return err
+        return mainMenu.Buttons.Render(maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
     }
 }
 
 func (mainMenu *MainMenu) Input(input MenuInput) SubMenu {
-    mainMenu.Buttons.Lock.Lock()
-    defer mainMenu.Buttons.Lock.Unlock()
-
-    switch input {
-    case MenuPrevious:
-        mainMenu.Buttons.Previous()
-    case MenuNext:
-        mainMenu.Buttons.Next()
-    case MenuSelect:
-        return mainMenu.Buttons.Interact(mainMenu)
-    }
-
-    return mainMenu
+    return mainMenu.Buttons.Interact(input, mainMenu)
 }
 
 type JoystickMenu struct {
-    Parent SubMenu
+    Buttons MenuButtons
+    // Parent SubMenu
 }
 
 func (joystickMenu *JoystickMenu) Input(input MenuInput) SubMenu {
-    return joystickMenu
+    return joystickMenu.Buttons.Interact(input, joystickMenu)
 }
 
 func (joystickMenu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
-        return nil
+        return joystickMenu.Buttons.Render(maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
     }
 }
 
-func (joystickMenu *JoystickMenu) SetParentMenu(menu SubMenu){
-    joystickMenu.Parent = menu
-}
+func MakeJoystickMenu(parent SubMenu) SubMenu {
+    var buttons MenuButtons
 
-func MakeJoystickMenu() SubMenu {
+    buttons.Add(&SubMenuButton{Name: "Back", Menu: parent})
+
     return &JoystickMenu{
+        Buttons: buttons,
     }
 }
 
 func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions) SubMenu {
+    main := &MainMenu{
+    }
 
-    joystickMenu := MakeJoystickMenu()
+    joystickMenu := MakeJoystickMenu(main)
 
-    var buttons MenuButtons
-
-    buttons.Add(&StaticButton{Name: "Quit", Func: func(){
+    main.Buttons.Add(&StaticButton{Name: "Quit", Func: func(){
         mainCancel()
     }})
 
     /* FIXME: launch the load rom interface */
-    buttons.Add(&StaticButton{Name: "Load ROM"})
+    main.Buttons.Add(&StaticButton{Name: "Load ROM"})
 
-    buttons.Add(&ToggleButton{State1: "Sound enabled", State2: "Sound disabled", state: isAudioEnabled(menu.quit, programActions),
+    main.Buttons.Add(&ToggleButton{State1: "Sound enabled", State2: "Sound disabled", state: isAudioEnabled(menu.quit, programActions),
                               Func: func(value bool){
                                   log.Printf("Set sound to %v", value)
                                   programActions <- &common.ProgramToggleSound{}
                               },
                 })
 
-    buttons.Add(&SubMenuButton{Name: "Joystick", Menu: joystickMenu})
-
-    main := &MainMenu{
-        Buttons: buttons,
-    }
-
-    /* FIXME: ugly to put this set here */
-    joystickMenu.SetParentMenu(main)
+    main.Buttons.Add(&SubMenuButton{Name: "Joystick", Menu: joystickMenu})
 
     return main
 }
