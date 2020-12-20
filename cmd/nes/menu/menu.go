@@ -1123,14 +1123,59 @@ func isAudioEnabled(quit context.Context, programActions chan<- common.ProgramAc
     }
 }
 
-func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
+type SubMenu interface {
+}
 
-    windowSizeUpdates := make(chan common.WindowSize, 10)
+type MainMenu struct {
+    Buttons MenuButtons
+}
 
-    userInput := make(chan MenuInput, 3)
-    defer close(userInput)
+func (mainMenu *MainMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
+    return func(renderer *sdl.Renderer) error {
+        mainMenu.Buttons.Lock.Lock()
+        defer mainMenu.Buttons.Lock.Unlock()
 
+        var err error
+        yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+        x := 50
+        y := 50
+        for i, button := range mainMenu.Buttons.Buttons {
+            color := white
+            if i == mainMenu.Buttons.Selected {
+                color = yellow
+            }
+            textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
+            width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
+            x += width + 50
+            _ = height
+            _ = err
+        }
+
+        // err = writeFont(font, renderer, 50, 50, "Quit", colors[0])
+        _ = err
+        return err
+    }
+}
+
+func (mainMenu *MainMenu) Input(input MenuInput){
+    mainMenu.Buttons.Lock.Lock()
+    defer mainMenu.Buttons.Lock.Unlock()
+
+    switch input {
+    case MenuPrevious:
+        mainMenu.Buttons.Previous()
+    case MenuNext:
+        mainMenu.Buttons.Next()
+    case MenuSelect:
+        mainMenu.Buttons.Interact()
+    }
+}
+
+func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions) *MainMenu {
     var buttons MenuButtons
+
     buttons.Add(&StaticButton{Name: "Quit", Func: func(){
         mainCancel()
     }})
@@ -1143,6 +1188,20 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                               },
                 })
     buttons.Add(&StaticButton{Name: "Joystick"})
+
+    return &MainMenu{
+        Buttons: buttons,
+    }
+}
+
+func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
+
+    windowSizeUpdates := make(chan common.WindowSize, 10)
+
+    userInput := make(chan MenuInput, 3)
+    defer close(userInput)
+
+    mainMenu := MakeMainMenu(menu, mainCancel, programActions)
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
@@ -1240,47 +1299,16 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         nesEmulatorTextureId := textureManager.NextId()
         myNameTextureId := textureManager.NextId()
 
-        makeMenuRenderer := func(maxWidth int, maxHeight int, audioEnabled bool) common.RenderFunction {
+        var windowSize common.WindowSize
+
+        makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) common.RenderFunction {
+            white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
             return func(renderer *sdl.Renderer) error {
-                buttons.Lock.Lock()
-                defer buttons.Lock.Unlock()
-
-                var err error
-                yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
-                white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-
-                /*
-                sound := "Sound enabled"
-                if !audioEnabled {
-                    sound = "Sound disabled"
-                }
-                */
-
-                // buttons := []string{"Quit", "Load ROM", sound, "Joystick"}
-
-                x := 50
-                y := 50
-                for i, button := range buttons.Buttons {
-                    color := white
-                    if i == buttons.Selected {
-                        color = yellow
-                    }
-                    textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
-                    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
-                    x += width + 50
-                    _ = height
-                    _ = err
-                }
-
-                // err = writeFont(font, renderer, 50, 50, "Quit", colors[0])
-                err = writeFontCached(font, renderer, textureManager, nesEmulatorTextureId, maxWidth - 200, maxHeight - font.Height() * 3, "NES Emulator", white)
+                err := writeFontCached(font, renderer, textureManager, nesEmulatorTextureId, maxWidth - 200, maxHeight - font.Height() * 3, "NES Emulator", white)
                 err = writeFontCached(font, renderer, textureManager, myNameTextureId, maxWidth - 200, maxHeight - font.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
-                _ = err
                 return err
             }
         }
-
-        var windowSize common.WindowSize
 
         wind := rand.Float32() - 0.5
         snowRenderer := makeSnowRenderer(nil)
@@ -1295,18 +1323,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                 case windowSize = <-windowSizeUpdates:
 
                 case input := <-userInput:
-                    buttons.Lock.Lock()
-
-                    switch input {
-                        case MenuPrevious:
-                            buttons.Previous()
-                        case MenuNext:
-                            buttons.Next()
-                        case MenuSelect:
-                            buttons.Interact()
-                    }
-
-                    buttons.Lock.Unlock()
+                    mainMenu.Input(input)
                     select {
                         case renderNow <- true:
                     }
@@ -1363,7 +1380,9 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
             if updateRender {
                 /* If there is a graphics update then send it to the renderer */
                 select {
-                    case renderFuncUpdate <- chainRenders(baseRenderer, snowRenderer, makeMenuRenderer(windowSize.X, windowSize.Y, true)):
+                    case renderFuncUpdate <- chainRenders(baseRenderer, snowRenderer,
+                                                          makeDefaultInfoRenderer(windowSize.X, windowSize.Y),
+                                                          mainMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font)):
                     default:
                 }
             }
