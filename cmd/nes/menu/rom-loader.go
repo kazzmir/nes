@@ -419,7 +419,7 @@ func renderDownArrow(x int, y int, texture *sdl.Texture, renderer *sdl.Renderer)
     }
 }
 
-func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager) {
+func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager) error {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
@@ -542,6 +542,8 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
             }
         }
     }
+
+    return nil
 }
 
 func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {

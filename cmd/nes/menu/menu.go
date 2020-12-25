@@ -487,9 +487,11 @@ func (toggle *ToggleButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
+type SubMenuFunc func() SubMenu
+
 type SubMenuButton struct {
     Name string
-    Menu SubMenu
+    Func SubMenuFunc
 }
 
 func (button *SubMenuButton) Text() string {
@@ -497,7 +499,7 @@ func (button *SubMenuButton) Text() string {
 }
 
 func (button *SubMenuButton) Interact(menu SubMenu) SubMenu {
-    return button.Menu
+    return button.Func()
 }
 
 type MenuButtons struct {
@@ -613,7 +615,7 @@ func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager 
 func MakeJoystickMenu(parent SubMenu) SubMenu {
     var buttons MenuButtons
 
-    buttons.Add(&SubMenuButton{Name: "Back", Menu: parent})
+    buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu{ return parent } })
 
     buttons.Add(&StaticButton{Name: "Configure"})
 
@@ -622,7 +624,23 @@ func MakeJoystickMenu(parent SubMenu) SubMenu {
     }
 }
 
-func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions) SubMenu {
+type LoadRomMenu struct {
+    Quit context.Context
+    Cancel context.CancelFunc
+    LoaderState *RomLoaderState
+}
+
+func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
+    return loadRomMenu
+}
+
+func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
+    return func(renderer *sdl.Renderer) error {
+        return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, font, renderer, textureManager)
+    }
+}
+
+func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, windowX int, windowY int, programActions chan<- common.ProgramActions, textureManager *TextureManager) SubMenu {
     main := &StaticMenu{
     }
 
@@ -633,7 +651,19 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
     }})
 
     /* FIXME: launch the load rom interface */
-    main.Buttons.Add(&StaticButton{Name: "Load ROM"})
+    main.Buttons.Add(&SubMenuButton{Name: "Load ROM", Func: func() SubMenu {
+        loadRomQuit, loadRomCancel := context.WithCancel(menu.quit)
+
+        romLoaderState := MakeRomLoaderState(loadRomQuit, windowX, windowY, textureManager.NextId())
+        go romLoader(loadRomQuit, romLoaderState)
+
+        return &LoadRomMenu{
+            Quit: loadRomQuit,
+            Cancel: loadRomCancel,
+            LoaderState: romLoaderState,
+        }
+        // menuRenderer = makeLoadRomRenderer(windowX, windowY, romLoaderState)
+    }})
 
     main.Buttons.Add(&ToggleButton{State1: "Sound enabled", State2: "Sound disabled", state: isAudioEnabled(menu.quit, programActions),
                               Func: func(value bool){
@@ -642,7 +672,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
                               },
                 })
 
-    main.Buttons.Add(&SubMenuButton{Name: "Joystick", Menu: joystickMenu})
+    main.Buttons.Add(&SubMenuButton{Name: "Joystick", Func: func() SubMenu { return joystickMenu } })
 
     return main
 }
@@ -653,8 +683,6 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
     userInput := make(chan MenuInput, 3)
     defer close(userInput)
-
-    currentMenu := MakeMainMenu(menu, mainCancel, programActions)
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
@@ -765,6 +793,8 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
         wind := rand.Float32() - 0.5
         snowRenderer := makeSnowRenderer(nil)
+
+        currentMenu := MakeMainMenu(menu, mainCancel, windowSize.X, windowSize.Y, programActions, textureManager)
 
         /* Reset the default renderer */
         for {
