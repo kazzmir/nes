@@ -166,6 +166,17 @@ func (manager *TextureManager) GetCachedTexture(id TextureId, makeTexture Textur
     return info, nil
 }
 
+func textWidth(font *ttf.Font, text string) int {
+    /* FIXME: this feels a bit inefficient, maybe find a better way that doesn't require fully rendering the text */
+    surface, err := font.RenderUTF8Solid(text, sdl.Color{R: 255, G: 255, B: 255, A: 255})
+    if err != nil {
+        return 0
+    }
+
+    defer surface.Free()
+    return int(surface.W)
+}
+
 func (manager *TextureManager) RenderText(font *ttf.Font, renderer *sdl.Renderer, text string, color sdl.Color, id TextureId) (TextureInfo, error) {
     return manager.GetCachedTexture(id, func() (TextureInfo, error){
         surface, err := font.RenderUTF8Blended(text, color)
@@ -1141,10 +1152,6 @@ type SubMenu interface {
     MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction
 }
 
-type MainMenu struct {
-    Buttons MenuButtons
-}
-
 func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
     buttons.Lock.Lock()
     defer buttons.Lock.Unlock()
@@ -1168,16 +1175,26 @@ func (buttons *MenuButtons) Render(maxWidth int, maxHeight int, buttonManager *B
     yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
-    x := 50
-    y := 50
+    startX := 50
+    startY := 50
+    const buttonDistance = 50
+
+    x := startX
+    y := startY
     for i, button := range buttons.Buttons {
         color := white
         if i == buttons.Selected {
             color = yellow
         }
+
+        if x > maxWidth - textWidth(font, button.Text()) {
+            x = startX
+            y += font.Height() + 20
+        }
+
         textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
         width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
-        x += width + 50
+        x += width + buttonDistance
         _ = height
         if err != nil {
             return err
@@ -1187,28 +1204,17 @@ func (buttons *MenuButtons) Render(maxWidth int, maxHeight int, buttonManager *B
     return nil
 }
 
-func (mainMenu *MainMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
-    return func(renderer *sdl.Renderer) error {
-        return mainMenu.Buttons.Render(maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
-    }
-}
-
-func (mainMenu *MainMenu) Input(input MenuInput) SubMenu {
-    return mainMenu.Buttons.Interact(input, mainMenu)
-}
-
-type JoystickMenu struct {
+type StaticMenu struct {
     Buttons MenuButtons
-    // Parent SubMenu
 }
 
-func (joystickMenu *JoystickMenu) Input(input MenuInput) SubMenu {
-    return joystickMenu.Buttons.Interact(input, joystickMenu)
+func (menu *StaticMenu) Input(input MenuInput) SubMenu {
+    return menu.Buttons.Interact(input, menu)
 }
 
-func (joystickMenu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
+func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
-        return joystickMenu.Buttons.Render(maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        return menu.Buttons.Render(maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
     }
 }
 
@@ -1217,13 +1223,15 @@ func MakeJoystickMenu(parent SubMenu) SubMenu {
 
     buttons.Add(&SubMenuButton{Name: "Back", Menu: parent})
 
-    return &JoystickMenu{
+    buttons.Add(&StaticButton{Name: "Configure"})
+
+    return &StaticMenu{
         Buttons: buttons,
     }
 }
 
 func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions) SubMenu {
-    main := &MainMenu{
+    main := &StaticMenu{
     }
 
     joystickMenu := MakeJoystickMenu(main)
