@@ -37,6 +37,7 @@ const (
     MenuUp
     MenuDown
     MenuSelect
+    MenuQuit // usually when ESC is input
 )
 
 type Menu struct {
@@ -598,12 +599,21 @@ func (buttons *MenuButtons) Render(maxWidth int, maxHeight int, buttonManager *B
     return nil
 }
 
+// callback that is invoked when MenuQuit is input
+type MenuQuitFunc func(SubMenu) SubMenu
+
 type StaticMenu struct {
     Buttons MenuButtons
+    Quit MenuQuitFunc
 }
 
 func (menu *StaticMenu) Input(input MenuInput) SubMenu {
-    return menu.Buttons.Interact(input, menu)
+    switch input {
+        case MenuQuit:
+            return menu.Quit(menu)
+        default:
+            return menu.Buttons.Interact(input, menu)
+    }
 }
 
 func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
@@ -621,17 +631,27 @@ func MakeJoystickMenu(parent SubMenu) SubMenu {
 
     return &StaticMenu{
         Buttons: buttons,
+        Quit: func(current SubMenu) SubMenu {
+            return parent
+        },
     }
 }
 
 type LoadRomMenu struct {
     Quit context.Context
     Cancel context.CancelFunc
+    Back MenuQuitFunc
     LoaderState *RomLoaderState
 }
 
 func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
-    return loadRomMenu
+    switch input {
+        case MenuQuit:
+            loadRomMenu.Cancel()
+            return loadRomMenu.Back(loadRomMenu)
+        default:
+            return loadRomMenu
+    }
 }
 
 func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
@@ -642,6 +662,10 @@ func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, button
 
 func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, windowX int, windowY int, programActions chan<- common.ProgramActions, textureManager *TextureManager) SubMenu {
     main := &StaticMenu{
+        Quit: func(current SubMenu) SubMenu {
+            menu.cancel()
+            return current
+        },
     }
 
     joystickMenu := MakeJoystickMenu(main)
@@ -658,6 +682,9 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, windowX int, window
         go romLoader(loadRomQuit, romLoaderState)
 
         return &LoadRomMenu{
+            Back: func(current SubMenu) SubMenu {
+                return main
+            },
             Quit: loadRomQuit,
             Cancel: loadRomCancel,
             LoaderState: romLoaderState,
@@ -717,7 +744,8 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
 
                     if quit_pressed {
-                        menu.cancel()
+                        // menu.cancel()
+                        userInput <- MenuQuit
                     }
 
                     switch keyboard_event.Keysym.Scancode {
