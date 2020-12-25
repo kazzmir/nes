@@ -544,7 +544,8 @@ func isAudioEnabled(quit context.Context, programActions chan<- common.ProgramAc
 type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
     Input(input MenuInput) SubMenu
-    MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction
+    MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction
+    UpdateWindowSize(int, int)
 }
 
 func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
@@ -607,6 +608,10 @@ type StaticMenu struct {
     Quit MenuQuitFunc
 }
 
+func (menu *StaticMenu) UpdateWindowSize(x int, y int){
+    // nothing
+}
+
 func (menu *StaticMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuQuit:
@@ -616,7 +621,7 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
     }
 }
 
-func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
+func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
         return menu.Buttons.Render(maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
     }
@@ -639,25 +644,46 @@ func MakeJoystickMenu(parent SubMenu) SubMenu {
 
 type LoadRomMenu struct {
     Quit context.Context
-    Cancel context.CancelFunc
+    LoaderCancel context.CancelFunc
+    MenuCancel context.CancelFunc
     Back MenuQuitFunc
+    SelectRom func()
     LoaderState *RomLoaderState
 }
 
 func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
     switch input {
+        case MenuNext:
+            loadRomMenu.LoaderState.NextSelection()
+            return loadRomMenu
+        case MenuPrevious:
+            loadRomMenu.LoaderState.PreviousSelection()
+            return loadRomMenu
+        case MenuUp:
+            loadRomMenu.LoaderState.PreviousUpSelection()
+            return loadRomMenu
+        case MenuDown:
+            loadRomMenu.LoaderState.NextDownSelection()
+            return loadRomMenu
         case MenuQuit:
-            loadRomMenu.Cancel()
+            loadRomMenu.LoaderCancel()
             return loadRomMenu.Back(loadRomMenu)
+        case MenuSelect:
+            loadRomMenu.SelectRom()
+            return loadRomMenu
         default:
             return loadRomMenu
     }
 }
 
-func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font) common.RenderFunction {
+func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
-        return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, font, renderer, textureManager)
+        return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, smallFont, renderer, textureManager)
     }
+}
+
+func (loadRomMenu *LoadRomMenu) UpdateWindowSize(x int, y int){
+    loadRomMenu.LoaderState.UpdateWindowSize(x, y)
 }
 
 func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, windowX int, windowY int, programActions chan<- common.ProgramActions, textureManager *TextureManager) SubMenu {
@@ -685,11 +711,18 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, windowX int, window
             Back: func(current SubMenu) SubMenu {
                 return main
             },
+            SelectRom: func(){
+                rom, ok := romLoaderState.GetSelectedRom()
+                if ok {
+                    menu.cancel()
+                    programActions <- &common.ProgramLoadRom{Path: rom}
+                }
+            },
             Quit: loadRomQuit,
-            Cancel: loadRomCancel,
+            LoaderCancel: loadRomCancel,
+            MenuCancel: menu.cancel,
             LoaderState: romLoaderState,
         }
-        // menuRenderer = makeLoadRomRenderer(windowX, windowY, romLoaderState)
     }})
 
     main.Buttons.Add(&ToggleButton{State1: "Sound enabled", State2: "Sound disabled", state: isAudioEnabled(menu.quit, programActions),
@@ -704,7 +737,18 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, windowX int, window
     return main
 }
 
-func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
+func getWindowSize(window *sdl.Window) common.WindowSize {
+    var width int32
+    var height int32
+
+    sdl.Do(func(){
+        width, height = window.GetSize()
+    })
+
+    return common.WindowSize{X: int(width), Y: int(height)}
+}
+
+func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
 
     windowSizeUpdates := make(chan common.WindowSize, 10)
 
@@ -808,7 +852,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         nesEmulatorTextureId := textureManager.NextId()
         myNameTextureId := textureManager.NextId()
 
-        var windowSize common.WindowSize
+        windowSize := getWindowSize(window)
 
         makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) common.RenderFunction {
             white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
@@ -832,6 +876,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                     return
 
                 case windowSize = <-windowSizeUpdates:
+                    currentMenu.UpdateWindowSize(windowSize.X, windowSize.Y)
 
                 case input := <-userInput:
                     currentMenu = currentMenu.Input(input)
@@ -894,7 +939,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                 select {
                     case renderFuncUpdate <- chainRenders(baseRenderer, snowRenderer,
                                                           makeDefaultInfoRenderer(windowSize.X, windowSize.Y),
-                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font)):
+                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font, smallFont)):
                     default:
                 }
             }
