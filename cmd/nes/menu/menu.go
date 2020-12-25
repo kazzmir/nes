@@ -686,7 +686,7 @@ func (loadRomMenu *LoadRomMenu) UpdateWindowSize(x int, y int){
     loadRomMenu.LoaderState.UpdateWindowSize(x, y)
 }
 
-func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, windowX int, windowY int, programActions chan<- common.ProgramActions, textureManager *TextureManager) SubMenu {
+func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, textureManager *TextureManager) SubMenu {
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
             menu.cancel()
@@ -700,11 +700,10 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, windowX int, window
         mainCancel()
     }})
 
-    /* FIXME: launch the load rom interface */
     main.Buttons.Add(&SubMenuButton{Name: "Load ROM", Func: func() SubMenu {
         loadRomQuit, loadRomCancel := context.WithCancel(menu.quit)
 
-        romLoaderState := MakeRomLoaderState(loadRomQuit, windowX, windowY, textureManager.NextId())
+        romLoaderState := MakeRomLoaderState(loadRomQuit, 1, 1, textureManager.NextId())
         go romLoader(loadRomQuit, romLoaderState)
 
         return &LoadRomMenu{
@@ -735,17 +734,6 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, windowX int, window
     main.Buttons.Add(&SubMenuButton{Name: "Joystick", Func: func() SubMenu { return joystickMenu } })
 
     return main
-}
-
-func getWindowSize(window *sdl.Window) common.WindowSize {
-    var width int32
-    var height int32
-
-    sdl.Do(func(){
-        width, height = window.GetSize()
-    })
-
-    return common.WindowSize{X: int(width), Y: int(height)}
 }
 
 func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction){
@@ -852,7 +840,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         nesEmulatorTextureId := textureManager.NextId()
         myNameTextureId := textureManager.NextId()
 
-        windowSize := getWindowSize(window)
+        var windowSize common.WindowSize
 
         makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) common.RenderFunction {
             white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
@@ -866,7 +854,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         wind := rand.Float32() - 0.5
         snowRenderer := makeSnowRenderer(nil)
 
-        currentMenu := MakeMainMenu(menu, mainCancel, windowSize.X, windowSize.Y, programActions, textureManager)
+        currentMenu := MakeMainMenu(menu, mainCancel, programActions, textureManager)
 
         /* Reset the default renderer */
         for {
@@ -880,6 +868,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
                 case input := <-userInput:
                     currentMenu = currentMenu.Input(input)
+                    currentMenu.UpdateWindowSize(windowSize.X, windowSize.Y)
                     select {
                         case renderNow <- true:
                     }
@@ -959,302 +948,6 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         sdl.Do(eventFunction)
     }
     // log.Printf("Menu is done")
-}
-
-func MakeMenu2(font *ttf.Font, smallFont *ttf.Font, mainQuit context.Context, renderUpdates chan common.RenderFunction, windowSizeUpdates <-chan common.WindowSize, programActions chan<- common.ProgramActions) *Menu {
-    quit, cancel := context.WithCancel(mainQuit)
-    menuInput := make(chan MenuInput, 5)
-
-    menu := &Menu{
-        active: false,
-        quit: quit,
-        cancel: cancel,
-        font: font,
-        Input: menuInput,
-    }
-
-    go func(menu *Menu){
-        textureManager := MakeTextureManager()
-        defer textureManager.Destroy()
-
-        snowTicker := time.NewTicker(time.Second / 20)
-        defer snowTicker.Stop()
-
-        choices := []MenuAction{MenuActionQuit, MenuActionLoadRom, MenuActionSound, MenuActionJoystick}
-        choice := 0
-
-        var snow []Snow
-
-        wind := rand.Float32() - 0.5
-        var windowSize common.WindowSize
-        audio := true
-
-        menuState := MenuStateTop
-
-        baseRenderer := func(renderer *sdl.Renderer) error {
-            err := renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
-            _ = err
-            renderer.SetDrawColor(32, 0, 0, 192)
-            renderer.FillRect(nil)
-            return nil
-        }
-
-        makeSnowRenderer := func(snowflakes []Snow) common.RenderFunction {
-            snowCopy := copySnow(snowflakes)
-            return func(renderer *sdl.Renderer) error {
-                for _, snow := range snowCopy {
-                    c := snow.color
-                    renderer.SetDrawColor(c, c, c, 255)
-                    renderer.DrawPoint(int32(snow.x), int32(snow.y))
-                }
-                return nil
-            }
-        }
-
-        buttonManager := MakeButtonManager()
-        nesEmulatorTextureId := textureManager.NextId()
-        myNameTextureId := textureManager.NextId()
-
-        makeMenuRenderer := func(choice int, maxWidth int, maxHeight int, audioEnabled bool) common.RenderFunction {
-            return func(renderer *sdl.Renderer) error {
-                var err error
-                yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
-                white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-
-                sound := "Sound enabled"
-                if !audioEnabled {
-                    sound = "Sound disabled"
-                }
-
-                buttons := []string{"Quit", "Load ROM", sound, "Joystick"}
-
-                x := 50
-                y := 50
-                for i, button := range buttons {
-                    color := white
-                    if i == choice {
-                        color = yellow
-                    }
-                    textureId := buttonManager.GetButtonTextureId(textureManager, button, color)
-                    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button, color)
-                    x += width + 50
-                    _ = height
-                    _ = err
-                }
-
-                // err = writeFont(font, renderer, 50, 50, "Quit", colors[0])
-                err = writeFontCached(font, renderer, textureManager, nesEmulatorTextureId, maxWidth - 200, maxHeight - font.Height() * 3, "NES Emulator", white)
-                err = writeFontCached(font, renderer, textureManager, myNameTextureId, maxWidth - 200, maxHeight - font.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
-                _ = err
-                return err
-            }
-        }
-
-        makeLoadRomRenderer := func(maxWidth int, maxHeight int, romLoadState *RomLoaderState) common.RenderFunction {
-            return func(renderer *sdl.Renderer) error {
-
-                romLoadState.Render(maxWidth, maxHeight, font, smallFont, renderer, textureManager)
-
-                return nil
-            }
-        }
-
-        menuRenderer := func(renderer *sdl.Renderer) error {
-            return nil
-        }
-        snowRenderer := makeSnowRenderer(nil)
-
-        loadRomQuit, loadRomCancel := context.WithCancel(mainQuit)
-
-        var romLoaderState *RomLoaderState
-
-        /* Reset the default renderer */
-        for {
-            updateRender := false
-            select {
-                case <-quit.Done():
-                    return
-                case input := <-menuInput:
-                    switch menuState {
-                        case MenuStateTop:
-                            switch input {
-                                case MenuToggle:
-                                    if menu.IsActive() {
-                                        /* This channel put must succeed */
-                                        renderUpdates <- func(renderer *sdl.Renderer) error {
-                                            return nil
-                                        }
-                                        programActions <- &common.ProgramUnpauseEmulator{}
-                                    } else {
-                                        choice = 0
-                                        menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        updateRender = true
-                                        programActions <- &common.ProgramPauseEmulator{}
-                                    }
-
-                                    menu.ToggleActive()
-                                case MenuNext:
-                                    if menu.IsActive() {
-                                        choice = (choice + 1) % len(choices)
-                                        menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        updateRender = true
-                                    }
-                                case MenuPrevious:
-                                    if menu.IsActive() {
-                                        choice = (choice - 1 + len(choices)) % len(choices)
-                                        menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                        updateRender = true
-                                    }
-                                case MenuSelect:
-                                    if menu.IsActive() {
-                                        switch choices[choice] {
-                                            case MenuActionQuit:
-                                                programActions <- &common.ProgramQuit{}
-                                            case MenuActionLoadRom:
-                                                menuState = MenuStateLoadRom
-                                                loadRomQuit, loadRomCancel = context.WithCancel(mainQuit)
-
-                                                romLoaderState = MakeRomLoaderState(loadRomQuit, windowSize.X, windowSize.Y, textureManager.NextId())
-                                                go romLoader(loadRomQuit, romLoaderState)
-
-                                                menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                                updateRender = true
-
-                                            case MenuActionSound:
-                                                programActions <- &common.ProgramToggleSound{}
-                                                audio = !audio
-                                                menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                                updateRender = true
-                                            case MenuActionJoystick:
-                                        }
-                                    }
-                            }
-
-                        case MenuStateLoadRom:
-                            switch input {
-                                case MenuToggle:
-                                    loadRomCancel()
-                                    /* remove reference so its state can be gc'd */
-                                    romLoaderState = nil
-                                    menuState = MenuStateTop
-                                    menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                    updateRender = true
-                                case MenuNext:
-                                    if romLoaderState != nil {
-                                        romLoaderState.NextSelection()
-                                        menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                        updateRender = true
-                                    }
-                                case MenuPrevious:
-                                    if romLoaderState != nil {
-                                        romLoaderState.PreviousSelection()
-                                        menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                        updateRender = true
-                                    }
-                                case MenuUp:
-                                    if romLoaderState != nil {
-                                        romLoaderState.PreviousUpSelection()
-                                        menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                        updateRender = true
-                                    }
-                                case MenuDown:
-                                    if romLoaderState != nil {
-                                        romLoaderState.NextDownSelection()
-                                        menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                        updateRender = true
-                                    }
-                                case MenuSelect:
-                                    loadRomCancel()
-                                    /* have the main program load the selected rom */
-                                    if romLoaderState != nil {
-                                        rom, ok := romLoaderState.GetSelectedRom()
-                                        if ok {
-                                            menuState = MenuStateTop
-                                            /* This could block the current goroutine, so we run it in a
-                                             * separate goroutine. This isn't super different from just
-                                             * making menuInput have a larger backlog, instead we are
-                                             * basically using the heap as a giant unbufferd channel.
-                                             */
-                                            go func(){
-                                                menuInput <- MenuToggle
-                                            }()
-                                            programActions <- &common.ProgramLoadRom{Path: rom}
-                                        }
-                                        romLoaderState = nil
-                                    }
-                            }
-                    }
-
-                case windowSize = <-windowSizeUpdates:
-                    if romLoaderState != nil {
-                        romLoaderState.UpdateWindowSize(windowSize.X, windowSize.Y)
-                    }
-
-                    if menu.IsActive() {
-                        switch menuState {
-                            case MenuStateTop:
-                                menuRenderer = makeMenuRenderer(choice, windowSize.X, windowSize.Y, audio)
-                                updateRender = true
-                            case MenuStateLoadRom:
-                                if romLoaderState != nil {
-                                    menuRenderer = makeLoadRomRenderer(windowSize.X, windowSize.Y, romLoaderState)
-                                    updateRender = true
-                                }
-                        }
-                    }
-
-                case <-snowTicker.C:
-                    if menu.IsActive() {
-                        if len(snow) < 300 {
-                            snow = append(snow, MakeSnow(windowSize.X))
-                        }
-
-                        wind += (rand.Float32() - 0.5) / 4
-                        if wind < -1 {
-                            wind = -1
-                        }
-                        if wind > 1 {
-                            wind = 1
-                        }
-
-                        for i := 0; i < len(snow); i++ {
-                            snow[i].truey += snow[i].fallSpeed
-                            snow[i].truex += wind
-                            snow[i].x = snow[i].truex + float32(math.Cos(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
-                            // snow[i].y = snow[i].truey + float32(-math.Sin(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
-                            snow[i].y = snow[i].truey
-                            snow[i].angle += float32(snow[i].direction) * snow[i].speed
-
-                            if snow[i].y > float32(windowSize.Y) {
-                                snow[i] = MakeSnow(windowSize.X)
-                            }
-
-                            if snow[i].angle < 0 {
-                                snow[i].angle = 0
-                                snow[i].direction = -snow[i].direction
-                            }
-                            if snow[i].angle >= 180  {
-                                snow[i].angle = 180
-                                snow[i].direction = -snow[i].direction
-                            }
-                        }
-
-                        snowRenderer = makeSnowRenderer(snow)
-                        updateRender = true
-                    }
-            }
-
-            if updateRender {
-                /* If there is a graphics update then send it to the renderer */
-                select {
-                    case renderUpdates <- chainRenders(baseRenderer, snowRenderer, menuRenderer):
-                    default:
-                }
-            }
-        }
-    }(menu)
-
-    return menu
 }
 
 func (menu *Menu) Close() {
