@@ -120,7 +120,7 @@ func (manager *TextureManager) NextId() TextureId {
 
 func MakeTextureManager() *TextureManager {
     return &TextureManager{
-        id: 0,
+        id: 1, // so that clients can test if their texture id is 0, which means invalid
         Textures: make(map[TextureId]TextureInfo),
     }
 }
@@ -564,15 +564,13 @@ func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
     return menu
 }
 
-func (buttons *MenuButtons) Render(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, renderer *sdl.Renderer) error {
+func (buttons *MenuButtons) Render(startX int, startY int, maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, renderer *sdl.Renderer) error {
     buttons.Lock.Lock()
     buttons.Lock.Unlock()
 
     yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
-    startX := 50
-    startY := 50
     const buttonDistance = 50
 
     x := startX
@@ -600,6 +598,18 @@ func (buttons *MenuButtons) Render(maxWidth int, maxHeight int, buttonManager *B
     return nil
 }
 
+type JoystickState interface {
+}
+
+type JoystickStateAdd struct {
+    Index int
+    Name string
+}
+
+type JoystickStateRemove struct {
+    Index int
+}
+
 // callback that is invoked when MenuQuit is input
 type MenuQuitFunc func(SubMenu) SubMenu
 
@@ -623,23 +633,107 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
 
 func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
-        return menu.Buttons.Render(maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+
+        return menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
     }
 }
 
-func MakeJoystickMenu(parent SubMenu) SubMenu {
-    var buttons MenuButtons
+type JoystickMenu struct {
+    Buttons MenuButtons
+    Quit MenuQuitFunc
+    JoystickName string
+    JoystickIndex int
+    Textures map[string]TextureId
+    Lock sync.Mutex
+}
 
-    buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu{ return parent } })
+func (menu *JoystickMenu) UpdateWindowSize(x int, y int){
+    // nothing
+}
 
-    buttons.Add(&StaticButton{Name: "Configure"})
+func (menu *JoystickMenu) Input(input MenuInput) SubMenu {
+    switch input {
+        case MenuQuit:
+            return menu.Quit(menu)
+        default:
+            return menu.Buttons.Interact(input, menu)
+    }
+}
 
-    return &StaticMenu{
-        Buttons: buttons,
+func (menu *JoystickMenu) GetTexture(textureManager *TextureManager, text string) TextureId {
+    id, ok := menu.Textures[text]
+    if ok {
+        return id
+    }
+
+    next := textureManager.NextId()
+    menu.Textures[text] = next
+    return next
+}
+
+func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
+    menu.Lock.Lock()
+    defer menu.Lock.Unlock()
+
+    text := fmt.Sprintf("Joystick: %v", menu.JoystickName)
+
+    textureId := menu.GetTexture(textureManager, text)
+
+    return func(renderer *sdl.Renderer) error {
+        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+        info, err := textureManager.RenderText(font, renderer, text, white, textureId)
+        if err != nil {
+            return err
+        }
+
+        err = copyTexture(info.Texture, renderer, info.Width, info.Height, 10, 10)
+        if err != nil {
+            return err
+        }
+
+        return menu.Buttons.Render(50, 100, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+    }
+}
+
+func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState) SubMenu {
+    menu := &JoystickMenu{
         Quit: func(current SubMenu) SubMenu {
             return parent
         },
+        JoystickName: "No joystick found",
+        Textures: make(map[string]TextureId),
     }
+
+    go func(){
+        for stateChange := range joystickStateChanges {
+            // log.Printf("Joystick state change: %v", stateChange)
+
+            add, ok := stateChange.(*JoystickStateAdd)
+            if ok {
+                menu.Lock.Lock()
+                menu.JoystickName = add.Name
+                menu.JoystickIndex = add.Index
+                menu.Lock.Unlock()
+            }
+
+            remove, ok := stateChange.(*JoystickStateRemove)
+            if ok {
+                _ = remove
+                menu.Lock.Lock()
+                menu.JoystickName = "No joystick found"
+                menu.JoystickIndex = -1
+                menu.Lock.Unlock()
+            }
+        }
+    }()
+
+    menu.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu{ return parent } })
+
+    menu.Buttons.Add(&StaticButton{Name: "Configure", Func: func(){
+    }})
+
+    return menu
 }
 
 type LoadRomMenu struct {
@@ -686,7 +780,7 @@ func (loadRomMenu *LoadRomMenu) UpdateWindowSize(x int, y int){
     loadRomMenu.LoaderState.UpdateWindowSize(x, y)
 }
 
-func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, textureManager *TextureManager) SubMenu {
+func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, textureManager *TextureManager) SubMenu {
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
             menu.cancel()
@@ -694,7 +788,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
         },
     }
 
-    joystickMenu := MakeJoystickMenu(main)
+    joystickMenu := MakeJoystickMenu(main, joystickStateChanges)
 
     main.Buttons.Add(&StaticButton{Name: "Quit", Func: func(){
         mainCancel()
@@ -743,12 +837,26 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
     userInput := make(chan MenuInput, 3)
     defer close(userInput)
 
+    joystickStateChanges := make(chan JoystickState, 3)
+    defer close(joystickStateChanges)
+
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
         if event != nil {
-            // log.Printf("Event %+v\n", event)
+            // log.Printf("Event %+v type %v\n", event)
             switch event.GetType() {
                 case sdl.QUIT: mainCancel()
+                case sdl.JOYDEVICEADDED:
+                    add_event := event.(*sdl.JoyDeviceAddedEvent)
+                    joystickStateChanges <- &JoystickStateAdd{
+                        Index: int(add_event.Which),
+                        Name: sdl.JoystickNameForIndex(int(add_event.Which)),
+                    }
+                case sdl.JOYDEVICEREMOVED:
+                    remove_event := event.(*sdl.JoyDeviceRemovedEvent)
+                    joystickStateChanges <- &JoystickStateRemove{
+                        Index: int(remove_event.Which),
+                    }
                 case sdl.WINDOWEVENT:
                     window_event := event.(*sdl.WindowEvent)
                     switch window_event.Event {
@@ -855,7 +963,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         wind := rand.Float32() - 0.5
         snowRenderer := makeSnowRenderer(nil)
 
-        currentMenu := MakeMainMenu(menu, mainCancel, programActions, textureManager)
+        currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, textureManager)
 
         /* Reset the default renderer */
         for {
@@ -944,6 +1052,17 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         windowSizeUpdates <- common.WindowSize{
             X: int(width),
             Y: int(height),
+        }
+
+        // log.Printf("Found joysticks: %v\n", sdl.NumJoysticks())
+        for i := 0; i < sdl.NumJoysticks(); i++ {
+            // guid := sdl.JoystickGetDeviceGUID(i)
+            // log.Printf("Joystick %v: %v = %v\n", i, guid, sdl.JoystickNameForIndex(i))
+
+            joystickStateChanges <- &JoystickStateAdd{
+                Index: i,
+                Name: sdl.JoystickNameForIndex(i),
+            }
         }
     })
 

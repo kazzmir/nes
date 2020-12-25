@@ -222,6 +222,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
     }
 
+    log.Printf("Initializing SDL")
+
     err = sdl.Init(sdl.INIT_EVERYTHING)
     if err != nil {
         return err
@@ -231,6 +233,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     sdl.DisableScreenSaver()
     defer sdl.EnableScreenSaver()
 
+    log.Printf("Create window")
     /* to resize the window */
     window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(nes.VideoWidth * windowSizeMultiple), int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple), sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
     if err != nil {
@@ -243,6 +246,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     // renderer, err := sdl.CreateSoftwareRenderer(surface)
     // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_SOFTWARE)
 
+    log.Printf("Create renderer")
     /* Create an accelerated renderer */
     renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
 
