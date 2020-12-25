@@ -816,6 +816,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
         var snow []Snow
 
+        /* Draw a reddish overlay on the screen */
         baseRenderer := func(renderer *sdl.Renderer) error {
             err := renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
             _ = err
@@ -869,6 +870,9 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                 case input := <-userInput:
                     currentMenu = currentMenu.Input(input)
                     currentMenu.UpdateWindowSize(windowSize.X, windowSize.Y)
+                    /* Its slightly more efficient to tell the renderer to perform a render operation rather than
+                     * to set updateRender=true which forces the chain of render functions to be recreated.
+                     */
                     select {
                         case renderNow <- true:
                     }
