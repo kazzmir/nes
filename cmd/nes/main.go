@@ -208,6 +208,7 @@ type NesActionRestart struct {
 }
 
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
+    log.Printf("Opening NES file '%v'", path)
     nesFile, err := nes.ParseNesFile(path, true)
     if err != nil {
         return err
@@ -402,6 +403,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 case <-renderTimer.C:
                     canRender = true
                 case <-fpsTimer.C:
+                    /* FIXME: don't print this while the menu is running */
                     log.Printf("FPS: %v", int(float64(fps) / fpsCounter))
                     fps = 0
             }

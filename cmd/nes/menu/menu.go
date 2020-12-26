@@ -15,6 +15,7 @@ import (
     "bytes"
     "log"
     "sync"
+    "strings"
 
     "crypto/md5"
 
@@ -696,6 +697,25 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
     }
 }
 
+func forkJoystickInput(channel <-chan JoystickState) (<-chan JoystickState, <-chan JoystickState){
+    /* FIXME: pass in the buffer size as an argument? */
+    copy1 := make(chan JoystickState, 5)
+    copy2 := make(chan JoystickState, 5)
+
+
+    go func(){
+        defer close(copy1)
+        defer close(copy2)
+
+        for input := range channel {
+            copy1 <- input
+            copy2 <- input
+        }
+    }()
+
+    return copy1, copy2
+}
+
 func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState) SubMenu {
     menu := &JoystickMenu{
         Quit: func(current SubMenu) SubMenu {
@@ -703,7 +723,10 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState)
         },
         JoystickName: "No joystick found",
         Textures: make(map[string]TextureId),
+        JoystickIndex: -1,
     }
+
+    // copy1, copy2 := forkJoystickInput(joystickStateChanges)
 
     go func(){
         for stateChange := range joystickStateChanges {
@@ -714,6 +737,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState)
                 menu.Lock.Lock()
                 menu.JoystickName = add.Name
                 menu.JoystickIndex = add.Index
+                log.Printf("Set joystick to '%v' index %v", add.Name, add.Index)
                 menu.Lock.Unlock()
             }
 
@@ -730,10 +754,61 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState)
 
     menu.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu{ return parent } })
 
-    menu.Buttons.Add(&StaticButton{Name: "Configure", Func: func(){
+    menu.Buttons.Add(&SubMenuButton{Name: "Configure", Func: func() SubMenu {
+        menu.Lock.Lock()
+        defer menu.Lock.Unlock()
+
+        return MakeJoystickConfigureMenu(menu, menu.JoystickName, menu.JoystickIndex)
     }})
 
     return menu
+}
+
+type JoystickConfigureMenu struct {
+    Quit MenuQuitFunc
+}
+
+func (menu *JoystickConfigureMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
+    return func(renderer *sdl.Renderer) error {
+        /*
+        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+        info, err := textureManager.RenderText(font, renderer, text, white, textureId)
+        if err != nil {
+            return err
+        }
+
+        err = copyTexture(info.Texture, renderer, info.Width, info.Height, 10, 10)
+        if err != nil {
+            return err
+        }
+
+        return menu.Buttons.Render(50, 100, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        */
+        return nil
+    }
+}
+
+func (menu *JoystickConfigureMenu) UpdateWindowSize(width int, height int){
+}
+
+func (menu *JoystickConfigureMenu) Input(input MenuInput) SubMenu {
+    switch input {
+        case MenuQuit:
+            return menu.Quit(menu)
+        default:
+            // return menu.Buttons.Interact(input, menu)
+            return menu
+    }
+}
+
+
+func MakeJoystickConfigureMenu(parent SubMenu, name string, index int) SubMenu {
+    return &JoystickConfigureMenu{
+        Quit: func(current SubMenu) SubMenu {
+            return parent
+        },
+    }
 }
 
 type LoadRomMenu struct {
@@ -850,7 +925,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                     add_event := event.(*sdl.JoyDeviceAddedEvent)
                     joystickStateChanges <- &JoystickStateAdd{
                         Index: int(add_event.Which),
-                        Name: sdl.JoystickNameForIndex(int(add_event.Which)),
+                        Name: strings.TrimSpace(sdl.JoystickNameForIndex(int(add_event.Which))),
                     }
                 case sdl.JOYDEVICEREMOVED:
                     remove_event := event.(*sdl.JoyDeviceRemovedEvent)
@@ -1061,7 +1136,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
             joystickStateChanges <- &JoystickStateAdd{
                 Index: i,
-                Name: sdl.JoystickNameForIndex(i),
+                Name: strings.TrimSpace(sdl.JoystickNameForIndex(i)),
             }
         }
     })
