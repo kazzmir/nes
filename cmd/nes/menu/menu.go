@@ -547,6 +547,7 @@ type SubMenu interface {
     Input(input MenuInput) SubMenu
     MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction
     UpdateWindowSize(int, int)
+    RawInput(sdl.Event)
 }
 
 func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
@@ -619,6 +620,9 @@ type StaticMenu struct {
     Quit MenuQuitFunc
 }
 
+func (menu *StaticMenu) RawInput(event sdl.Event){
+}
+
 func (menu *StaticMenu) UpdateWindowSize(x int, y int){
     // nothing
 }
@@ -639,6 +643,42 @@ func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager 
     }
 }
 
+type SDLButtonState struct {
+    Name string
+    Pressed bool
+}
+
+type JoystickButtonMapping struct {
+    Buttons map[int]*SDLButtonState // map from raw joystick code to button state
+}
+
+func (mapping *JoystickButtonMapping) AddMapping(name string, rawButton int){
+    mapping.Buttons[rawButton] = &SDLButtonState{Name: name, Pressed: false}
+}
+
+func (mapping *JoystickButtonMapping) Press(rawButton int){
+    value, ok := mapping.Buttons[rawButton]
+    if ok {
+        value.Pressed = true
+    }
+}
+
+func (mapping *JoystickButtonMapping) Release(rawButton int){
+    value, ok := mapping.Buttons[rawButton]
+    if ok {
+        value.Pressed = false
+    }
+}
+
+func (mapping *JoystickButtonMapping) IsPressed(name string) bool {
+    for _, state := range mapping.Buttons {
+        if state.Name == name {
+            return state.Pressed
+        }
+    }
+    return false
+}
+
 type JoystickMenu struct {
     Buttons MenuButtons
     Quit MenuQuitFunc
@@ -646,10 +686,31 @@ type JoystickMenu struct {
     JoystickIndex int
     Textures map[string]TextureId
     Lock sync.Mutex
+    Configuring bool
+    Mapping JoystickButtonMapping
 }
 
 func (menu *JoystickMenu) UpdateWindowSize(x int, y int){
     // nothing
+}
+
+func (menu *JoystickMenu) RawInput(event sdl.Event){
+    menu.Lock.Lock()
+    defer menu.Lock.Unlock()
+
+    if menu.Configuring {
+    } else {
+        button, ok := event.(*sdl.JoyButtonEvent)
+        if ok {
+            // log.Printf("Raw joystick input: %+v", button)
+            switch button.Type {
+                case sdl.JOYBUTTONDOWN:
+                    menu.Mapping.Press(int(button.Button))
+                case sdl.JOYBUTTONUP:
+                    menu.Mapping.Release(int(button.Button))
+            }
+        }
+    }
 }
 
 func (menu *JoystickMenu) Input(input MenuInput) SubMenu {
@@ -681,7 +742,11 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
     textureId := menu.GetTexture(textureManager, text)
 
     return func(renderer *sdl.Renderer) error {
+        menu.Lock.Lock()
+        defer menu.Lock.Unlock()
+
         white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+        red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
 
         info, err := textureManager.RenderText(font, renderer, text, white, textureId)
         if err != nil {
@@ -693,7 +758,56 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
             return err
         }
 
-        return menu.Buttons.Render(50, 100, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        err = menu.Buttons.Render(50, 100, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        if err != nil {
+            return err
+        }
+
+        buttons := []string{"Up", "Down", "Left", "Right", "A", "B", "Select", "Start"}
+
+        verticalMargin := 20
+        x := 80
+        y := 100 + font.Height() * 3 + verticalMargin
+
+        maxWidth := 0
+
+        /* map the button name to its vertical position */
+        buttonPositions := make(map[string]int)
+
+        for _, button := range buttons {
+            buttonPositions[button] = y
+            color := white
+
+            if menu.Mapping.IsPressed(button) {
+                color = red
+            }
+
+            textureId := buttonManager.GetButtonTextureId(textureManager, button, color)
+            width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button, color)
+            if err != nil {
+                return err
+            }
+            if width > maxWidth {
+                maxWidth = width
+            }
+            _ = width
+            _ = height
+            y += height + verticalMargin
+        }
+
+        for _, button := range buttons {
+            textureId := buttonManager.GetButtonTextureId(textureManager, "Unmapped", white)
+            vx := x + maxWidth + 20
+            vy := buttonPositions[button]
+            width, height, err := drawButton(font, renderer, textureManager, textureId, vx, vy, "Unmapped", white)
+            _ = width
+            _ = height
+            if err != nil {
+                return err
+            }
+        }
+
+        return nil
     }
 }
 
@@ -724,7 +838,20 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState)
         JoystickName: "No joystick found",
         Textures: make(map[string]TextureId),
         JoystickIndex: -1,
+        Mapping: JoystickButtonMapping{
+            Buttons: make(map[int]*SDLButtonState),
+        },
     }
+
+    /* playstation 3 mapping */
+    menu.Mapping.AddMapping("Up", 13)
+    menu.Mapping.AddMapping("Down", 14)
+    menu.Mapping.AddMapping("Left", 15)
+    menu.Mapping.AddMapping("Right", 16)
+    menu.Mapping.AddMapping("A", 0) // X
+    menu.Mapping.AddMapping("B", 3) // square
+    menu.Mapping.AddMapping("Select", 8)
+    menu.Mapping.AddMapping("Start", 9)
 
     // copy1, copy2 := forkJoystickInput(joystickStateChanges)
 
@@ -758,57 +885,12 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState)
         menu.Lock.Lock()
         defer menu.Lock.Unlock()
 
-        return MakeJoystickConfigureMenu(menu, menu.JoystickName, menu.JoystickIndex)
+        menu.Configuring = true
+
+        return menu
     }})
 
     return menu
-}
-
-type JoystickConfigureMenu struct {
-    Quit MenuQuitFunc
-}
-
-func (menu *JoystickConfigureMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
-    return func(renderer *sdl.Renderer) error {
-        /*
-        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-
-        info, err := textureManager.RenderText(font, renderer, text, white, textureId)
-        if err != nil {
-            return err
-        }
-
-        err = copyTexture(info.Texture, renderer, info.Width, info.Height, 10, 10)
-        if err != nil {
-            return err
-        }
-
-        return menu.Buttons.Render(50, 100, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
-        */
-        return nil
-    }
-}
-
-func (menu *JoystickConfigureMenu) UpdateWindowSize(width int, height int){
-}
-
-func (menu *JoystickConfigureMenu) Input(input MenuInput) SubMenu {
-    switch input {
-        case MenuQuit:
-            return menu.Quit(menu)
-        default:
-            // return menu.Buttons.Interact(input, menu)
-            return menu
-    }
-}
-
-
-func MakeJoystickConfigureMenu(parent SubMenu, name string, index int) SubMenu {
-    return &JoystickConfigureMenu{
-        Quit: func(current SubMenu) SubMenu {
-            return parent
-        },
-    }
 }
 
 type LoadRomMenu struct {
@@ -818,6 +900,9 @@ type LoadRomMenu struct {
     Back MenuQuitFunc
     SelectRom func()
     LoaderState *RomLoaderState
+}
+
+func (loadRomMenu *LoadRomMenu) RawInput(event sdl.Event){
 }
 
 func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
@@ -915,9 +1000,16 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
     joystickStateChanges := make(chan JoystickState, 3)
     defer close(joystickStateChanges)
 
+    rawEvents := make(chan sdl.Event, 100)
+
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
         if event != nil {
+            select {
+                case rawEvents <- event:
+                default:
+            }
+
             // log.Printf("Event %+v type %v\n", event)
             switch event.GetType() {
                 case sdl.QUIT: mainCancel()
@@ -1059,6 +1151,9 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                     select {
                         case renderNow <- true:
                     }
+
+                case event := <-rawEvents:
+                    currentMenu.RawInput(event)
 
                 case <-snowTicker.C:
                     /* FIXME: move this code somewhere else to keep the main Run() method small */
