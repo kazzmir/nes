@@ -670,6 +670,24 @@ func (mapping *JoystickButtonMapping) Release(rawButton int){
     }
 }
 
+/* returns the sdl joystick button mapped to the given name, or -1
+ * if no such mapping exists
+ */
+func (mapping *JoystickButtonMapping) GetRawCode(name string) int {
+    for button, state := range mapping.Buttons {
+        if state.Name == name {
+            return button
+        }
+    }
+
+    return -1
+}
+
+func (mapping *JoystickButtonMapping) ButtonList() []string {
+    /* FIXME: get this dynamically from the underlying Buttons map */
+    return []string{"Up", "Down", "Left", "Right", "A", "B", "Select", "Start"}
+}
+
 func (mapping *JoystickButtonMapping) IsPressed(name string) bool {
     for _, state := range mapping.Buttons {
         if state.Name == name {
@@ -763,7 +781,7 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
             return err
         }
 
-        buttons := []string{"Up", "Down", "Left", "Right", "A", "B", "Select", "Start"}
+        buttons := menu.Mapping.ButtonList()
 
         verticalMargin := 20
         x := 80
@@ -796,10 +814,16 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
         }
 
         for _, button := range buttons {
-            textureId := buttonManager.GetButtonTextureId(textureManager, "Unmapped", white)
+            rawButton := menu.Mapping.GetRawCode(button)
+            mapped := "Unmapped"
+            if rawButton != -1 {
+                mapped = fmt.Sprintf("%v", rawButton)
+            }
+
+            textureId := buttonManager.GetButtonTextureId(textureManager, mapped, white)
             vx := x + maxWidth + 20
             vy := buttonPositions[button]
-            width, height, err := drawButton(font, renderer, textureManager, textureId, vx, vy, "Unmapped", white)
+            width, height, err := drawButton(font, renderer, textureManager, textureId, vx, vy, mapped, white)
             _ = width
             _ = height
             if err != nil {
