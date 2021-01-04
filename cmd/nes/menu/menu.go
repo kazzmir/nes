@@ -656,6 +656,15 @@ func (mapping *JoystickButtonMapping) AddMapping(name string, rawButton int){
     mapping.Buttons[rawButton] = &SDLButtonState{Name: name, Pressed: false}
 }
 
+func (mapping *JoystickButtonMapping) Unmap(name string){
+    for raw, state := range mapping.Buttons {
+        if state.Name == name {
+            delete(mapping.Buttons, raw)
+            return
+        }
+    }
+}
+
 func (mapping *JoystickButtonMapping) Press(rawButton int){
     value, ok := mapping.Buttons[rawButton]
     if ok {
@@ -706,6 +715,13 @@ type JoystickMenu struct {
     Lock sync.Mutex
     Configuring bool
     Mapping JoystickButtonMapping
+
+    // the button currently being configured, which is an index into the ButtonList()
+    PartialButton int
+    PartialCounter int
+    ConfigureButton int
+    Released chan int
+    ConfigurePrevious context.CancelFunc
 }
 
 func (menu *JoystickMenu) UpdateWindowSize(x int, y int){
@@ -717,6 +733,83 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
     defer menu.Lock.Unlock()
 
     if menu.Configuring {
+        /* if its a press then set the current partial key to that press
+         * and set a timer for ~1s, if the release comes after 1s then
+         * set the button.
+         */
+        button, ok := event.(*sdl.JoyButtonEvent)
+        if ok {
+            // log.Printf("Raw joystick input: %+v", button)
+            switch button.Type {
+                case sdl.JOYBUTTONDOWN:
+                    menu.PartialButton = int(button.Button)
+                    menu.PartialCounter = 0
+                    if menu.ConfigurePrevious != nil {
+                        menu.ConfigurePrevious()
+                    }
+
+                    quit, cancel := context.WithCancel(context.Background())
+                    menu.ConfigurePrevious = cancel
+
+                    go func(pressed int){
+                        ticker := time.NewTicker(100 * time.Millisecond)
+                        ok := false
+                        done := false
+                        for !done {
+                            select {
+                            case use := <-menu.Released:
+                                if use == pressed {
+                                    done = true
+                                }
+                            case <-quit.Done():
+                                return
+                            case <-ticker.C:
+                                menu.Lock.Lock()
+                                if menu.PartialCounter < 10 {
+                                    menu.PartialCounter += 1
+                                } else {
+                                    ok = true
+                                }
+                                menu.Lock.Unlock()
+                            }
+                        }
+
+                        menu.Lock.Lock()
+                        defer menu.Lock.Unlock()
+
+                        if ok {
+                            // menu.Mapping.Buttons[menu.Mapping.ButtonList()[menu.ConfigureButton]] = pressed
+                            menu.Mapping.AddMapping(menu.Mapping.ButtonList()[menu.ConfigureButton], pressed)
+                            menu.ConfigureButton += 1
+                            if menu.ConfigureButton >= len(menu.Mapping.ButtonList()) {
+                                menu.Configuring = false
+                            }
+                        } else {
+                            menu.PartialButton = -1
+                            menu.Mapping.Unmap(menu.Mapping.ButtonList()[menu.ConfigureButton])
+                        }
+
+                        /* FIXME: channel leak with the timer */
+                        ticker.Stop()
+                        /*
+                        if !timer.Stop() {
+                            go func(){
+                                <-timer.C
+                            }()
+                        }
+                        */
+                    }(int(button.Button))
+                case sdl.JOYBUTTONUP:
+                    menu.Mapping.Release(int(button.Button))
+                    select {
+                        case menu.Released <- int(button.Button):
+                        default:
+                    }
+                    menu.PartialButton = -1
+            }
+        }
+
+
     } else {
         button, ok := event.(*sdl.JoyButtonEvent)
         if ok {
@@ -734,6 +827,9 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
 func (menu *JoystickMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuQuit:
+            menu.Lock.Lock()
+            defer menu.Lock.Unlock()
+            menu.Configuring = false
             return menu.Quit(menu)
         default:
             return menu.Buttons.Interact(input, menu)
@@ -792,11 +888,15 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
         /* map the button name to its vertical position */
         buttonPositions := make(map[string]int)
 
-        for _, button := range buttons {
+        for i, button := range buttons {
             buttonPositions[button] = y
             color := white
 
-            if menu.Mapping.IsPressed(button) {
+            if menu.Configuring && menu.ConfigureButton == i {
+                color = red
+            }
+
+            if !menu.Configuring && menu.Mapping.IsPressed(button) {
                 color = red
             }
 
@@ -813,17 +913,33 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
             y += height + verticalMargin
         }
 
-        for _, button := range buttons {
+        for i, button := range buttons {
             rawButton := menu.Mapping.GetRawCode(button)
             mapped := "Unmapped"
+            color := white
             if rawButton != -1 {
-                mapped = fmt.Sprintf("%v", rawButton)
+                mapped = fmt.Sprintf("%03v", rawButton)
             }
 
-            textureId := buttonManager.GetButtonTextureId(textureManager, mapped, white)
+            if menu.Configuring && menu.ConfigureButton == i {
+                mapped = "?"
+                if menu.PartialButton != -1 {
+                    mapped = fmt.Sprintf("%03v", menu.PartialButton)
+
+                    m := uint8(menu.PartialCounter * 255 / 10)
+
+                    if menu.PartialCounter == 10 {
+                        color = sdl.Color{R: 255, G: 255, B: 0, A: 255}
+                    } else {
+                        color = sdl.Color{R: 255, G: m, B: m, A: 255}
+                    }
+                }
+            }
+
+            textureId := buttonManager.GetButtonTextureId(textureManager, mapped, color)
             vx := x + maxWidth + 20
             vy := buttonPositions[button]
-            width, height, err := drawButton(font, renderer, textureManager, textureId, vx, vy, mapped, white)
+            width, height, err := drawButton(font, renderer, textureManager, textureId, vx, vy, mapped, color)
             _ = width
             _ = height
             if err != nil {
@@ -865,6 +981,8 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState)
         Mapping: JoystickButtonMapping{
             Buttons: make(map[int]*SDLButtonState),
         },
+        Released: make(chan int, 4),
+        ConfigurePrevious: nil,
     }
 
     /* playstation 3 mapping */
@@ -909,7 +1027,9 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState)
         menu.Lock.Lock()
         defer menu.Lock.Unlock()
 
+        menu.ConfigureButton = 0
         menu.Configuring = true
+        menu.Mapping.Buttons = make(map[int]*SDLButtonState)
 
         return menu
     }})
