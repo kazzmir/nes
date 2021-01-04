@@ -397,7 +397,7 @@ func MakeButtonManager() ButtonManager {
 
 /* md5 the string then add up the first 8 bytes to produce a 64-bit value */
 func computeStringHash(value string) uint64 {
-    hash := md5.New().Sum([]byte(value))
+    hash := md5.Sum([]byte(value))
     var out uint64
     for i := 0; i < 8; i++ {
         out = (out << 8) + uint64(hash[i])
@@ -832,7 +832,14 @@ func (menu *JoystickMenu) Input(input MenuInput) SubMenu {
             menu.Configuring = false
             return menu.Quit(menu)
         default:
-            return menu.Buttons.Interact(input, menu)
+            menu.Lock.Lock()
+            ok := !menu.Configuring
+            menu.Lock.Unlock()
+            if ok {
+                return menu.Buttons.Interact(input, menu)
+            }
+
+            return menu
     }
 }
 
@@ -867,21 +874,42 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
             return err
         }
 
-        err = copyTexture(info.Texture, renderer, info.Width, info.Height, 10, 10)
+        x := 10
+        y := 10
+
+        err = copyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
         if err != nil {
             return err
         }
 
-        err = menu.Buttons.Render(50, 100, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        x = 50
+        y = 100
+        err = menu.Buttons.Render(x, y, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
         if err != nil {
             return err
+        }
+
+        y += font.Height() * 2
+
+        if menu.Configuring {
+            configureText := "Configuring: hold a button for 1 second to set it"
+            configuringId := buttonManager.GetButtonTextureId(textureManager, configureText, white)
+            info2, err := textureManager.RenderText(font, renderer, configureText, white, configuringId)
+            if err != nil {
+                return err
+            }
+
+            err = copyTexture(info2.Texture, renderer, info2.Width, info2.Height, x, y)
+            if err != nil {
+                return err
+            }
         }
 
         buttons := menu.Mapping.ButtonList()
 
         verticalMargin := 20
-        x := 80
-        y := 100 + font.Height() * 3 + verticalMargin
+        x = 80
+        y += font.Height() * 3 + verticalMargin
 
         maxWidth := 0
 
