@@ -830,6 +830,11 @@ func (menu *JoystickMenu) Input(input MenuInput) SubMenu {
             menu.Lock.Lock()
             defer menu.Lock.Unlock()
             menu.Configuring = false
+
+            if menu.ConfigurePrevious != nil {
+                menu.ConfigurePrevious()
+            }
+
             return menu.Quit(menu)
         default:
             menu.Lock.Lock()
