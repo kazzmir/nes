@@ -1,5 +1,8 @@
 package main
 
+/* golang sdl https://pkg.go.dev/github.com/veandco/go-sdl2@v0.4.8/sdl
+ */
+
 /*
 #include <stdlib.h>
 */
@@ -184,7 +187,10 @@ func doRender(width int, height int, raw_pixels []byte, pixelFormat common.Pixel
     renderer.Clear()
 
     renderer.SetLogicalSize(int32(width), int32(height))
-    renderer.Copy(texture, nil, nil)
+    err = renderer.Copy(texture, nil, nil)
+    if err != nil {
+        log.Printf("Warning: could not copy texture to renderer: %v\n", err)
+    }
 
     renderer.SetLogicalSize(0, 0)
     err = renderFunc(renderer)
@@ -236,7 +242,28 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     log.Printf("Create window")
     /* to resize the window */
-    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(nes.VideoWidth * windowSizeMultiple), int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple), sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
+    var window *sdl.Window
+    var renderer *sdl.Renderer
+
+    /* 7/5/2021: its apparently very important that the window and renderer be created
+     * in the sdl thread via sdl.Do. If the renderer calls are in sdl.Do, then so must
+     * also be the creation of the window and the renderer. Initially I did not have
+     * the creation of the window and renderer in sdl.Do, and thus in opengl mode
+     * the window would not be rendered.
+     */
+    sdl.Do(func(){
+        window, renderer, err = sdl.CreateWindowAndRenderer(
+            int32(nes.VideoWidth * windowSizeMultiple),
+            int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple),
+            sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
+    })
+
+    /*
+    window, err := sdl.CreateWindow("nes",
+                                    sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
+                                    int32(nes.VideoWidth * windowSizeMultiple),
+                                    int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple),
+                                    sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
     if err != nil {
         return err
     }
@@ -248,14 +275,61 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_SOFTWARE)
 
     log.Printf("Create renderer")
-    /* Create an accelerated renderer */
-    renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
+    / * Create an accelerated renderer * /
+    // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
+    renderer, err := sdl.CreateRenderer(window, -1, 0)
+    */
 
     if err != nil {
         return err
     }
+
+    defer window.Destroy()
     defer renderer.Destroy()
 
+    /* debug stuff
+    numDrivers, err := sdl.GetNumRenderDrivers()
+    if err != nil {
+        log.Printf("Could not get the number of render drivers\n")
+    } else {
+        for i := 0; i < numDrivers; i++ {
+            var renderInfo sdl.RendererInfo
+            _, err = sdl.GetRenderDriverInfo(0, &renderInfo)
+            if err != nil {
+                log.Printf("Could not get render driver info: %v\n", err)
+            } else {
+                log.Printf("Render driver info %v\n", i + 1)
+                log.Printf(" Name: %v\n", renderInfo.Name)
+                log.Printf(" Flags: %v\n", renderInfo.Flags)
+                log.Printf(" Number of texture formats: %v\n", renderInfo.NumTextureFormats)
+                log.Printf(" Texture formats: %v\n", renderInfo.TextureFormats)
+                log.Printf(" Max texture width: %v\n", renderInfo.MaxTextureWidth)
+                log.Printf(" Max texture height: %v\n", renderInfo.MaxTextureHeight)
+            }
+        }
+    }
+    */
+
+    renderInfo, err := renderer.GetInfo()
+    if err != nil {
+        log.Printf("Could not get render info from renderer: %v\n", err)
+    } else {
+        log.Printf("Current render info\n")
+        log.Printf(" Name: %v\n", renderInfo.Name)
+        log.Printf(" Flags: %v\n", renderInfo.Flags)
+        log.Printf(" Number of texture formats: %v\n", renderInfo.NumTextureFormats)
+        var buffer bytes.Buffer
+        for texture := uint32(0); texture < renderInfo.NumTextureFormats; texture++ {
+            value := uint(renderInfo.TextureFormats[texture])
+            buffer.WriteString(sdl.GetPixelFormatName(value))
+            buffer.WriteString(" ")
+        }
+        // log.Printf(" Texture formats: %v\n", renderInfo.TextureFormats)
+        log.Printf(" Texture formats: %v\n", buffer.String())
+        log.Printf(" Max texture width: %v\n", renderInfo.MaxTextureWidth)
+        log.Printf(" Max texture height: %v\n", renderInfo.MaxTextureHeight)
+    }
+   
     const AudioSampleRate float32 = 44100
 
     audioDevice, err := setupAudio(AudioSampleRate)
@@ -300,6 +374,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     desiredFps := 60.0
     pixelFormat := common.FindPixelFormat()
+
+    log.Printf("Using pixel format %v\n", sdl.GetPixelFormatName(uint(pixelFormat)))
 
     err = ttf.Init()
     if err != nil {
