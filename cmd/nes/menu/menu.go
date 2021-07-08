@@ -706,6 +706,18 @@ func (mapping *JoystickButtonMapping) IsPressed(name string) bool {
     return false
 }
 
+type JoystickInputType interface {
+}
+
+type JoystickButtonType struct {
+    Button int
+}
+
+type JoystickAxisType struct {
+    Axis int
+    Value int
+}
+
 type JoystickMenu struct {
     Buttons MenuButtons
     Quit MenuQuitFunc
@@ -717,7 +729,7 @@ type JoystickMenu struct {
     Mapping JoystickButtonMapping
 
     // the button currently being configured, which is an index into the ButtonList()
-    PartialButton int
+    PartialButton JoystickInputType
     PartialCounter int
     ConfigureButton int
     Released chan int
@@ -742,7 +754,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
             // log.Printf("Raw joystick input: %+v", button)
             switch button.Type {
                 case sdl.JOYBUTTONDOWN:
-                    menu.PartialButton = int(button.Button)
+                    menu.PartialButton = &JoystickButtonType{Button: int(button.Button)}
                     menu.PartialCounter = 0
                     if menu.ConfigurePrevious != nil {
                         menu.ConfigurePrevious()
@@ -753,6 +765,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
 
                     go func(pressed int){
                         ticker := time.NewTicker(100 * time.Millisecond)
+                        defer ticker.Stop()
                         ok := false
                         done := false
                         for !done {
@@ -785,12 +798,12 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                                 menu.Configuring = false
                             }
                         } else {
-                            menu.PartialButton = -1
+                            menu.PartialButton = nil
                             menu.Mapping.Unmap(menu.Mapping.ButtonList()[menu.ConfigureButton])
                         }
 
                         /* FIXME: channel leak with the timer */
-                        ticker.Stop()
+                        // ticker.Stop()
                         /*
                         if !timer.Stop() {
                             go func(){
@@ -805,10 +818,66 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                         case menu.Released <- int(button.Button):
                         default:
                     }
-                    menu.PartialButton = -1
+                    menu.PartialButton = nil
             }
         }
 
+        /* if its an axis event then keep track of which axis and value was pressed.
+         * as long as the same axis and mostly the same value is pressed then use that
+         * pair of values (axis, value) as the button
+         */
+        axis, ok := event.(*sdl.JoyAxisEvent)
+        if ok {
+            log.Printf("Axis event axis=%v value=%v\n", axis.Axis, axis.Value)
+
+            /* when the user lets go of the current axis button a 'release' axis event
+             * will be emitted, which is an axis event with value=0. at that point
+             * the ConfigurePrevious() cancel method will be invoked, which will cause
+             * the most recently pressed axis to configure the button.
+             */
+            menu.PartialCounter = 0
+            if menu.ConfigurePrevious != nil {
+                menu.ConfigurePrevious()
+            }
+
+            if axis.Value != 0 {
+                quit, cancel := context.WithCancel(context.Background())
+                menu.ConfigurePrevious = cancel
+                menu.PartialButton = &JoystickAxisType{Axis: int(axis.Axis), Value: int(axis.Value)}
+
+                go func(){
+                    ticker := time.NewTicker(100 * time.Millisecond)
+                    defer ticker.Stop()
+                    ok := false
+                    done := false
+                    for !done {
+                        select {
+                        case <-quit.Done():
+                            done = true
+                        case <-ticker.C:
+                            menu.Lock.Lock()
+                            if menu.PartialCounter < 10 {
+                                menu.PartialCounter += 1
+                            } else {
+                                ok = true
+                            }
+                            menu.Lock.Unlock()
+                        }
+                    }
+
+                    menu.Lock.Lock()
+                    defer menu.Lock.Unlock()
+
+                    /* the axis was held long enough */
+                    if ok {
+                        log.Printf("Map button %v to axis %v value %v\n", menu.ConfigureButton, axis.Axis, axis.Value)
+                        // menu.Mapping.AddMapping(menu.Mapping.ButtonList()[menu.ConfigureButton], pressed)
+                    } else {
+                        menu.PartialButton = nil
+                    }
+                }()
+            }
+        }
 
     } else {
         button, ok := event.(*sdl.JoyButtonEvent)
@@ -820,6 +889,12 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                 case sdl.JOYBUTTONUP:
                     menu.Mapping.Release(int(button.Button))
             }
+        }
+
+        axis, ok := event.(*sdl.JoyAxisEvent)
+        if ok {
+            /* TODO */
+            _ = axis
         }
     }
 }
@@ -956,8 +1031,16 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
 
             if menu.Configuring && menu.ConfigureButton == i {
                 mapped = "?"
-                if menu.PartialButton != -1 {
-                    mapped = fmt.Sprintf("%03v", menu.PartialButton)
+                if menu.PartialButton !=  nil{
+                    button, ok := menu.PartialButton.(*JoystickButtonType)
+                    if ok {
+                        mapped = fmt.Sprintf("button %03v", button.Button)
+                    }
+
+                    axis, ok := menu.PartialButton.(*JoystickAxisType)
+                    if ok {
+                        mapped = fmt.Sprintf("axis %02v value %v", axis.Axis, axis.Value)
+                    }
 
                     m := uint8(menu.PartialCounter * 255 / 10)
 
@@ -1185,6 +1268,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
             select {
                 case rawEvents <- event:
                 default:
+                    log.Printf("Warning: dropping raw sdl event\n")
             }
 
             // log.Printf("Event %+v type %v\n", event)
