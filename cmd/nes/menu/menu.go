@@ -649,33 +649,44 @@ type SDLButtonState struct {
 }
 
 type JoystickButtonMapping struct {
+    Inputs map[string]JoystickInputType
+    /*
     Buttons map[int]*SDLButtonState // map from raw joystick code to button state
+    Axis map[string]JoystickAxisType
+    */
 }
 
-func (mapping *JoystickButtonMapping) AddMapping(name string, rawButton int){
-    mapping.Buttons[rawButton] = &SDLButtonState{Name: name, Pressed: false}
+func (mapping *JoystickButtonMapping) AddAxisMapping(name string, axis JoystickAxisType){
+    mapping.Inputs[name] = &axis
+}
+
+func (mapping *JoystickButtonMapping) AddButtonMapping(name string, code int){
+    mapping.Inputs[name] = &JoystickButtonType{
+        Name: name,
+        Pressed: false,
+        Button: code,
+   }
 }
 
 func (mapping *JoystickButtonMapping) Unmap(name string){
-    for raw, state := range mapping.Buttons {
-        if state.Name == name {
-            delete(mapping.Buttons, raw)
-            return
+    delete(mapping.Inputs, name)
+}
+
+func (mapping *JoystickButtonMapping) Press(rawButton int){
+    for _, input := range mapping.Inputs {
+        value, ok := input.(*JoystickButtonType)
+        if ok && value.Button == rawButton {
+            value.Pressed = true
         }
     }
 }
 
-func (mapping *JoystickButtonMapping) Press(rawButton int){
-    value, ok := mapping.Buttons[rawButton]
-    if ok {
-        value.Pressed = true
-    }
-}
-
 func (mapping *JoystickButtonMapping) Release(rawButton int){
-    value, ok := mapping.Buttons[rawButton]
-    if ok {
-        value.Pressed = false
+    for _, input := range mapping.Inputs {
+        value, ok := input.(*JoystickButtonType)
+        if ok && value.Button == rawButton {
+            value.Pressed = false
+        }
     }
 }
 
@@ -683,13 +694,23 @@ func (mapping *JoystickButtonMapping) Release(rawButton int){
  * if no such mapping exists
  */
 func (mapping *JoystickButtonMapping) GetRawCode(name string) int {
-    for button, state := range mapping.Buttons {
-        if state.Name == name {
-            return button
+    value, ok := mapping.Inputs[name]
+    if ok {
+        button, ok := value.(*JoystickButtonType)
+        if ok {
+            return button.Button
         }
     }
 
     return -1
+}
+
+func (mapping *JoystickButtonMapping) GetRawInput(name string) JoystickInputType {
+    value, ok := mapping.Inputs[name]
+    if ok {
+        return value
+    }
+    return nil
 }
 
 func (mapping *JoystickButtonMapping) ButtonList() []string {
@@ -698,24 +719,45 @@ func (mapping *JoystickButtonMapping) ButtonList() []string {
 }
 
 func (mapping *JoystickButtonMapping) IsPressed(name string) bool {
-    for _, state := range mapping.Buttons {
-        if state.Name == name {
-            return state.Pressed
-        }
+    input, ok := mapping.Inputs[name]
+    if ok && input.IsPressed(){
+        return true
     }
     return false
 }
 
 type JoystickInputType interface {
+    IsPressed() bool
+    ToString() string
 }
 
 type JoystickButtonType struct {
     Button int
+    Name string
+    Pressed bool
+}
+
+func (button *JoystickButtonType) IsPressed() bool {
+    return button.Pressed
+}
+
+func (button *JoystickButtonType) ToString() string {
+    return fmt.Sprintf("button %03v", button.Button)
 }
 
 type JoystickAxisType struct {
     Axis int
     Value int
+    Name string
+    Pressed bool
+}
+
+func (axis *JoystickAxisType) IsPressed() bool {
+    return axis.Pressed
+}
+
+func (axis *JoystickAxisType) ToString() string {
+    return fmt.Sprintf("axis %02v value %v", axis.Axis, axis.Value)
 }
 
 type JoystickMenu struct {
@@ -763,7 +805,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                     quit, cancel := context.WithCancel(context.Background())
                     menu.ConfigurePrevious = cancel
 
-                    go func(pressed int){
+                    go func(pressed JoystickButtonType){
                         ticker := time.NewTicker(100 * time.Millisecond)
                         defer ticker.Stop()
                         ok := false
@@ -771,7 +813,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                         for !done {
                             select {
                             case use := <-menu.Released:
-                                if use == pressed {
+                                if use == pressed.Button {
                                     done = true
                                 }
                             case <-quit.Done():
@@ -792,14 +834,14 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
 
                         if ok {
                             // menu.Mapping.Buttons[menu.Mapping.ButtonList()[menu.ConfigureButton]] = pressed
-                            menu.Mapping.AddMapping(menu.Mapping.ButtonList()[menu.ConfigureButton], pressed)
+                            menu.Mapping.AddButtonMapping(pressed.Name, pressed.Button)
                             menu.ConfigureButton += 1
                             if menu.ConfigureButton >= len(menu.Mapping.ButtonList()) {
                                 menu.Configuring = false
                             }
                         } else {
                             menu.PartialButton = nil
-                            menu.Mapping.Unmap(menu.Mapping.ButtonList()[menu.ConfigureButton])
+                            menu.Mapping.Unmap(pressed.Name)
                         }
 
                         /* FIXME: channel leak with the timer */
@@ -811,7 +853,11 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                             }()
                         }
                         */
-                    }(int(button.Button))
+                    }(JoystickButtonType{
+                        Name: menu.Mapping.ButtonList()[menu.ConfigureButton],
+                        Button: int(button.Button),
+                        Pressed: false,
+                    })
                 case sdl.JOYBUTTONUP:
                     menu.Mapping.Release(int(button.Button))
                     select {
@@ -843,7 +889,10 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
             if axis.Value != 0 {
                 quit, cancel := context.WithCancel(context.Background())
                 menu.ConfigurePrevious = cancel
-                menu.PartialButton = &JoystickAxisType{Axis: int(axis.Axis), Value: int(axis.Value)}
+
+                pressed := JoystickAxisType{Axis: int(axis.Axis), Value: int(axis.Value)}
+
+                menu.PartialButton = &pressed
 
                 go func(){
                     ticker := time.NewTicker(100 * time.Millisecond)
@@ -871,7 +920,11 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                     /* the axis was held long enough */
                     if ok {
                         log.Printf("Map button %v to axis %v value %v\n", menu.ConfigureButton, axis.Axis, axis.Value)
-                        // menu.Mapping.AddMapping(menu.Mapping.ButtonList()[menu.ConfigureButton], pressed)
+                        menu.Mapping.AddAxisMapping(menu.Mapping.ButtonList()[menu.ConfigureButton], pressed)
+                        menu.ConfigureButton += 1
+                        if menu.ConfigureButton >= len(menu.Mapping.ButtonList()) {
+                            menu.Configuring = false
+                        }
                     } else {
                         menu.PartialButton = nil
                     }
@@ -1022,16 +1075,18 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
         }
 
         for i, button := range buttons {
-            rawButton := menu.Mapping.GetRawCode(button)
+            rawButton := menu.Mapping.GetRawInput(button)
             mapped := "Unmapped"
             color := white
-            if rawButton != -1 {
-                mapped = fmt.Sprintf("%03v", rawButton)
+            if rawButton != nil {
+                mapped = fmt.Sprintf("%03v", rawButton.ToString())
             }
 
             if menu.Configuring && menu.ConfigureButton == i {
                 mapped = "?"
                 if menu.PartialButton !=  nil{
+                    mapped = menu.PartialButton.ToString()
+                    /*
                     button, ok := menu.PartialButton.(*JoystickButtonType)
                     if ok {
                         mapped = fmt.Sprintf("button %03v", button.Button)
@@ -1041,6 +1096,7 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
                     if ok {
                         mapped = fmt.Sprintf("axis %02v value %v", axis.Axis, axis.Value)
                     }
+                    */
 
                     m := uint8(menu.PartialCounter * 255 / 10)
 
@@ -1095,21 +1151,21 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState)
         Textures: make(map[string]TextureId),
         JoystickIndex: -1,
         Mapping: JoystickButtonMapping{
-            Buttons: make(map[int]*SDLButtonState),
+            Inputs: make(map[string]JoystickInputType),
         },
         Released: make(chan int, 4),
         ConfigurePrevious: nil,
     }
 
     /* playstation 3 mapping */
-    menu.Mapping.AddMapping("Up", 13)
-    menu.Mapping.AddMapping("Down", 14)
-    menu.Mapping.AddMapping("Left", 15)
-    menu.Mapping.AddMapping("Right", 16)
-    menu.Mapping.AddMapping("A", 0) // X
-    menu.Mapping.AddMapping("B", 3) // square
-    menu.Mapping.AddMapping("Select", 8)
-    menu.Mapping.AddMapping("Start", 9)
+    menu.Mapping.AddButtonMapping("Up", 13)
+    menu.Mapping.AddButtonMapping("Down", 14)
+    menu.Mapping.AddButtonMapping("Left", 15)
+    menu.Mapping.AddButtonMapping("Right", 16)
+    menu.Mapping.AddButtonMapping("A", 0) // X
+    menu.Mapping.AddButtonMapping("B", 3) // square
+    menu.Mapping.AddButtonMapping("Select", 8)
+    menu.Mapping.AddButtonMapping("Start", 9)
 
     // copy1, copy2 := forkJoystickInput(joystickStateChanges)
 
@@ -1145,7 +1201,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState)
 
         menu.ConfigureButton = 0
         menu.Configuring = true
-        menu.Mapping.Buttons = make(map[int]*SDLButtonState)
+        menu.Mapping.Inputs = make(map[string]JoystickInputType)
 
         return menu
     }})
