@@ -643,17 +643,8 @@ func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager 
     }
 }
 
-type SDLButtonState struct {
-    Name string
-    Pressed bool
-}
-
 type JoystickButtonMapping struct {
     Inputs map[string]JoystickInputType
-    /*
-    Buttons map[int]*SDLButtonState // map from raw joystick code to button state
-    Axis map[string]JoystickAxisType
-    */
 }
 
 func (mapping *JoystickButtonMapping) AddAxisMapping(name string, axis JoystickAxisType){
