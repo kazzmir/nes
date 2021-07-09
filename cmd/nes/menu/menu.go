@@ -663,6 +663,26 @@ func (mapping *JoystickButtonMapping) Unmap(name string){
     delete(mapping.Inputs, name)
 }
 
+func (mapping *JoystickButtonMapping) HandleAxis(event *sdl.JoyAxisEvent){
+    /* release all axis based on the new event */
+    for _, input := range mapping.Inputs {
+        axis, ok := input.(*JoystickAxisType)
+        if ok {
+            axis.Pressed = false
+        }
+    }
+
+    /* press the axis down if value is not zero */
+    if event.Value != 0 {
+        for _, input := range mapping.Inputs {
+            axis, ok := input.(*JoystickAxisType)
+            if ok && axis.Axis == int(event.Axis) && ((axis.Value < 0 && event.Value < 0) || (axis.Value > 0 && event.Value > 0)){
+                axis.Pressed = true
+            }
+        }
+    }
+}
+
 func (mapping *JoystickButtonMapping) Press(rawButton int){
     for _, input := range mapping.Inputs {
         value, ok := input.(*JoystickButtonType)
@@ -937,8 +957,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
 
         axis, ok := event.(*sdl.JoyAxisEvent)
         if ok {
-            /* TODO */
-            _ = axis
+            menu.Mapping.HandleAxis(axis)
         }
     }
 }
