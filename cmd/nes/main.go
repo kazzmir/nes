@@ -403,9 +403,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
 
     // var joystickInput nes.HostInput
-    var joystickInput *SDLJoystickButtons
+    var joystickInput *common.SDLJoystickButtons
     if sdl.NumJoysticks() > 0 {
-        input, err := OpenJoystick(0)
+        input, err := common.OpenJoystick(0)
         // input, err := MakeIControlPadInput(0)
         if err == nil {
             defer input.Close()
@@ -506,9 +506,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     startNES := func(nesFile nes.NESFile, quit context.Context){
         cpu, err := common.SetupCPU(nesFile, debug)
 
-        var input nes.HostInput = &SDLButtons{}
+        var input nes.HostInput = &common.SDLButtons{}
         if joystickInput != nil {
-            combined := MakeCombineButtons(input, joystickInput)
+            combined := common.MakeCombineButtons(input, joystickInput)
             input = &combined
         }
         cpu.Input = nes.MakeInput(input)
@@ -802,7 +802,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             case <-doMenu:
                 activeMenu := menu.MakeMenu(mainQuit, font)
                 emulatorActionsOutput <- common.EmulatorSetPause
-                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, renderFuncUpdate)
+                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, renderFuncUpdate, joystickInput)
                 emulatorActionsOutput <- common.EmulatorUnpause
                 renderFuncUpdate <- nil
             default:

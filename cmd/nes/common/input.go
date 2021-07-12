@@ -1,4 +1,4 @@
-package main
+package common
 
 import (
     nes "github.com/kazzmir/nes/lib"
@@ -41,6 +41,7 @@ type JoystickAxis struct {
 type SDLJoystickButtons struct {
     joystick *sdl.Joystick
     Inputs map[nes.Button]JoystickInput
+    Pressed nes.ButtonMapping
     Lock sync.Mutex
 }
 
@@ -79,12 +80,37 @@ func OpenJoystick(index int) (SDLJoystickButtons, error){
     return SDLJoystickButtons{
         joystick: joystick,
         Inputs: make(map[nes.Button]JoystickInput),
+        Pressed: make(nes.ButtonMapping),
     }, nil
 }
 
 func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event){
     joystick.Lock.Lock()
     defer joystick.Lock.Unlock()
+
+    rawButton, ok := event.(*sdl.JoyButtonEvent)
+    if ok {
+        for input, button := range joystick.Inputs {
+            realButton, ok := button.(*JoystickButton)
+            if ok {
+                if int(rawButton.Button) == realButton.Button {
+                    joystick.Pressed[input] = rawButton.State == sdl.PRESSED
+                }
+            }
+        }
+    }
+
+    rawAxis, ok := event.(*sdl.JoyAxisEvent)
+    if ok {
+        for input, raw := range joystick.Inputs {
+            axis, ok := raw.(*JoystickAxis)
+            if ok {
+                if axis.Axis == int(rawAxis.Axis) {
+                    joystick.Pressed[input] = (axis.Value < 0 && rawAxis.Value < 0) || (axis.Value > 0 && rawAxis.Value > 0)
+                }
+            }
+        }
+    }
 }
 
 func (joystick *SDLJoystickButtons) Close(){
@@ -99,21 +125,21 @@ func (joystick *SDLJoystickButtons) Get() nes.ButtonMapping {
     joystick.Lock.Lock()
     defer joystick.Lock.Unlock()
 
-    mapping := make(nes.ButtonMapping)
-    return mapping
+    copied := make(nes.ButtonMapping)
 
-    /*
-    mapping[nes.ButtonIndexA] = joystick.joystick.Button(12) == 1
-    mapping[nes.ButtonIndexB] = joystick.joystick.Button(13) == 1
-    mapping[nes.ButtonIndexSelect] = joystick.joystick.Button(8) == 1
-    mapping[nes.ButtonIndexStart] = joystick.joystick.Button(9) == 1
-    mapping[nes.ButtonIndexUp] =  joystick.joystick.Button(0) == 1
-    mapping[nes.ButtonIndexDown] = joystick.joystick.Button(3) == 1
-    mapping[nes.ButtonIndexLeft] = joystick.joystick.Button(2) == 1
-    mapping[nes.ButtonIndexRight] =  joystick.joystick.Button(1) == 1
+    copied[nes.ButtonIndexA] = false
+    copied[nes.ButtonIndexB] = false
+    copied[nes.ButtonIndexSelect] = false
+    copied[nes.ButtonIndexStart] = false
+    copied[nes.ButtonIndexUp] = false
+    copied[nes.ButtonIndexDown] = false
+    copied[nes.ButtonIndexLeft] = false
+    copied[nes.ButtonIndexRight] = false
 
-    return mapping
-    */
+    for k, v := range joystick.Pressed {
+        copied[k] = v
+    }
+    return copied
 }
 
 type CombineButtons struct {
