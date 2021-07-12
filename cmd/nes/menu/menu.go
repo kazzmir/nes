@@ -793,6 +793,10 @@ func (menu *JoystickMenu) UpdateWindowSize(x int, y int){
     // nothing
 }
 
+func (menu *JoystickMenu) FinishConfigure() {
+    menu.Configuring = false
+}
+
 func (menu *JoystickMenu) RawInput(event sdl.Event){
     menu.Lock.Lock()
     defer menu.Lock.Unlock()
@@ -848,7 +852,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                             menu.Mapping.AddButtonMapping(pressed.Name, pressed.Button)
                             menu.ConfigureButton += 1
                             if menu.ConfigureButton >= len(menu.Mapping.ButtonList()) {
-                                menu.Configuring = false
+                                menu.FinishConfigure()
                             }
                         } else {
                             menu.PartialButton = nil
@@ -934,7 +938,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                         menu.Mapping.AddAxisMapping(menu.Mapping.ButtonList()[menu.ConfigureButton], pressed)
                         menu.ConfigureButton += 1
                         if menu.ConfigureButton >= len(menu.Mapping.ButtonList()) {
-                            menu.Configuring = false
+                            menu.FinishConfigure()
                         }
                     } else {
                         menu.PartialButton = nil

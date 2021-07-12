@@ -3,6 +3,7 @@ package main
 import (
     nes "github.com/kazzmir/nes/lib"
     "github.com/veandco/go-sdl2/sdl"
+    "sync"
     "fmt"
 )
 
@@ -25,8 +26,22 @@ func (buttons *SDLButtons) Get() nes.ButtonMapping {
     return mapping
 }
 
+type JoystickInput interface {
+}
+
+type JoystickButton struct {
+    Button int
+}
+
+type JoystickAxis struct {
+    Axis int
+    Value int
+}
+
 type SDLJoystickButtons struct {
     joystick *sdl.Joystick
+    Inputs map[nes.Button]JoystickInput
+    Lock sync.Mutex
 }
 
 type IControlPad SDLJoystickButtons
@@ -61,14 +76,29 @@ func OpenJoystick(index int) (SDLJoystickButtons, error){
         return SDLJoystickButtons{}, fmt.Errorf("Could not open joystick %v", index)
     }
 
-    return SDLJoystickButtons{joystick: joystick}, nil
+    return SDLJoystickButtons{
+        joystick: joystick,
+        Inputs: make(map[nes.Button]JoystickInput),
+    }, nil
+}
+
+func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event){
+    joystick.Lock.Lock()
+    defer joystick.Lock.Unlock()
 }
 
 func (joystick *SDLJoystickButtons) Close(){
     joystick.joystick.Close()
 }
 
+func (joystick *SDLJoystickButtons) SetButton(button nes.Button, input JoystickInput){
+    joystick.Inputs[button] = input
+}
+
 func (joystick *SDLJoystickButtons) Get() nes.ButtonMapping {
+    joystick.Lock.Lock()
+    defer joystick.Lock.Unlock()
+
     mapping := make(nes.ButtonMapping)
     return mapping
 

@@ -402,10 +402,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         log.Printf("Joystick %v: %v\n", i, guid)
     }
 
-    var joystickInput nes.HostInput
+    // var joystickInput nes.HostInput
+    var joystickInput *SDLJoystickButtons
     if sdl.NumJoysticks() > 0 {
-        // input, err := OpenJoystick(0)
-        input, err := MakeIControlPadInput(0)
+        input, err := OpenJoystick(0)
+        // input, err := MakeIControlPadInput(0)
         if err == nil {
             defer input.Close()
             joystickInput = &input
@@ -787,6 +788,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             case emulatorActionsOutput <- common.EmulatorNormal:
                             default:
                         }
+                    }
+                case sdl.JOYBUTTONDOWN, sdl.JOYBUTTONUP, sdl.JOYAXISMOTION:
+                    if joystickInput != nil {
+                        joystickInput.HandleEvent(event)
                     }
             }
         }
