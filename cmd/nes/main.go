@@ -402,7 +402,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         log.Printf("Joystick %v: %v\n", i, guid)
     }
 
+    joystickManager := common.NewJoystickManager()
+    defer joystickManager.Close()
+
     // var joystickInput nes.HostInput
+    /*
     var joystickInput *common.SDLJoystickButtons
     if sdl.NumJoysticks() > 0 {
         input, err := common.OpenJoystick(0)
@@ -412,6 +416,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             joystickInput = &input
         }
     }
+    */
 
     /*
     err = renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
@@ -506,12 +511,15 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     startNES := func(nesFile nes.NESFile, quit context.Context){
         cpu, err := common.SetupCPU(nesFile, debug)
 
+        /*
         var input nes.HostInput = &common.SDLButtons{}
         if joystickInput != nil {
             combined := common.MakeCombineButtons(input, joystickInput)
             input = &combined
         }
         cpu.Input = nes.MakeInput(input)
+        */
+        cpu.Input = nes.MakeInput(joystickManager)
 
         var quitEvent sdl.QuitEvent
         quitEvent.Type = sdl.QUIT
@@ -790,9 +798,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         }
                     }
                 case sdl.JOYBUTTONDOWN, sdl.JOYBUTTONUP, sdl.JOYAXISMOTION:
-                    if joystickInput != nil {
-                        joystickInput.HandleEvent(event)
-                    }
+                    joystickManager.HandleEvent(event)
             }
         }
     }
@@ -802,7 +808,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             case <-doMenu:
                 activeMenu := menu.MakeMenu(mainQuit, font)
                 emulatorActionsOutput <- common.EmulatorSetPause
-                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, renderFuncUpdate, joystickInput)
+                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, renderFuncUpdate, joystickManager)
                 emulatorActionsOutput <- common.EmulatorUnpause
                 renderFuncUpdate <- nil
             default:

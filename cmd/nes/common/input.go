@@ -4,8 +4,67 @@ import (
     nes "github.com/kazzmir/nes/lib"
     "github.com/veandco/go-sdl2/sdl"
     "sync"
+    "log"
     "fmt"
 )
+
+type JoystickManager struct {
+    Joysticks []*SDLJoystickButtons
+    Player1 *SDLJoystickButtons
+    Player2 *SDLJoystickButtons
+}
+
+func NewJoystickManager() *JoystickManager {
+    manager := JoystickManager{
+    }
+
+    max := sdl.NumJoysticks()
+    for i := 0; i < max; i++ {
+        input, err := OpenJoystick(i)
+        if err != nil {
+            log.Printf("Could not open joystick %v: %v\n", i, err)
+        }
+
+        manager.Joysticks = append(manager.Joysticks, &input)
+    }
+
+    if len(manager.Joysticks) > 0 {
+        manager.Player1 = manager.Joysticks[0]
+    }
+
+    return &manager
+}
+
+func (manager *JoystickManager) HandleEvent(event sdl.Event){
+    for _, joystick := range manager.Joysticks {
+        joystick.HandleEvent(event)
+    }
+}
+
+func (manager *JoystickManager) Close() {
+    for _, joystick := range manager.Joysticks {
+        joystick.Close()
+    }
+}
+
+func (manager *JoystickManager) Get() nes.ButtonMapping {
+    mapping := make(nes.ButtonMapping)
+
+    mapping[nes.ButtonIndexA] = false
+    mapping[nes.ButtonIndexB] = false
+    mapping[nes.ButtonIndexSelect] = false
+    mapping[nes.ButtonIndexStart] = false
+    mapping[nes.ButtonIndexUp] = false
+    mapping[nes.ButtonIndexDown] = false
+    mapping[nes.ButtonIndexLeft] = false
+    mapping[nes.ButtonIndexRight] = false
+
+    if manager.Player1 != nil {
+        return manager.Player1.Get()
+    }
+
+    return mapping
+}
 
 type SDLButtons struct {
 }
@@ -89,7 +148,7 @@ func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event){
     defer joystick.Lock.Unlock()
 
     rawButton, ok := event.(*sdl.JoyButtonEvent)
-    if ok {
+    if ok && rawButton.Which == joystick.joystick.InstanceID() {
         for input, button := range joystick.Inputs {
             realButton, ok := button.(*JoystickButton)
             if ok {
@@ -101,7 +160,7 @@ func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event){
     }
 
     rawAxis, ok := event.(*sdl.JoyAxisEvent)
-    if ok {
+    if ok && rawAxis.Which == joystick.joystick.InstanceID() {
         for input, raw := range joystick.Inputs {
             axis, ok := raw.(*JoystickAxis)
             if ok {

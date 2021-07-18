@@ -677,9 +677,13 @@ func convertInput(input JoystickInputType) common.JoystickInput {
     return nil
 }
 
-func (mapping *JoystickButtonMapping) UpdateJoystick(joystick *common.SDLJoystickButtons){
-    for name, input := range mapping.Inputs {
-        joystick.SetButton(convertButton(name), convertInput(input))
+func (mapping *JoystickButtonMapping) UpdateJoystick(manager *common.JoystickManager){
+    /* FIXME */
+
+    if manager.Player1 != nil {
+        for name, input := range mapping.Inputs {
+            manager.Player1.SetButton(convertButton(name), convertInput(input))
+        }
     }
 }
 
@@ -823,7 +827,7 @@ type JoystickMenu struct {
     ConfigureButton int
     Released chan int
     ConfigurePrevious context.CancelFunc
-    JoystickInput *common.SDLJoystickButtons
+    JoystickManager *common.JoystickManager
 }
 
 func (menu *JoystickMenu) UpdateWindowSize(x int, y int){
@@ -833,9 +837,7 @@ func (menu *JoystickMenu) UpdateWindowSize(x int, y int){
 func (menu *JoystickMenu) FinishConfigure() {
     menu.Configuring = false
 
-    if menu.JoystickInput != nil {
-        menu.Mapping.UpdateJoystick(menu.JoystickInput)
-    }
+    menu.Mapping.UpdateJoystick(menu.JoystickManager)
 }
 
 func (menu *JoystickMenu) RawInput(event sdl.Event){
@@ -1197,7 +1199,7 @@ func forkJoystickInput(channel <-chan JoystickState) (<-chan JoystickState, <-ch
     return copy1, copy2
 }
 
-func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState, joystickInput *common.SDLJoystickButtons) SubMenu {
+func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager) SubMenu {
     menu := &JoystickMenu{
         Quit: func(current SubMenu) SubMenu {
             return parent
@@ -1210,7 +1212,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
         },
         Released: make(chan int, 4),
         ConfigurePrevious: nil,
-        JoystickInput: joystickInput,
+        JoystickManager: joystickManager,
     }
 
     /* playstation 3 mapping */
@@ -1312,7 +1314,7 @@ func (loadRomMenu *LoadRomMenu) UpdateWindowSize(x int, y int){
     loadRomMenu.LoaderState.UpdateWindowSize(x, y)
 }
 
-func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickInput *common.SDLJoystickButtons, textureManager *TextureManager) SubMenu {
+func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager) SubMenu {
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
             menu.cancel()
@@ -1320,7 +1322,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
         },
     }
 
-    joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickInput)
+    joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickManager)
 
     main.Buttons.Add(&StaticButton{Name: "Quit", Func: func(){
         mainCancel()
@@ -1362,7 +1364,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
     return main
 }
 
-func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction, joystickInput *common.SDLJoystickButtons){
+func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction, joystickManager *common.JoystickManager){
 
     windowSizeUpdates := make(chan common.WindowSize, 10)
 
@@ -1503,7 +1505,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         wind := rand.Float32() - 0.5
         snowRenderer := makeSnowRenderer(nil)
 
-        currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickInput, textureManager)
+        currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, textureManager)
 
         /* Reset the default renderer */
         for {
