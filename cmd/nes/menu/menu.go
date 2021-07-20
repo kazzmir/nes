@@ -605,11 +605,13 @@ type JoystickState interface {
 
 type JoystickStateAdd struct {
     Index int
+    InstanceId sdl.JoystickID
     Name string
 }
 
 type JoystickStateRemove struct {
     Index int
+    InstanceId sdl.JoystickID
 }
 
 // callback that is invoked when MenuQuit is input
@@ -814,8 +816,8 @@ func (axis *JoystickAxisType) ToString() string {
 type JoystickMenu struct {
     Buttons MenuButtons
     Quit MenuQuitFunc
-    JoystickName string
-    JoystickIndex int
+    // JoystickName string
+    // JoystickIndex int
     Textures map[string]TextureId
     Lock sync.Mutex
     Configuring bool
@@ -1048,7 +1050,7 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
     menu.Lock.Lock()
     defer menu.Lock.Unlock()
 
-    text := fmt.Sprintf("Joystick: %v", menu.JoystickName)
+    text := fmt.Sprintf("Joystick: %v", menu.JoystickManager.CurrentName())
 
     textureId := menu.GetTexture(textureManager, text)
 
@@ -1204,9 +1206,9 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
         Quit: func(current SubMenu) SubMenu {
             return parent
         },
-        JoystickName: "No joystick found",
+        // JoystickName: "No joystick found",
         Textures: make(map[string]TextureId),
-        JoystickIndex: -1,
+        // JoystickIndex: -1,
         Mapping: JoystickButtonMapping{
             Inputs: make(map[string]JoystickInputType),
         },
@@ -1233,20 +1235,31 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
 
             add, ok := stateChange.(*JoystickStateAdd)
             if ok {
-                menu.Lock.Lock()
+                // log.Printf("Add joystick")
+                // menu.Lock.Lock()
+                err := joystickManager.AddJoystick(add.Index)
+                if err != nil {
+                    log.Printf("Warning: could not add joystick %v: %v\n", add.InstanceId, err)
+                }
+                /*
                 menu.JoystickName = add.Name
                 menu.JoystickIndex = add.Index
                 log.Printf("Set joystick to '%v' index %v", add.Name, add.Index)
-                menu.Lock.Unlock()
+                */
+                // menu.Lock.Unlock()
             }
 
             remove, ok := stateChange.(*JoystickStateRemove)
             if ok {
+                // log.Printf("Remove joystick")
                 _ = remove
-                menu.Lock.Lock()
+                // menu.Lock.Lock()
+                joystickManager.RemoveJoystick(remove.InstanceId)
+                /*
                 menu.JoystickName = "No joystick found"
                 menu.JoystickIndex = -1
-                menu.Lock.Unlock()
+                */
+                // menu.Lock.Unlock()
             }
         }
     }()
@@ -1392,12 +1405,14 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                     add_event := event.(*sdl.JoyDeviceAddedEvent)
                     joystickStateChanges <- &JoystickStateAdd{
                         Index: int(add_event.Which),
+                        InstanceId: add_event.Which,
                         Name: strings.TrimSpace(sdl.JoystickNameForIndex(int(add_event.Which))),
                     }
                 case sdl.JOYDEVICEREMOVED:
                     remove_event := event.(*sdl.JoyDeviceRemovedEvent)
                     joystickStateChanges <- &JoystickStateRemove{
                         Index: int(remove_event.Which),
+                        InstanceId: remove_event.Which,
                     }
                 case sdl.WINDOWEVENT:
                     window_event := event.(*sdl.WindowEvent)

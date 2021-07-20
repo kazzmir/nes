@@ -4,6 +4,7 @@ import (
     nes "github.com/kazzmir/nes/lib"
     "github.com/veandco/go-sdl2/sdl"
     "sync"
+    "strings"
     "log"
     "fmt"
 )
@@ -12,6 +13,7 @@ type JoystickManager struct {
     Joysticks []*SDLJoystickButtons
     Player1 *SDLJoystickButtons
     Player2 *SDLJoystickButtons
+    Lock sync.Mutex
 }
 
 func NewJoystickManager() *JoystickManager {
@@ -35,19 +37,75 @@ func NewJoystickManager() *JoystickManager {
     return &manager
 }
 
+func (manager *JoystickManager) CurrentName() string {
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
+    if manager.Player1 != nil {
+        return manager.Player1.Name
+    }
+
+    return "No joystick found"
+}
+
+func (manager *JoystickManager) AddJoystick(index int) error {
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
+    joystick, err := OpenJoystick(index)
+    if err != nil {
+        return err
+    }
+
+    manager.Joysticks = append(manager.Joysticks, &joystick)
+    if manager.Player1 == nil {
+        manager.Player1 = &joystick
+    }
+
+    return nil
+}
+
+func (manager *JoystickManager) RemoveJoystick(id sdl.JoystickID){
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
+    var out []*SDLJoystickButtons
+    for _, joystick := range manager.Joysticks {
+        if joystick.joystick.InstanceID() == id {
+            joystick.Close()
+            if manager.Player1 == joystick {
+                manager.Player1 = nil
+            }
+        } else {
+            out = append(out, joystick)
+        }
+    }
+
+    manager.Joysticks = out
+}
+
 func (manager *JoystickManager) HandleEvent(event sdl.Event){
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
     for _, joystick := range manager.Joysticks {
         joystick.HandleEvent(event)
     }
 }
 
 func (manager *JoystickManager) Close() {
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
     for _, joystick := range manager.Joysticks {
         joystick.Close()
     }
 }
 
 func (manager *JoystickManager) Get() nes.ButtonMapping {
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
     mapping := make(nes.ButtonMapping)
 
     mapping[nes.ButtonIndexA] = false
@@ -102,6 +160,7 @@ type SDLJoystickButtons struct {
     Inputs map[nes.Button]JoystickInput
     Pressed nes.ButtonMapping
     Lock sync.Mutex
+    Name string
 }
 
 type IControlPad SDLJoystickButtons
@@ -140,6 +199,7 @@ func OpenJoystick(index int) (SDLJoystickButtons, error){
         joystick: joystick,
         Inputs: make(map[nes.Button]JoystickInput),
         Pressed: make(nes.ButtonMapping),
+        Name: strings.TrimSpace(joystick.Name()),
     }, nil
 }
 
