@@ -511,15 +511,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     startNES := func(nesFile nes.NESFile, quit context.Context){
         cpu, err := common.SetupCPU(nesFile, debug)
 
-        /*
-        var input nes.HostInput = &common.SDLButtons{}
-        if joystickInput != nil {
-            combined := common.MakeCombineButtons(input, joystickInput)
-            input = &combined
-        }
+        var input nes.HostInput = &common.SDLKeyboardButtons{}
+        combined := common.MakeCombineButtons(input, joystickManager)
+        input = &combined
         cpu.Input = nes.MakeInput(input)
-        */
-        cpu.Input = nes.MakeInput(joystickManager)
 
         var quitEvent sdl.QuitEvent
         quitEvent.Type = sdl.QUIT
@@ -798,7 +793,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         }
                     }
                 case sdl.JOYBUTTONDOWN, sdl.JOYBUTTONUP, sdl.JOYAXISMOTION:
-                    joystickManager.HandleEvent(event)
+                    action := joystickManager.HandleEvent(event)
+                    select {
+                        case emulatorActionsOutput <- action:
+                        default:
+                    }
             }
         }
     }

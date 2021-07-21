@@ -84,13 +84,19 @@ func (manager *JoystickManager) RemoveJoystick(id sdl.JoystickID){
     manager.Joysticks = out
 }
 
-func (manager *JoystickManager) HandleEvent(event sdl.Event){
+func (manager *JoystickManager) HandleEvent(event sdl.Event) EmulatorAction {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
+    var out EmulatorAction = EmulatorNothing
     for _, joystick := range manager.Joysticks {
-        joystick.HandleEvent(event)
+        value := joystick.HandleEvent(event)
+        if value != EmulatorNothing {
+            out = value
+        }
     }
+
+    return out
 }
 
 func (manager *JoystickManager) Close() {
@@ -124,10 +130,10 @@ func (manager *JoystickManager) Get() nes.ButtonMapping {
     return mapping
 }
 
-type SDLButtons struct {
+type SDLKeyboardButtons struct {
 }
 
-func (buttons *SDLButtons) Get() nes.ButtonMapping {
+func (buttons *SDLKeyboardButtons) Get() nes.ButtonMapping {
     mapping := make(nes.ButtonMapping)
 
     keyboard := sdl.GetKeyboardState()
@@ -157,7 +163,8 @@ type JoystickAxis struct {
 
 type SDLJoystickButtons struct {
     joystick *sdl.Joystick
-    Inputs map[nes.Button]JoystickInput
+    Inputs map[nes.Button]JoystickInput // normal nes buttons
+    ExtraInputs map[EmulatorAction]JoystickInput // extra emulator-only buttons
     Pressed nes.ButtonMapping
     Lock sync.Mutex
     Name string
@@ -198,12 +205,13 @@ func OpenJoystick(index int) (SDLJoystickButtons, error){
     return SDLJoystickButtons{
         joystick: joystick,
         Inputs: make(map[nes.Button]JoystickInput),
+        ExtraInputs: make(map[EmulatorAction]JoystickInput),
         Pressed: make(nes.ButtonMapping),
         Name: strings.TrimSpace(joystick.Name()),
     }, nil
 }
 
-func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event){
+func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event) EmulatorAction {
     joystick.Lock.Lock()
     defer joystick.Lock.Unlock()
 
@@ -230,6 +238,8 @@ func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event){
             }
         }
     }
+
+    return EmulatorNothing
 }
 
 func (joystick *SDLJoystickButtons) Close(){
@@ -238,6 +248,10 @@ func (joystick *SDLJoystickButtons) Close(){
 
 func (joystick *SDLJoystickButtons) SetButton(button nes.Button, input JoystickInput){
     joystick.Inputs[button] = input
+}
+
+func (joystick *SDLJoystickButtons) SetExtraButton(button EmulatorAction, input JoystickInput){
+    joystick.ExtraInputs[button] = input
 }
 
 func (joystick *SDLJoystickButtons) Get() nes.ButtonMapping {
