@@ -215,6 +215,8 @@ func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event) EmulatorAction 
     joystick.Lock.Lock()
     defer joystick.Lock.Unlock()
 
+    var emulatorOut EmulatorAction = EmulatorNothing
+
     rawButton, ok := event.(*sdl.JoyButtonEvent)
     if ok && rawButton.Which == joystick.joystick.InstanceID() {
         for input, button := range joystick.Inputs {
@@ -222,6 +224,20 @@ func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event) EmulatorAction 
             if ok {
                 if int(rawButton.Button) == realButton.Button {
                     joystick.Pressed[input] = rawButton.State == sdl.PRESSED
+                }
+            }
+        }
+
+        for extraInput, button := range joystick.ExtraInputs {
+            realButton, ok := button.(*JoystickButton)
+            if ok {
+                if int(rawButton.Button) == realButton.Button {
+                    _ = extraInput
+                    if rawButton.State == sdl.PRESSED {
+                        emulatorOut = EmulatorTurbo
+                    } else {
+                        emulatorOut = EmulatorNormal
+                    }
                 }
             }
         }
@@ -239,7 +255,7 @@ func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event) EmulatorAction 
         }
     }
 
-    return EmulatorNothing
+    return emulatorOut
 }
 
 func (joystick *SDLJoystickButtons) Close(){

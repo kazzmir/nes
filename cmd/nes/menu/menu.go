@@ -686,6 +686,9 @@ func (mapping *JoystickButtonMapping) UpdateJoystick(manager *common.JoystickMan
         for name, input := range mapping.Inputs {
             manager.Player1.SetButton(convertButton(name), convertInput(input))
         }
+
+        /* FIXME: just a test */
+        manager.Player1.SetExtraButton(common.EmulatorTurbo, &common.JoystickButton{Button: 5})
     }
 }
 
