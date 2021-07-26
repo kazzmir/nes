@@ -669,8 +669,10 @@ func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager 
     }
 }
 
+/* Probably this isn't needed, and the JoystickManager can take care of the mapping */
 type JoystickButtonMapping struct {
     Inputs map[string]JoystickInputType
+    ExtraInputs map[string]JoystickInputType
 }
 
 func convertButton(name string) nes.Button {
@@ -716,15 +718,37 @@ func (mapping *JoystickButtonMapping) UpdateJoystick(manager *common.JoystickMan
     }
 }
 
+func inList(value string, array []string) bool {
+    for _, x := range array {
+        if x == value {
+            return true
+        }
+    }
+
+    return false
+}
+
 func (mapping *JoystickButtonMapping) AddAxisMapping(name string, axis JoystickAxisType){
-    mapping.Inputs[name] = &axis
+    if inList(name, mapping.ButtonList()){
+        mapping.Inputs[name] = &axis
+    } else if inList(name, mapping.ExtraButtonList()){
+        mapping.ExtraInputs[name] = &axis
+    }
 }
 
 func (mapping *JoystickButtonMapping) AddButtonMapping(name string, code int){
-    mapping.Inputs[name] = &JoystickButtonType{
-        Name: name,
-        Pressed: false,
-        Button: code,
+    if inList(name, mapping.ButtonList()){
+        mapping.Inputs[name] = &JoystickButtonType{
+            Name: name,
+            Pressed: false,
+            Button: code,
+       }
+   } else if inList(name, mapping.ExtraButtonList()){
+       mapping.ExtraInputs[name] = &JoystickButtonType{
+            Name: name,
+            Pressed: false,
+            Button: code,
+       }
    }
 }
 
@@ -732,9 +756,9 @@ func (mapping *JoystickButtonMapping) Unmap(name string){
     delete(mapping.Inputs, name)
 }
 
-func (mapping *JoystickButtonMapping) HandleAxis(event *sdl.JoyAxisEvent){
+func handleAxisMap(inputs map[string]JoystickInputType, event *sdl.JoyAxisEvent){
     /* release all axis based on the new event */
-    for _, input := range mapping.Inputs {
+    for _, input := range inputs {
         axis, ok := input.(*JoystickAxisType)
         if ok {
             axis.Pressed = false
@@ -743,13 +767,18 @@ func (mapping *JoystickButtonMapping) HandleAxis(event *sdl.JoyAxisEvent){
 
     /* press the axis down if value is not zero */
     if event.Value != 0 {
-        for _, input := range mapping.Inputs {
+        for _, input := range inputs {
             axis, ok := input.(*JoystickAxisType)
             if ok && axis.Axis == int(event.Axis) && ((axis.Value < 0 && event.Value < 0) || (axis.Value > 0 && event.Value > 0)){
                 axis.Pressed = true
             }
         }
     }
+}
+
+func (mapping *JoystickButtonMapping) HandleAxis(event *sdl.JoyAxisEvent){
+    handleAxisMap(mapping.Inputs, event)
+    handleAxisMap(mapping.ExtraInputs, event)
 }
 
 func (mapping *JoystickButtonMapping) Press(rawButton int){
@@ -759,10 +788,24 @@ func (mapping *JoystickButtonMapping) Press(rawButton int){
             value.Pressed = true
         }
     }
+
+    for _, input := range mapping.ExtraInputs {
+        value, ok := input.(*JoystickButtonType)
+        if ok && value.Button == rawButton {
+            value.Pressed = true
+        }
+    }
 }
 
 func (mapping *JoystickButtonMapping) Release(rawButton int){
     for _, input := range mapping.Inputs {
+        value, ok := input.(*JoystickButtonType)
+        if ok && value.Button == rawButton {
+            value.Pressed = false
+        }
+    }
+
+    for _, input := range mapping.ExtraInputs {
         value, ok := input.(*JoystickButtonType)
         if ok && value.Button == rawButton {
             value.Pressed = false
@@ -793,9 +836,38 @@ func (mapping *JoystickButtonMapping) GetRawInput(name string) JoystickInputType
     return nil
 }
 
+func (mapping *JoystickButtonMapping) GetRawExtraInput(name string) JoystickInputType {
+    value, ok := mapping.ExtraInputs[name]
+    if ok {
+        return value
+    }
+    return nil
+}
+
+func (mapping *JoystickButtonMapping) TotalButtons() int {
+    return len(mapping.ButtonList()) + len(mapping.ExtraButtonList())
+}
+
+func (mapping *JoystickButtonMapping) GetConfigureButton(button int) string {
+    if button < len(mapping.ButtonList()) {
+        return mapping.ButtonList()[button]
+    }
+
+    button -= len(mapping.ButtonList())
+    if button < len(mapping.ExtraButtonList()) {
+        return mapping.ExtraButtonList()[button]
+    }
+
+    return "?"
+}
+
 func (mapping *JoystickButtonMapping) ButtonList() []string {
     /* FIXME: get this dynamically from the underlying Buttons map */
     return []string{"Up", "Down", "Left", "Right", "A", "B", "Select", "Start"}
+}
+
+func (mapping *JoystickButtonMapping) ExtraButtonList() []string {
+    return []string{"Fast emulation", "Turbo A", "Turbo B", "Pause/Unpause Emulator"}
 }
 
 func (mapping *JoystickButtonMapping) IsPressed(name string) bool {
@@ -803,6 +875,12 @@ func (mapping *JoystickButtonMapping) IsPressed(name string) bool {
     if ok && input.IsPressed(){
         return true
     }
+
+    input, ok = mapping.ExtraInputs[name]
+    if ok && input.IsPressed(){
+        return true
+    }
+
     return false
 }
 
@@ -923,7 +1001,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                             // menu.Mapping.Buttons[menu.Mapping.ButtonList()[menu.ConfigureButton]] = pressed
                             menu.Mapping.AddButtonMapping(pressed.Name, pressed.Button)
                             menu.ConfigureButton += 1
-                            if menu.ConfigureButton >= len(menu.Mapping.ButtonList()) {
+                            if menu.ConfigureButton >= len(menu.Mapping.ButtonList()) + len(menu.Mapping.ExtraButtonList()) {
                                 menu.FinishConfigure()
                             }
                         } else {
@@ -941,7 +1019,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                         }
                         */
                     }(JoystickButtonType{
-                        Name: menu.Mapping.ButtonList()[menu.ConfigureButton],
+                        Name: menu.Mapping.GetConfigureButton(menu.ConfigureButton),
                         Button: int(button.Button),
                         Pressed: false,
                     })
@@ -1007,9 +1085,9 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                     /* the axis was held long enough */
                     if ok {
                         log.Printf("Map button %v to axis %v value %v\n", menu.ConfigureButton, axis.Axis, axis.Value)
-                        menu.Mapping.AddAxisMapping(menu.Mapping.ButtonList()[menu.ConfigureButton], pressed)
+                        menu.Mapping.AddAxisMapping(menu.Mapping.GetConfigureButton(menu.ConfigureButton), pressed)
                         menu.ConfigureButton += 1
-                        if menu.ConfigureButton >= len(menu.Mapping.ButtonList()) {
+                        if menu.ConfigureButton >= menu.Mapping.TotalButtons() {
                             menu.FinishConfigure()
                         }
                     } else {
@@ -1165,9 +1243,11 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
         }
 
         maxWidth2 := maxWidth
+        extraInputsStart := 0
 
         for i, button := range buttons {
             rawButton := menu.Mapping.GetRawInput(button)
+            extraInputsStart = i + 1
             mapped := "Unmapped"
             color := white
             if rawButton != nil {
@@ -1219,12 +1299,19 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
         y = drawOffsetYButtons
         x += maxWidth + maxWidth2 + 20 + 60
 
-        extraButtons := []string{"Fast emulation", "Turbo A", "Turbo B", "Pause/Unpause Emulator"}
+        extraButtons := menu.Mapping.ExtraButtonList()
+        extraButtonPositions := make(map[string]int)
         maxWidthExtra := maxWidth
         for i, button := range extraButtons {
             color := white
 
-            _ = i
+            if menu.Configuring && menu.ConfigureButton == extraInputsStart + i {
+                color = red
+            }
+
+            if !menu.Configuring && menu.Mapping.IsPressed(button) {
+                color = red
+            }
 
             textureId := buttonManager.GetButtonTextureId(textureManager, button, color)
             width, height, err := drawButton(smallFont, renderer, textureManager, textureId, x, y, button, color)
@@ -1234,9 +1321,56 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
             if width > maxWidthExtra {
                 maxWidthExtra = width
             }
+            extraButtonPositions[button] = y
             _ = width
             _ = height
             y += height + verticalMargin
+        }
+
+        for i, button := range extraButtons {
+            rawButton := menu.Mapping.GetRawExtraInput(button)
+            mapped := "Unmapped"
+            color := white
+            if rawButton != nil {
+                mapped = fmt.Sprintf("%03v", rawButton.ToString())
+            }
+
+            if menu.Configuring && menu.ConfigureButton == extraInputsStart + i {
+                mapped = "?"
+                if menu.PartialButton !=  nil{
+                    mapped = menu.PartialButton.ToString()
+                    /*
+                    button, ok := menu.PartialButton.(*JoystickButtonType)
+                    if ok {
+                        mapped = fmt.Sprintf("button %03v", button.Button)
+                    }
+
+                    axis, ok := menu.PartialButton.(*JoystickAxisType)
+                    if ok {
+                        mapped = fmt.Sprintf("axis %02v value %v", axis.Axis, axis.Value)
+                    }
+                    */
+
+                    m := uint8(menu.PartialCounter * 255 / 10)
+
+                    if menu.PartialCounter == 10 {
+                        color = sdl.Color{R: 255, G: 255, B: 0, A: 255}
+                    } else {
+                        color = sdl.Color{R: 255, G: m, B: m, A: 255}
+                    }
+                }
+            }
+
+            textureId := buttonManager.GetButtonTextureId(textureManager, mapped, color)
+            vx := x + maxWidthExtra + 20
+            vy := extraButtonPositions[button]
+            width, height, err := drawConstButton(smallFont, renderer, textureManager, textureId, vx, vy, mapped, color)
+
+            _ = width
+            _ = height
+            if err != nil {
+                return err
+            }
         }
 
         return nil
@@ -1272,6 +1406,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
         // JoystickIndex: -1,
         Mapping: JoystickButtonMapping{
             Inputs: make(map[string]JoystickInputType),
+            ExtraInputs: make(map[string]JoystickInputType),
         },
         Released: make(chan int, 4),
         ConfigurePrevious: nil,
@@ -1327,20 +1462,14 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
 
     menu.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu{ return parent } })
 
-    menu.Buttons.Add(&SubMenuButton{Name: "Configure Main Buttons", Func: func() SubMenu {
+    menu.Buttons.Add(&SubMenuButton{Name: "Configure All Buttons", Func: func() SubMenu {
         menu.Lock.Lock()
         defer menu.Lock.Unlock()
 
         menu.ConfigureButton = 0
         menu.Configuring = true
         menu.Mapping.Inputs = make(map[string]JoystickInputType)
-
-        return menu
-    }})
-
-    menu.Buttons.Add(&SubMenuButton{Name: "Configure Extra Buttons", Func: func() SubMenu {
-        menu.Lock.Lock()
-        defer menu.Lock.Unlock()
+        menu.Mapping.ExtraInputs = make(map[string]JoystickInputType)
 
         return menu
     }})
