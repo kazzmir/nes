@@ -202,8 +202,32 @@ func (manager *TextureManager) RenderText(font *ttf.Font, renderer *sdl.Renderer
     })
 }
 
+/* an interactable button */
 func drawButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, textureId TextureId, x int, y int, message string, color sdl.Color) (int, int, error) {
     buttonInside := sdl.Color{R: 64, G: 64, B: 64, A: 255}
+    buttonOutline := sdl.Color{R: 32, G: 32, B: 32, A: 255}
+
+    info, err := textureManager.RenderText(font, renderer, message, color, textureId)
+    if err != nil {
+        return 0, 0, err
+    }
+
+    margin := 12
+
+    renderer.SetDrawColor(buttonOutline.R, buttonOutline.G, buttonOutline.B, buttonOutline.A)
+    renderer.FillRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(info.Width + margin), H: int32(info.Height + margin)})
+
+    renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
+    renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(info.Width + margin - 3), H: int32(info.Height + margin - 3)})
+
+    err = copyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
+
+    return info.Width, info.Height, err
+}
+
+/* a button that cannot be interacted with */
+func drawConstButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, textureId TextureId, x int, y int, message string, color sdl.Color) (int, int, error) {
+    buttonInside := sdl.Color{R: 0x55, G: 0x55, B: 0x40, A: 255}
     buttonOutline := sdl.Color{R: 32, G: 32, B: 32, A: 255}
 
     info, err := textureManager.RenderText(font, renderer, message, color, textureId)
@@ -1106,7 +1130,11 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
         x = 80
         y += font.Height() * 3 + verticalMargin
 
+        drawOffsetYButtons := y
+
         maxWidth := 0
+
+        /* draw the regular buttons on the left side */
 
         /* map the button name to its vertical position */
         buttonPositions := make(map[string]int)
@@ -1124,7 +1152,7 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
             }
 
             textureId := buttonManager.GetButtonTextureId(textureManager, button, color)
-            width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button, color)
+            width, height, err := drawButton(smallFont, renderer, textureManager, textureId, x, y, button, color)
             if err != nil {
                 return err
             }
@@ -1135,6 +1163,8 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
             _ = height
             y += height + verticalMargin
         }
+
+        maxWidth2 := maxWidth
 
         for i, button := range buttons {
             rawButton := menu.Mapping.GetRawInput(button)
@@ -1173,12 +1203,40 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
             textureId := buttonManager.GetButtonTextureId(textureManager, mapped, color)
             vx := x + maxWidth + 20
             vy := buttonPositions[button]
-            width, height, err := drawButton(font, renderer, textureManager, textureId, vx, vy, mapped, color)
-            _ = width
+            width, height, err := drawConstButton(smallFont, renderer, textureManager, textureId, vx, vy, mapped, color)
+
+            if width > maxWidth2 {
+                maxWidth2 = width
+            }
+
             _ = height
             if err != nil {
                 return err
             }
+        }
+
+        /* draw the extra buttons on the right side */
+        y = drawOffsetYButtons
+        x += maxWidth + maxWidth2 + 20 + 60
+
+        extraButtons := []string{"Fast emulation", "Turbo A", "Turbo B", "Pause/Unpause Emulator"}
+        maxWidthExtra := maxWidth
+        for i, button := range extraButtons {
+            color := white
+
+            _ = i
+
+            textureId := buttonManager.GetButtonTextureId(textureManager, button, color)
+            width, height, err := drawButton(smallFont, renderer, textureManager, textureId, x, y, button, color)
+            if err != nil {
+                return err
+            }
+            if width > maxWidthExtra {
+                maxWidthExtra = width
+            }
+            _ = width
+            _ = height
+            y += height + verticalMargin
         }
 
         return nil
@@ -1269,13 +1327,20 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
 
     menu.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu{ return parent } })
 
-    menu.Buttons.Add(&SubMenuButton{Name: "Configure", Func: func() SubMenu {
+    menu.Buttons.Add(&SubMenuButton{Name: "Configure Main Buttons", Func: func() SubMenu {
         menu.Lock.Lock()
         defer menu.Lock.Unlock()
 
         menu.ConfigureButton = 0
         menu.Configuring = true
         menu.Mapping.Inputs = make(map[string]JoystickInputType)
+
+        return menu
+    }})
+
+    menu.Buttons.Add(&SubMenuButton{Name: "Configure Extra Buttons", Func: func() SubMenu {
+        menu.Lock.Lock()
+        defer menu.Lock.Unlock()
 
         return menu
     }})
