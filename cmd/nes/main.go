@@ -257,6 +257,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             int32(nes.VideoWidth * windowSizeMultiple),
             int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple),
             sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
+
+        if window != nil {
+            window.SetTitle("Nes Emulator")
+        }
     })
 
     /*
