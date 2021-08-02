@@ -20,6 +20,7 @@ import (
     "github.com/kazzmir/nes/util"
 
     "github.com/veandco/go-sdl2/sdl"
+    "github.com/veandco/go-sdl2/mix"
     "github.com/veandco/go-sdl2/ttf"
 
     "encoding/binary"
@@ -310,6 +311,18 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
     */
 
+    const AudioSampleRate float32 = 44100
+
+    err = mix.Init(mix.INIT_OGG)
+    if err != nil {
+        log.Printf("Could not initialize SDL mixer: %v", err)
+    } else {
+        err = mix.OpenAudio(int(AudioSampleRate), sdl.AUDIO_F32LSB, 2, 4096)
+        if err != nil {
+            log.Printf("Could not open mixer audio: %v", err)
+        }
+    }
+
     renderInfo, err := renderer.GetInfo()
     if err != nil {
         log.Printf("Could not get render info from renderer: %v\n", err)
@@ -330,8 +343,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         log.Printf(" Max texture height: %v\n", renderInfo.MaxTextureHeight)
     }
    
-    const AudioSampleRate float32 = 44100
-
     audioDevice, err := setupAudio(AudioSampleRate)
     if err != nil {
         log.Printf("Warning: could not set up audio: %v", err)

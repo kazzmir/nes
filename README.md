@@ -42,7 +42,7 @@ Use go 1.15.2 or above, or go 1.14. Go 1.15 and 1.15.1 have a bug that crash the
 
 Install libSDL2 and libSDL2-ttf
 ```
-$ sudo apt install libsdl2-dev libsdl2-ttf-dev
+$ sudo apt install libsdl2-dev libsdl2-ttf-dev libsdl2-mixer-dev
 ```
 
 Using make

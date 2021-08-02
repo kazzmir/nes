@@ -16,6 +16,7 @@ import (
     "log"
     "sync"
     "strings"
+    "path/filepath"
 
     "crypto/md5"
 
@@ -28,6 +29,7 @@ import (
 
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
+    "github.com/veandco/go-sdl2/mix"
 )
 
 type MenuInput int
@@ -48,6 +50,7 @@ type Menu struct {
     font *ttf.Font
     Input chan MenuInput
     Lock sync.Mutex
+    Beep *mix.Music
 }
 
 type MenuAction int
@@ -456,12 +459,18 @@ func (manager *ButtonManager) GetButtonTextureId(textureManager *TextureManager,
 func MakeMenu(mainQuit context.Context, font *ttf.Font) Menu {
     quit, cancel := context.WithCancel(mainQuit)
     menuInput := make(chan MenuInput, 5)
+    beep, err := mix.LoadMUS(filepath.Join(filepath.Dir(os.Args[0]), "data/beep.ogg"))
+    if err != nil {
+        log.Printf("Could not load data/beep.ogg: %v\n", err)
+        beep = nil
+    }
     return Menu{
         active: false,
         quit: quit,
         cancel: cancel,
         font: font,
         Input: menuInput,
+        Beep: beep,
     }
 }
 
@@ -572,6 +581,7 @@ type SubMenu interface {
     MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction
     UpdateWindowSize(int, int)
     RawInput(sdl.Event)
+    PlayBeep()
 }
 
 func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
@@ -581,8 +591,10 @@ func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
     switch input {
     case MenuPrevious:
         buttons.Previous()
+        menu.PlayBeep()
     case MenuNext:
         buttons.Next()
+        menu.PlayBeep()
     case MenuSelect:
         return buttons.Buttons[buttons.Selected].Interact(menu)
     }
@@ -644,6 +656,13 @@ type MenuQuitFunc func(SubMenu) SubMenu
 type StaticMenu struct {
     Buttons MenuButtons
     Quit MenuQuitFunc
+    Beep *mix.Music
+}
+
+func (menu *StaticMenu) PlayBeep() {
+    if menu.Beep != nil {
+        menu.Beep.Play(0)
+    }
 }
 
 func (menu *StaticMenu) RawInput(event sdl.Event){
@@ -935,6 +954,10 @@ type JoystickMenu struct {
     Released chan int
     ConfigurePrevious context.CancelFunc
     JoystickManager *common.JoystickManager
+}
+
+func (menu *JoystickMenu) PlayBeep() {
+    /* TODO */
 }
 
 func (menu *JoystickMenu) UpdateWindowSize(x int, y int){
@@ -1484,6 +1507,13 @@ type LoadRomMenu struct {
     Back MenuQuitFunc
     SelectRom func()
     LoaderState *RomLoaderState
+    Beep *mix.Music
+}
+
+func (loadRomMenu *LoadRomMenu) PlayBeep() {
+    if loadRomMenu.Beep != nil {
+        loadRomMenu.Beep.Play(0)
+    }
 }
 
 func (loadRomMenu *LoadRomMenu) RawInput(event sdl.Event){
@@ -1493,15 +1523,19 @@ func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuNext:
             loadRomMenu.LoaderState.NextSelection()
+            loadRomMenu.PlayBeep()
             return loadRomMenu
         case MenuPrevious:
             loadRomMenu.LoaderState.PreviousSelection()
+            loadRomMenu.PlayBeep()
             return loadRomMenu
         case MenuUp:
             loadRomMenu.LoaderState.PreviousUpSelection()
+            loadRomMenu.PlayBeep()
             return loadRomMenu
         case MenuDown:
             loadRomMenu.LoaderState.NextDownSelection()
+            loadRomMenu.PlayBeep()
             return loadRomMenu
         case MenuQuit:
             loadRomMenu.LoaderCancel()
@@ -1530,6 +1564,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
             menu.cancel()
             return current
         },
+        Beep: menu.Beep,
     }
 
     joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickManager)
@@ -1559,6 +1594,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
             LoaderCancel: loadRomCancel,
             MenuCancel: menu.cancel,
             LoaderState: romLoaderState,
+            Beep: menu.Beep,
         }
     }})
 
