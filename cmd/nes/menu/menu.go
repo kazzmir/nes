@@ -474,8 +474,40 @@ func MakeMenu(mainQuit context.Context, font *ttf.Font) Menu {
     }
 }
 
-type Button interface {
+type MenuItem interface {
     Text() string
+    Render(*ttf.Font, *sdl.Renderer, *ButtonManager, *TextureManager, int, int, bool) (int, int, error)
+}
+
+type MenuNextLine struct {
+}
+
+func (line *MenuNextLine) Text() string {
+    return "\n"
+}
+
+func (line *MenuNextLine) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
+    /* Force the renderer to go to the next line */
+    return 999999999, 0, nil
+}
+
+type MenuLabel struct {
+    Label string
+}
+
+func (label *MenuLabel) Text() string {
+    return label.Label
+}
+
+func (label *MenuLabel) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
+    color := sdl.Color{R: 255, G: 0, B: 0, A: 255}
+    textureId := buttonManager.GetButtonTextureId(textureManager, label.Text(), color)
+    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, label.Text(), color)
+    return width, height, err
+}
+
+type Button interface {
+    MenuItem
     Interact(SubMenu) SubMenu
 }
 
@@ -497,6 +529,10 @@ func (button *StaticButton) Interact(menu SubMenu) SubMenu {
     }
 
     return menu
+}
+
+func (button *StaticButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
+    return _doRenderButton(button, font, renderer, buttonManager, textureManager, x, y, selected)
 }
 
 type ToggleButtonFunc func(bool)
@@ -522,11 +558,34 @@ func (toggle *ToggleButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
+func (button *ToggleButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
+    return _doRenderButton(button, font, renderer, buttonManager, textureManager, x, y, selected)
+}
+
 type SubMenuFunc func() SubMenu
 
 type SubMenuButton struct {
     Name string
     Func SubMenuFunc
+}
+
+func _doRenderButton(button Button, font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
+    yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+    color := white
+    if selected  {
+        color = yellow
+    }
+
+    textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
+    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
+
+    return width, height, err
+}
+
+func (button *SubMenuButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
+    return _doRenderButton(button, font, renderer, buttonManager, textureManager, x, y, selected)
 }
 
 func (button *SubMenuButton) Text() string {
@@ -538,7 +597,7 @@ func (button *SubMenuButton) Interact(menu SubMenu) SubMenu {
 }
 
 type MenuButtons struct {
-    Buttons []Button
+    Items []MenuItem
     Selected int
     Lock sync.Mutex
 }
@@ -550,18 +609,30 @@ func MakeMenuButtons() MenuButtons {
 }
 
 func (buttons *MenuButtons) Previous(){
-    buttons.Selected -= 1
-    if buttons.Selected < 0 {
-        buttons.Selected = len(buttons.Buttons) - 1
+    for {
+        buttons.Selected -= 1
+        if buttons.Selected < 0 {
+            buttons.Selected = len(buttons.Items) - 1
+        }
+        _, ok := buttons.Items[buttons.Selected].(Button)
+        if ok {
+            break
+        }
     }
 }
 
 func (buttons *MenuButtons) Next(){
-    buttons.Selected = (buttons.Selected + 1) % len(buttons.Buttons)
+    for {
+        buttons.Selected = (buttons.Selected + 1) % len(buttons.Items)
+        _, ok := buttons.Items[buttons.Selected].(Button)
+        if ok {
+            break
+        }
+    }
 }
 
-func (buttons *MenuButtons) Add(button Button){
-    buttons.Buttons = append(buttons.Buttons, button)
+func (buttons *MenuButtons) Add(item MenuItem){
+    buttons.Items = append(buttons.Items, item)
 }
 
 func isAudioEnabled(quit context.Context, programActions chan<- common.ProgramActions) bool {
@@ -596,44 +667,42 @@ func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
         buttons.Next()
         menu.PlayBeep()
     case MenuSelect:
-        return buttons.Buttons[buttons.Selected].Interact(menu)
+        button, ok := buttons.Items[buttons.Selected].(Button)
+        log.Printf("Button %v ok %v", buttons.Selected, ok)
+        if ok {
+            return button.Interact(menu)
+        }
     }
 
     return menu
 }
 
-func (buttons *MenuButtons) Render(startX int, startY int, maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, renderer *sdl.Renderer) error {
+func (buttons *MenuButtons) Render(startX int, startY int, maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, renderer *sdl.Renderer) (int, int, error) {
     buttons.Lock.Lock()
-    buttons.Lock.Unlock()
+    defer buttons.Lock.Unlock()
 
-    yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
-    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-
-    const buttonDistance = 50
+    const itemDistance = 50
 
     x := startX
     y := startY
-    for i, button := range buttons.Buttons {
-        color := white
-        if i == buttons.Selected {
-            color = yellow
-        }
-
-        if x > maxWidth - textWidth(font, button.Text()) {
+    for i, item := range buttons.Items {
+        if x > maxWidth - textWidth(font, item.Text()) {
             x = startX
             y += font.Height() + 20
         }
 
-        textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
-        width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
-        x += width + buttonDistance
+        width, height, err := item.Render(font, renderer, buttonManager, textureManager, x, y, i == buttons.Selected)
+
+        // textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
+        // width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
+        x += width + itemDistance
         _ = height
         if err != nil {
-            return err
+            return x, y, err
         }
     }
 
-    return nil
+    return x, y, nil
 }
 
 type JoystickState interface {
@@ -683,8 +752,8 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
 
 func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
-
-        return menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        _, _, err := menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        return err
     }
 }
 
@@ -939,6 +1008,7 @@ func (axis *JoystickAxisType) ToString() string {
 
 type JoystickMenu struct {
     Buttons MenuButtons
+    ConfigureButtons MenuButtons
     Quit MenuQuitFunc
     // JoystickName string
     // JoystickIndex int
@@ -1204,7 +1274,7 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
 
         x = 50
         y = 100
-        err = menu.Buttons.Render(x, y, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        _, y, err = menu.Buttons.Render(x, y, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
         if err != nil {
             return err
         }
@@ -1229,7 +1299,8 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
 
         verticalMargin := 20
         x = 80
-        y += font.Height() * 3 + verticalMargin
+        y += font.Height()
+        // y += font.Height() * 3 + verticalMargin
 
         drawOffsetYButtons := y
 
@@ -1485,7 +1556,11 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
 
     menu.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu{ return parent } })
 
-    menu.Buttons.Add(&SubMenuButton{Name: "Configure All Buttons", Func: func() SubMenu {
+    menu.Buttons.Add(&MenuNextLine{})
+    menu.Buttons.Add(&MenuLabel{Label: "Configure"})
+    menu.Buttons.Add(&MenuNextLine{})
+
+    menu.Buttons.Add(&SubMenuButton{Name: "All Buttons", Func: func() SubMenu {
         menu.Lock.Lock()
         defer menu.Lock.Unlock()
 
@@ -1494,6 +1569,14 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
         menu.Mapping.Inputs = make(map[string]JoystickInputType)
         menu.Mapping.ExtraInputs = make(map[string]JoystickInputType)
 
+        return menu
+    }})
+
+    menu.Buttons.Add(&SubMenuButton{Name: "Main Buttons", Func: func() SubMenu {
+        return menu
+    }})
+
+    menu.Buttons.Add(&SubMenuButton{Name: "Extra Buttons", Func: func() SubMenu {
         return menu
     }})
 
