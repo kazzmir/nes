@@ -1008,7 +1008,6 @@ func (axis *JoystickAxisType) ToString() string {
 
 type JoystickMenu struct {
     Buttons MenuButtons
-    ConfigureButtons MenuButtons
     Quit MenuQuitFunc
     // JoystickName string
     // JoystickIndex int
@@ -1021,6 +1020,7 @@ type JoystickMenu struct {
     PartialButton JoystickInputType
     PartialCounter int
     ConfigureButton int
+    ConfigureButtonEnd int
     Released chan int
     ConfigurePrevious context.CancelFunc
     JoystickManager *common.JoystickManager
@@ -1094,7 +1094,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                             // menu.Mapping.Buttons[menu.Mapping.ButtonList()[menu.ConfigureButton]] = pressed
                             menu.Mapping.AddButtonMapping(pressed.Name, pressed.Button)
                             menu.ConfigureButton += 1
-                            if menu.ConfigureButton >= len(menu.Mapping.ButtonList()) + len(menu.Mapping.ExtraButtonList()) {
+                            if menu.ConfigureButton >= menu.ConfigureButtonEnd {
                                 menu.FinishConfigure()
                             }
                         } else {
@@ -1180,7 +1180,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                         log.Printf("Map button %v to axis %v value %v\n", menu.ConfigureButton, axis.Axis, axis.Value)
                         menu.Mapping.AddAxisMapping(menu.Mapping.GetConfigureButton(menu.ConfigureButton), pressed)
                         menu.ConfigureButton += 1
-                        if menu.ConfigureButton >= menu.Mapping.TotalButtons() {
+                        if menu.ConfigureButton >= menu.ConfigureButtonEnd {
                             menu.FinishConfigure()
                         }
                     } else {
@@ -1565,6 +1565,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
         defer menu.Lock.Unlock()
 
         menu.ConfigureButton = 0
+        menu.ConfigureButtonEnd = menu.Mapping.TotalButtons()
         menu.Configuring = true
         menu.Mapping.Inputs = make(map[string]JoystickInputType)
         menu.Mapping.ExtraInputs = make(map[string]JoystickInputType)
@@ -1573,10 +1574,25 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
     }})
 
     menu.Buttons.Add(&SubMenuButton{Name: "Main Buttons", Func: func() SubMenu {
+        menu.Lock.Lock()
+        defer menu.Lock.Unlock()
+
+        menu.Configuring = true
+        menu.ConfigureButton = 0
+        menu.ConfigureButtonEnd = len(menu.Mapping.ButtonList())
+        menu.Mapping.Inputs = make(map[string]JoystickInputType)
         return menu
     }})
 
     menu.Buttons.Add(&SubMenuButton{Name: "Extra Buttons", Func: func() SubMenu {
+        menu.Lock.Lock()
+        defer menu.Lock.Unlock()
+
+        menu.Configuring = true
+        menu.ConfigureButton = len(menu.Mapping.ButtonList())
+        menu.ConfigureButtonEnd = menu.Mapping.TotalButtons()
+        menu.Mapping.ExtraInputs = make(map[string]JoystickInputType)
+
         return menu
     }})
 
