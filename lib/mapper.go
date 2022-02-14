@@ -220,13 +220,20 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
             } else if address >= 0xa000 && address <= 0xbfff {
                 /* chr bank 0 */
                 if mapper.chrBankMode == 1 {
-                    base := uint16(mapper.register) * 0x1000
+                    /* FIXME: base could be 0xf000, so base + 0x1000 could be 0
+                     * making base an int prevents this wraparound, but im not 100% sure if its the right thing to do
+                     */
+                    base := int(uint16(mapper.register) * 0x1000)
                     /* FIXME: this is needed for games that have chrrom in the nesfile
                      * such as bubble bobble and zelda2, but doesn't seem to work
                      * for ninja gaiden
                      */
                     if len(mapper.CharacterMemory) != 0 {
-                        cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x1000])
+                        if int(base) < len(mapper.CharacterMemory) && int(base + 0x1000) < len(mapper.CharacterMemory) && base < base + 0x1000 {
+                            cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x1000])
+                        } else {
+                            log.Printf("[mapper1] Warning: could not copy character data from range %v to %v", base, base + 0x1000)
+                        }
                     } else {
                         cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x1000])
                     }
