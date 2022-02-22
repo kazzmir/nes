@@ -7,6 +7,8 @@ import (
     "strings"
     "log"
     "fmt"
+
+    // "runtime/debug"
 )
 
 type JoystickManager struct {
@@ -55,6 +57,12 @@ func (manager *JoystickManager) AddJoystick(index int) error {
     joystick, err := OpenJoystick(index)
     if err != nil {
         return err
+    }
+
+    for _, check := range manager.Joysticks {
+        if check.joystick.InstanceID() == joystick.joystick.InstanceID() {
+            return fmt.Errorf("Joystick id %v is already added", joystick.joystick.InstanceID())
+        }
     }
 
     manager.Joysticks = append(manager.Joysticks, &joystick)
@@ -201,6 +209,11 @@ func OpenJoystick(index int) (SDLJoystickButtons, error){
     if joystick == nil {
         return SDLJoystickButtons{}, fmt.Errorf("Could not open joystick %v", index)
     }
+
+    /*
+    log.Printf("Joystick guid: %v", joystick.GUID())
+    log.Printf(string(debug.Stack()))
+    */
 
     return SDLJoystickButtons{
         joystick: joystick,
