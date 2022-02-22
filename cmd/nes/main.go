@@ -942,10 +942,12 @@ func main(){
             }
         })
     } else if nes.IsNSFFile(arguments.NESPath) {
-        err := RunNSF(arguments.NESPath)
-        if err != nil {
-            log.Printf("Error: %v\n", err)
-        }
+        sdl.Main(func (){
+            err := RunNSF(arguments.NESPath)
+            if err != nil {
+                log.Printf("Error: %v\n", err)
+            }
+        })
     } else {
         /* Open up the loading menu immediately */
         sdl.Main(func (){
