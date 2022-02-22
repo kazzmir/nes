@@ -215,15 +215,24 @@ type NesActionRestart struct {
 }
 
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
-    log.Printf("Opening NES file '%v'", path)
-    nesFile, err := nes.ParseNesFile(path, true)
-    if err != nil {
-        return err
-    }
-
     randomSeed := time.Now().UnixNano()
 
     rand.Seed(randomSeed)
+
+    nesChannel := make(chan NesAction, 10)
+    doMenu := make(chan bool, 5)
+
+    if path != "" {
+        log.Printf("Opening NES file '%v'", path)
+        nesFile, err := nes.ParseNesFile(path, true)
+        if err != nil {
+            return err
+        }
+        nesChannel <- &NesActionLoad{File: nesFile}
+    } else {
+        /* if no nes file given then just load the main menu */
+        doMenu <- true
+    }
 
     // force a software renderer
     if !util.HasGlxinfo() {
@@ -232,7 +241,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     log.Printf("Initializing SDL")
 
-    err = sdl.Init(sdl.INIT_EVERYTHING)
+    err := sdl.Init(sdl.INIT_EVERYTHING)
     if err != nil {
         return err
     }
@@ -358,9 +367,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
 
     var waiter sync.WaitGroup
-
-    nesChannel := make(chan NesAction, 10)
-    nesChannel <- &NesActionLoad{File: nesFile}
 
     mainQuit, mainCancel := context.WithCancel(context.Background())
     defer mainCancel()
@@ -686,8 +692,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         }
     }()
 
-    doMenu := make(chan bool, 5)
-
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
         if event != nil {
@@ -920,44 +924,46 @@ func main(){
     }()
     */
 
-    if arguments.NESPath != "" {
-        if arguments.CpuProfile {
-            profile, err := os.Create("profile.cpu")
-            if err != nil {
-                log.Fatal(err)
-            }
-            defer profile.Close()
-            pprof.StartCPUProfile(profile)
-            defer pprof.StopCPUProfile()
+    if arguments.CpuProfile {
+        profile, err := os.Create("profile.cpu")
+        if err != nil {
+            log.Fatal(err)
         }
+        defer profile.Close()
+        pprof.StartCPUProfile(profile)
+        defer pprof.StopCPUProfile()
+    }
 
-        if nes.IsNESFile(arguments.NESPath) {
-            sdl.Main(func (){
-                err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
-                if err != nil {
-                    log.Printf("Error: %v\n", err)
-                }
-            })
-        } else if nes.IsNSFFile(arguments.NESPath) {
-            err := RunNSF(arguments.NESPath)
+    if nes.IsNESFile(arguments.NESPath) {
+        sdl.Main(func (){
+            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }
-        } else {
-            fmt.Printf("%v is neither a .nes nor .nsf file\n", arguments.NESPath)
-        }
-        log.Printf("Bye")
-
-        if arguments.MemoryProfile {
-            file, err := os.Create("profile.memory")
-            if err != nil {
-                log.Fatal(err)
-            }
-            pprof.WriteHeapProfile(file)
-            file.Close()
-            return
+        })
+    } else if nes.IsNSFFile(arguments.NESPath) {
+        err := RunNSF(arguments.NESPath)
+        if err != nil {
+            log.Printf("Error: %v\n", err)
         }
     } else {
-        fmt.Printf("Give a .nes argument\n")
+        /* Open up the loading menu immediately */
+        sdl.Main(func (){
+            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
+            if err != nil {
+                log.Printf("Error: %v\n", err)
+            }
+        })
+    }
+    log.Printf("Bye")
+
+    if arguments.MemoryProfile {
+        file, err := os.Create("profile.memory")
+        if err != nil {
+            log.Fatal(err)
+        }
+        pprof.WriteHeapProfile(file)
+        file.Close()
+        return
     }
 }
