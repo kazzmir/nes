@@ -1031,6 +1031,8 @@ type JoystickMenu struct {
     JoystickManager *common.JoystickManager
 }
 
+const JoystickMaxPartialCounter = 20
+
 func (menu *JoystickMenu) PlayBeep() {
     /* TODO */
 }
@@ -1069,7 +1071,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                     menu.ConfigurePrevious = cancel
 
                     go func(pressed JoystickButtonType){
-                        ticker := time.NewTicker(100 * time.Millisecond)
+                        ticker := time.NewTicker(1000 / JoystickMaxPartialCounter * time.Millisecond)
                         defer ticker.Stop()
                         ok := false
                         done := false
@@ -1083,7 +1085,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                                 return
                             case <-ticker.C:
                                 menu.Lock.Lock()
-                                if menu.PartialCounter < 10 {
+                                if menu.PartialCounter < JoystickMaxPartialCounter {
                                     menu.PartialCounter += 1
                                 } else {
                                     ok = true
@@ -1158,7 +1160,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                 menu.PartialButton = &pressed
 
                 go func(){
-                    ticker := time.NewTicker(100 * time.Millisecond)
+                    ticker := time.NewTicker(1000 / JoystickMaxPartialCounter * time.Millisecond)
                     defer ticker.Stop()
                     ok := false
                     done := false
@@ -1168,7 +1170,7 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
                             done = true
                         case <-ticker.C:
                             menu.Lock.Lock()
-                            if menu.PartialCounter < 10 {
+                            if menu.PartialCounter < JoystickMaxPartialCounter {
                                 menu.PartialCounter += 1
                             } else {
                                 ok = true
@@ -1369,9 +1371,9 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
                     }
                     */
 
-                    m := uint8(menu.PartialCounter * 255 / 10)
+                    m := uint8(menu.PartialCounter * 255 / JoystickMaxPartialCounter)
 
-                    if menu.PartialCounter == 10 {
+                    if menu.PartialCounter == JoystickMaxPartialCounter {
                         color = sdl.Color{R: 255, G: 255, B: 0, A: 255}
                     } else {
                         color = sdl.Color{R: 255, G: m, B: m, A: 255}
@@ -1450,9 +1452,9 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
                     }
                     */
 
-                    m := uint8(menu.PartialCounter * 255 / 10)
+                    m := uint8(menu.PartialCounter * 255 / JoystickMaxPartialCounter)
 
-                    if menu.PartialCounter == 10 {
+                    if menu.PartialCounter == JoystickMaxPartialCounter {
                         color = sdl.Color{R: 255, G: 255, B: 0, A: 255}
                     } else {
                         color = sdl.Color{R: 255, G: m, B: m, A: 255}
