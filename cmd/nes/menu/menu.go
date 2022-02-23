@@ -803,6 +803,11 @@ func (mapping *JoystickButtonMapping) UpdateJoystick(manager *common.JoystickMan
 
         /* FIXME: just a test */
         manager.Player1.SetExtraButton(common.EmulatorTurbo, &common.JoystickButton{Button: 5})
+
+        err := manager.SaveInput()
+        if err != nil {
+            log.Printf("Warning: could not save joystick input: %v", err)
+        }
     }
 }
 
