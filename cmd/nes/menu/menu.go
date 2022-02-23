@@ -1528,7 +1528,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
                 // log.Printf("Add joystick")
                 // menu.Lock.Lock()
                 err := joystickManager.AddJoystick(add.Index)
-                if err != nil {
+                if err != nil && err != common.JoystickAlreadyAdded {
                     log.Printf("Warning: could not add joystick %v: %v\n", add.InstanceId, err)
                 }
                 /*

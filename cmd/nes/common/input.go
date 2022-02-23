@@ -7,6 +7,7 @@ import (
     "strings"
     "log"
     "fmt"
+    "errors"
 
     // "runtime/debug"
 )
@@ -50,6 +51,8 @@ func (manager *JoystickManager) CurrentName() string {
     return "No joystick found"
 }
 
+var JoystickAlreadyAdded = errors.New("Joystick has already been added")
+
 func (manager *JoystickManager) AddJoystick(index int) error {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
@@ -61,7 +64,7 @@ func (manager *JoystickManager) AddJoystick(index int) error {
 
     for _, check := range manager.Joysticks {
         if check.joystick.InstanceID() == joystick.joystick.InstanceID() {
-            return fmt.Errorf("Joystick id %v is already added", joystick.joystick.InstanceID())
+            return JoystickAlreadyAdded
         }
     }
 
