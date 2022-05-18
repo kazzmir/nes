@@ -38,17 +38,54 @@ func niceSize(path string) string {
     return fmt.Sprintf("%.2f%v", size, suffixes[suffix])
 }
 
-func waitForProcess(process *os.Process, timeout int){
-    done := time.Now().Add(time.Second * time.Duration(timeout))
-    dead := false
-    for time.Now().Before(done) {
-        err := os.Signal(syscall.Signal(0)) // on linux sending signal 0 will have no impact, but will fail
-                            // if the process doesn't exist (or we don't own it)
-        if err == nil {
-            time.Sleep(time.Millisecond * 100)
-        } else {
-            dead = true
+type SignalTimeout struct {
+    Signal syscall.Signal
+    Timeout int
+}
+
+func processExists(process *os.Process) bool {
+    // on linux sending signal 0 will have no impact, but will fail
+    // if the process doesn't exist (or we don't own it)
+    return process.Signal(syscall.Signal(0)) == nil
+}
+
+func isAlive(process *os.Process) bool {
+    if !processExists(process) {
+        return false
+    }
+
+    var status syscall.WaitStatus
+    pid, err := syscall.Wait4(process.Pid, &status, syscall.WNOHANG, nil)
+    if err != nil {
+        log.Printf("Unable to call wait4 on pid %v: %v", process.Pid, err)
+        return false
+    }
+    if pid != process.Pid {
+        return true
+    }
+    return status.Exited() == false
+}
+
+/* send a series of signals to a process hoping to kill it. if none of the signals
+ * manage to kill the process then use SIGKILL ultimately.
+ */
+func waitForProcess(process *os.Process, signals []SignalTimeout){
+    dead := isAlive(process)
+    for _, use := range signals {
+        if dead {
             break
+        }
+        process.Signal(use.Signal) // send signal to process, hoping to kill it
+        log.Printf("Sent signal %v to pid %v", process.Pid, use.Signal)
+        done := time.Now().Add(time.Second * time.Duration(use.Timeout))
+        // wait for the process to go away
+        for time.Now().Before(done) {
+            if isAlive(process){
+                time.Sleep(time.Millisecond * 100)
+            } else {
+                dead = true
+                break
+            }
         }
     }
     if !dead {
@@ -57,6 +94,19 @@ func waitForProcess(process *os.Process, timeout int){
         process.Kill()
     }
     process.Wait()
+}
+
+func waitForProcessDefault(process *os.Process){
+    waitForProcess(process, []SignalTimeout{
+        SignalTimeout{
+            Signal: syscall.SIGINT,
+            Timeout: 2,
+        },
+        SignalTimeout{
+            Signal: syscall.SIGTERM,
+            Timeout: 3,
+        },
+    })
 }
 
 /* Audio */
@@ -144,9 +194,7 @@ func EncodeMp3(mp3out string, mainQuit context.Context, sampleRate int, audioOut
         <-quit.Done()
         /* ffmpeg will normally close on its own if its input is closed */
         audio_writer.Close()
-        /* we can send SIGINT to it as well, which also usually stops it */
-        ffmpeg_process.Process.Signal(os.Interrupt)
-        waitForProcess(ffmpeg_process.Process, 10)
+        waitForProcessDefault(ffmpeg_process.Process)
         log.Printf("Recording has ended. Saved '%v' for %v size %v", mp3out, time.Now().Sub(startTime), niceSize(mp3out))
     }()
 
@@ -271,7 +319,9 @@ func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sam
         for {
             count, err := stdout.Read(buffer)
             if err != nil {
-                log.Printf("Could not read ffmpeg stdout: %v", err)
+                if err != io.EOF {
+                    log.Printf("Could not read ffmpeg stdout: %v", err)
+                }
                 return
             }
             _ = count
@@ -284,7 +334,9 @@ func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sam
         for {
             count, err := stdout.Read(buffer)
             if err != nil {
-                log.Printf("Could not read ffmpeg stdout: %v", err)
+                if err != io.EOF {
+                    log.Printf("Could not read ffmpeg stdout: %v", err)
+                }
                 return
             }
             _ = count
@@ -303,10 +355,8 @@ func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sam
         /* ffmpeg will normally close on its own if its input is closed */
         video_writer.Close()
         audio_writer.Close()
-        /* we can send SIGINT to it as well, which also usually stops it */
-        ffmpeg_process.Process.Signal(os.Interrupt)
-        waitForProcess(ffmpeg_process.Process, 10)
-        log.Printf("Recording has ended. Saved '%v' for %v size %v", mp4Path, time.Now().Sub(startTime), niceSize(mp4Path))
+        waitForProcessDefault(ffmpeg_process.Process)
+        log.Printf("Recording has ended. Saved '%v', length=%v size=%v", mp4Path, time.Now().Sub(startTime), niceSize(mp4Path))
     }()
 
     go func(){
