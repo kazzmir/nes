@@ -1623,6 +1623,21 @@ func (loadRomMenu *LoadRomMenu) PlayBeep() {
 }
 
 func (loadRomMenu *LoadRomMenu) RawInput(event sdl.Event){
+    switch event.GetType() {
+        case sdl.KEYDOWN:
+            keyboard_event := event.(*sdl.KeyboardEvent)
+            if keyboard_event.Keysym.Sym == sdl.K_BACKSPACE {
+                loadRomMenu.LoaderState.SearchBackspace()
+            } else if keyboard_event.Keysym.Sym == sdl.K_SPACE {
+                loadRomMenu.LoaderState.SearchAdd(" ")
+            } else {
+                name := sdl.GetKeyName(keyboard_event.Keysym.Sym)
+                if len(name) == 1 {
+                    loadRomMenu.LoaderState.SearchAdd(strings.ToLower(name))
+                }
+            }
+
+    }
 }
 
 func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {

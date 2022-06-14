@@ -77,6 +77,8 @@ type RomLoaderState struct {
 
     SortedRomIdsAndPaths []RomIdAndPath
     SelectedRomKey string
+    /* a substring to search for matches with */
+    Search string
 }
 
 /* Find roms and show thumbnails of them, then let the user select one */
@@ -271,6 +273,22 @@ func (loader *RomLoaderState) moveSelection(count int){
     }
 }
 
+func (loader *RomLoaderState) SearchBackspace() {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    if len(loader.Search) > 0 {
+        loader.Search = loader.Search[0:len(loader.Search)-1]
+    }
+}
+
+func (loader *RomLoaderState) SearchAdd(letter string) {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    loader.Search = loader.Search + letter
+}
+
 func (loader *RomLoaderState) NextSelection() {
     loader.moveSelection(1)
 }
@@ -425,6 +443,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     defer loader.Lock.Unlock()
 
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+    green := sdl.Color{R: 0, G: 255, B: 0, A: 255}
 
     writeFont(font, renderer, 1, 1, fmt.Sprintf("Load a rom. Roms found %v", len(loader.SortedRomIdsAndPaths)), white)
 
@@ -445,6 +464,17 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         writeFont(font, renderer, 100, font.Height() + 3, loader.SortedRomIdsAndPaths[selectedIndex].Path, white)
     }
 
+    var showTiles []RomIdAndPath
+    for _, rom := range loader.SortedRomIdsAndPaths {
+        if loader.Search == "" {
+            showTiles = append(showTiles, rom)
+        } else {
+            if strings.Contains(strings.ToLower(rom.Path), strings.ToLower(loader.Search)) {
+                showTiles = append(showTiles, rom)
+            }
+        }
+    }
+
     err := renderer.SetDrawBlendMode(sdl.BLENDMODE_NONE)
     _ = err
 
@@ -461,10 +491,13 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     if start < 0 {
         start = 0
     }
+    if start >= len(showTiles) {
+        start = 0
+    }
 
     end := start + loader.MaximumTiles()
-    if end >= len(loader.SortedRomIdsAndPaths) {
-        end = len(loader.SortedRomIdsAndPaths) - 1
+    if end >= len(showTiles) {
+        end = len(showTiles) - 1
     }
 
     arrowInfo, _ := textureManager.GetCachedTexture(loader.ArrowId, func() (TextureInfo, error){
@@ -495,7 +528,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         }
     }
 
-    if loader.MinRenderIndex + loader.MaximumTiles() < len(loader.SortedRomIdsAndPaths) {
+    if loader.MinRenderIndex + loader.MaximumTiles() < len(showTiles) {
         if arrowInfo.Texture != nil {
             downY := maxHeight - 50
             if downY < 30 {
@@ -505,9 +538,11 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         }
     }
 
+    writeFont(font, renderer, 30, maxHeight - 30, loader.Search, green)
+
     const MaxNameSize = 15
 
-    for _, romIdAndPath := range loader.SortedRomIdsAndPaths[start:end+1] {
+    for _, romIdAndPath := range showTiles[start:end+1] {
         info := loader.Roms[romIdAndPath.Id]
         frame, has := info.GetFrame()
         if !has {
@@ -610,6 +645,7 @@ func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int,
         WindowSizeHeight: windowHeight,
         Arrow: arrow,
         ArrowId: arrowId,
+        Search: "",
     }
 
     go func(){
