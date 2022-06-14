@@ -1,7 +1,7 @@
 .PHONY: nes nsf test nestest apu-test make-screenshot
 
 nes:
-	go build ./cmd/nes
+	time go build ./cmd/nes
 
 nsf:
 	go build ./cmd/nsf

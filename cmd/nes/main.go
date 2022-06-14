@@ -1,5 +1,8 @@
 package main
 
+/* golang sdl https://pkg.go.dev/github.com/veandco/go-sdl2@v0.4.8/sdl
+ */
+
 /*
 #include <stdlib.h>
 */
@@ -17,6 +20,7 @@ import (
     "github.com/kazzmir/nes/util"
 
     "github.com/veandco/go-sdl2/sdl"
+    "github.com/veandco/go-sdl2/mix"
     "github.com/veandco/go-sdl2/ttf"
 
     "encoding/binary"
@@ -46,25 +50,6 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
 
     device, err := sdl.OpenAudioDevice("", false, &audioSpec, &obtainedSpec, sdl.AUDIO_ALLOW_FORMAT_CHANGE)
     return device, err
-}
-
-type SDLButtons struct {
-}
-
-func (buttons *SDLButtons) Get() nes.ButtonMapping {
-    mapping := make(nes.ButtonMapping)
-
-    keyboard := sdl.GetKeyboardState()
-    mapping[nes.ButtonIndexA] = keyboard[sdl.SCANCODE_A] == 1
-    mapping[nes.ButtonIndexB] = keyboard[sdl.SCANCODE_S] == 1
-    mapping[nes.ButtonIndexSelect] = keyboard[sdl.SCANCODE_Q] == 1
-    mapping[nes.ButtonIndexStart] = keyboard[sdl.SCANCODE_RETURN] == 1
-    mapping[nes.ButtonIndexUp] = keyboard[sdl.SCANCODE_UP] == 1
-    mapping[nes.ButtonIndexDown] = keyboard[sdl.SCANCODE_DOWN] == 1
-    mapping[nes.ButtonIndexLeft] = keyboard[sdl.SCANCODE_LEFT] == 1
-    mapping[nes.ButtonIndexRight] = keyboard[sdl.SCANCODE_RIGHT] == 1
-
-    return mapping
 }
 
 
@@ -98,10 +83,15 @@ func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleR
     return nil
 }
 
-type AudioActions int
-const (
-    AudioToggle = iota
-)
+type AudioActions interface {
+}
+
+type AudioToggle struct {
+}
+
+type AudioQueryEnabled struct {
+    Response chan bool
+}
 
 func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audioActions <-chan AudioActions, mainQuit context.Context) func() {
     if audioDevice != 0 {
@@ -114,9 +104,14 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                     case <-mainQuit.Done():
                         return
                     case action := <-audioActions:
-                        switch action {
-                            case AudioToggle:
-                                enabled = !enabled
+                        _, ok := action.(*AudioToggle)
+                        if ok {
+                            enabled = !enabled
+                        }
+
+                        query, ok := action.(*AudioQueryEnabled)
+                        if ok {
+                            query.Response <- enabled
                         }
                     case samples := <-audio:
                         if !enabled {
@@ -144,6 +139,11 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                 select {
                     case <-mainQuit.Done():
                         return
+                    case action := <-audioActions:
+                        query, ok := action.(*AudioQueryEnabled)
+                        if ok {
+                            query.Response <- false
+                        }
                     case <-audio:
                 }
             }
@@ -188,7 +188,10 @@ func doRender(width int, height int, raw_pixels []byte, pixelFormat common.Pixel
     renderer.Clear()
 
     renderer.SetLogicalSize(int32(width), int32(height))
-    renderer.Copy(texture, nil, nil)
+    err = renderer.Copy(texture, nil, nil)
+    if err != nil {
+        log.Printf("Warning: could not copy texture to renderer: %v\n", err)
+    }
 
     renderer.SetLogicalSize(0, 0)
     err = renderFunc(renderer)
@@ -212,21 +215,33 @@ type NesActionRestart struct {
 }
 
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
-    nesFile, err := nes.ParseNesFile(path, true)
-    if err != nil {
-        return err
-    }
-
     randomSeed := time.Now().UnixNano()
 
     rand.Seed(randomSeed)
+
+    nesChannel := make(chan NesAction, 10)
+    doMenu := make(chan bool, 5)
+
+    if path != "" {
+        log.Printf("Opening NES file '%v'", path)
+        nesFile, err := nes.ParseNesFile(path, true)
+        if err != nil {
+            return err
+        }
+        nesChannel <- &NesActionLoad{File: nesFile}
+    } else {
+        /* if no nes file given then just load the main menu */
+        doMenu <- true
+    }
 
     // force a software renderer
     if !util.HasGlxinfo() {
         sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
     }
 
-    err = sdl.Init(sdl.INIT_EVERYTHING)
+    log.Printf("Initializing SDL")
+
+    err := sdl.Init(sdl.INIT_EVERYTHING)
     if err != nil {
         return err
     }
@@ -235,8 +250,34 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     sdl.DisableScreenSaver()
     defer sdl.EnableScreenSaver()
 
+    log.Printf("Create window")
     /* to resize the window */
-    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(nes.VideoWidth * windowSizeMultiple), int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple), sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
+    var window *sdl.Window
+    var renderer *sdl.Renderer
+
+    /* 7/5/2021: its apparently very important that the window and renderer be created
+     * in the sdl thread via sdl.Do. If the renderer calls are in sdl.Do, then so must
+     * also be the creation of the window and the renderer. Initially I did not have
+     * the creation of the window and renderer in sdl.Do, and thus in opengl mode
+     * the window would not be rendered.
+     */
+    sdl.Do(func(){
+        window, renderer, err = sdl.CreateWindowAndRenderer(
+            int32(nes.VideoWidth * windowSizeMultiple),
+            int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple),
+            sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
+
+        if window != nil {
+            window.SetTitle("Nes Emulator")
+        }
+    })
+
+    /*
+    window, err := sdl.CreateWindow("nes",
+                                    sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
+                                    int32(nes.VideoWidth * windowSizeMultiple),
+                                    int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple),
+                                    sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
     if err != nil {
         return err
     }
@@ -247,16 +288,74 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     // renderer, err := sdl.CreateSoftwareRenderer(surface)
     // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_SOFTWARE)
 
-    /* Create an accelerated renderer */
-    renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
+    log.Printf("Create renderer")
+    / * Create an accelerated renderer * /
+    // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
+    renderer, err := sdl.CreateRenderer(window, -1, 0)
+    */
 
     if err != nil {
         return err
     }
+
+    defer window.Destroy()
     defer renderer.Destroy()
+
+    /* debug stuff
+    numDrivers, err := sdl.GetNumRenderDrivers()
+    if err != nil {
+        log.Printf("Could not get the number of render drivers\n")
+    } else {
+        for i := 0; i < numDrivers; i++ {
+            var renderInfo sdl.RendererInfo
+            _, err = sdl.GetRenderDriverInfo(0, &renderInfo)
+            if err != nil {
+                log.Printf("Could not get render driver info: %v\n", err)
+            } else {
+                log.Printf("Render driver info %v\n", i + 1)
+                log.Printf(" Name: %v\n", renderInfo.Name)
+                log.Printf(" Flags: %v\n", renderInfo.Flags)
+                log.Printf(" Number of texture formats: %v\n", renderInfo.NumTextureFormats)
+                log.Printf(" Texture formats: %v\n", renderInfo.TextureFormats)
+                log.Printf(" Max texture width: %v\n", renderInfo.MaxTextureWidth)
+                log.Printf(" Max texture height: %v\n", renderInfo.MaxTextureHeight)
+            }
+        }
+    }
+    */
 
     const AudioSampleRate float32 = 44100
 
+    err = mix.Init(mix.INIT_OGG)
+    if err != nil {
+        log.Printf("Could not initialize SDL mixer: %v", err)
+    } else {
+        err = mix.OpenAudio(int(AudioSampleRate), sdl.AUDIO_F32LSB, 2, 4096)
+        if err != nil {
+            log.Printf("Could not open mixer audio: %v", err)
+        }
+    }
+
+    renderInfo, err := renderer.GetInfo()
+    if err != nil {
+        log.Printf("Could not get render info from renderer: %v\n", err)
+    } else {
+        log.Printf("Current render info\n")
+        log.Printf(" Name: %v\n", renderInfo.Name)
+        log.Printf(" Flags: %v\n", renderInfo.Flags)
+        log.Printf(" Number of texture formats: %v\n", renderInfo.NumTextureFormats)
+        var buffer bytes.Buffer
+        for texture := uint32(0); texture < renderInfo.NumTextureFormats; texture++ {
+            value := uint(renderInfo.TextureFormats[texture])
+            buffer.WriteString(sdl.GetPixelFormatName(value))
+            buffer.WriteString(" ")
+        }
+        // log.Printf(" Texture formats: %v\n", renderInfo.TextureFormats)
+        log.Printf(" Texture formats: %v\n", buffer.String())
+        log.Printf(" Max texture width: %v\n", renderInfo.MaxTextureWidth)
+        log.Printf(" Max texture height: %v\n", renderInfo.MaxTextureHeight)
+    }
+   
     audioDevice, err := setupAudio(AudioSampleRate)
     if err != nil {
         log.Printf("Warning: could not set up audio: %v", err)
@@ -269,9 +368,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     var waiter sync.WaitGroup
 
-    nesChannel := make(chan NesAction, 10)
-    nesChannel <- &NesActionLoad{File: nesFile}
-
     mainQuit, mainCancel := context.WithCancel(context.Background())
     defer mainCancel()
 
@@ -279,11 +375,18 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     signal.Notify(signalChannel, os.Interrupt)
 
     go func(){
-        select {
-            case <-mainQuit.Done():
-            case <-signalChannel:
-                log.Printf("Shutting down")
-                mainCancel()
+        for i := 0; i < 2; i++ {
+            select {
+                case <-mainQuit.Done():
+                case <-signalChannel:
+                    if i == 0 {
+                        log.Printf("Shutting down due to signal")
+                        mainCancel()
+                    } else {
+                        log.Printf("Hard kill")
+                        os.Exit(1)
+                    }
+            }
         }
     }()
 
@@ -292,6 +395,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     desiredFps := 60.0
     pixelFormat := common.FindPixelFormat()
+
+    log.Printf("Using pixel format %v\n", sdl.GetPixelFormatName(uint(pixelFormat)))
 
     err = ttf.Init()
     if err != nil {
@@ -311,6 +416,28 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         return err
     }
     defer smallFont.Close()
+
+    log.Printf("Found joysticks: %v\n", sdl.NumJoysticks())
+    for i := 0; i < sdl.NumJoysticks(); i++ {
+        guid := sdl.JoystickGetDeviceGUID(i)
+        log.Printf("Joystick %v: %v\n", i, guid)
+    }
+
+    joystickManager := common.NewJoystickManager()
+    defer joystickManager.Close()
+
+    // var joystickInput nes.HostInput
+    /*
+    var joystickInput *common.SDLJoystickButtons
+    if sdl.NumJoysticks() > 0 {
+        input, err := common.OpenJoystick(0)
+        // input, err := MakeIControlPadInput(0)
+        if err == nil {
+            defer input.Close()
+            joystickInput = &input
+        }
+    }
+    */
 
     /*
     err = renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
@@ -366,6 +493,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     canRender = false
                     bufferReady <- screen
                 case newFunction := <-renderFuncUpdate:
+                    if newFunction == nil {
+                        newFunction = func(renderer *sdl.Renderer) error {
+                            return nil
+                        }
+                    }
                     renderFunc = newFunction
                     sdl.Do(render)
                 case <-renderNow:
@@ -374,6 +506,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 case <-renderTimer.C:
                     canRender = true
                 case <-fpsTimer.C:
+                    /* FIXME: don't print this while the menu is running */
                     log.Printf("FPS: %v", int(float64(fps) / fpsCounter))
                     fps = 0
             }
@@ -399,7 +532,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     startNES := func(nesFile nes.NESFile, quit context.Context){
         cpu, err := common.SetupCPU(nesFile, debug)
 
-        cpu.Input = nes.MakeInput(&SDLButtons{})
+        var input nes.HostInput = &common.SDLKeyboardButtons{}
+        combined := common.MakeCombineButtons(input, joystickManager)
+        input = &combined
+        cpu.Input = nes.MakeInput(input)
 
         var quitEvent sdl.QuitEvent
         quitEvent.Type = sdl.QUIT
@@ -492,16 +628,18 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
      * Where the reader gets the <-chan and the writer gets the chan<-
      */
     /* Notify the menu when the window changes size */
+    /*
     windowSizeUpdates := make(chan common.WindowSize, 10)
     windowSizeUpdatesInput := (<-chan common.WindowSize)(windowSizeUpdates)
     windowSizeUpdatesOutput := (chan<- common.WindowSize)(windowSizeUpdates)
+    */
 
     /* Actions done in the menu that should affect the program */
     programActions := make(chan common.ProgramActions, 2)
     programActionsInput := (<-chan common.ProgramActions)(programActions)
     programActionsOutput := (chan<- common.ProgramActions)(programActions)
 
-    theMenu := menu.MakeMenu(font, smallFont, mainQuit, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
+    // theMenu := menu.MakeMenu(font, smallFont, mainQuit, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
 
     go func(){
         for {
@@ -511,7 +649,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 case action := <-programActionsInput:
                     _, ok := action.(*common.ProgramToggleSound)
                     if ok {
-                        audioActionsOutput <- AudioToggle
+                        audioActionsOutput <- &AudioToggle{}
+                    }
+
+                    query, ok := action.(*common.ProgramQueryAudioState)
+                    if ok {
+                        audioActionsOutput <- &AudioQueryEnabled{Response: query.Response}
                     }
 
                     _, ok = action.(*common.ProgramQuit)
@@ -568,22 +711,30 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
                     }
 
+                    /*
                     width, height := window.GetSize()
-                    /* Not great but tolerate not updating the system when the window changes */
+                    / * Not great but tolerate not updating the system when the window changes * /
                     select {
                         case windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}:
                         default:
                             log.Printf("Warning: dropping a window event")
                     }
+                    */
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
 
                     if quit_pressed {
-                        theMenu.Input <- menu.MenuToggle
+                        select {
+                            case doMenu <- true:
+                            default:
+                        }
+
+                        // theMenu.Input <- menu.MenuToggle
                     }
 
+                    /*
                     if theMenu.IsActive() {
                         switch keyboard_event.Keysym.Scancode {
                             case sdl.SCANCODE_LEFT, sdl.SCANCODE_H:
@@ -598,6 +749,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                 theMenu.Input <- menu.MenuSelect
                         }
                     } else {
+                        */
                         switch keyboard_event.Keysym.Scancode {
                             case turboKey:
                                 select {
@@ -649,24 +801,37 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                 log.Printf("Hard reset")
                                 nesChannel <- &NesActionRestart{}
                         }
-                    }
+                    // }
                 case sdl.KEYUP:
-                    if !theMenu.IsActive() {
-                        keyboard_event := event.(*sdl.KeyboardEvent)
-                        scancode := keyboard_event.Keysym.Scancode
-                        if scancode == turboKey || scancode == pauseKey {
-                            select {
-                                case emulatorActionsOutput <- common.EmulatorNormal:
-                                default:
-                            }
+                    keyboard_event := event.(*sdl.KeyboardEvent)
+                    scancode := keyboard_event.Keysym.Scancode
+                    if scancode == turboKey || scancode == pauseKey {
+                        select {
+                            case emulatorActionsOutput <- common.EmulatorNormal:
+                            default:
                         }
+                    }
+                case sdl.JOYBUTTONDOWN, sdl.JOYBUTTONUP, sdl.JOYAXISMOTION:
+                    action := joystickManager.HandleEvent(event)
+                    select {
+                        case emulatorActionsOutput <- action:
+                        default:
                     }
             }
         }
     }
 
     for mainQuit.Err() == nil {
-        sdl.Do(eventFunction)
+        select {
+            case <-doMenu:
+                activeMenu := menu.MakeMenu(mainQuit, font)
+                emulatorActionsOutput <- common.EmulatorSetPause
+                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, renderFuncUpdate, joystickManager)
+                emulatorActionsOutput <- common.EmulatorUnpause
+                renderFuncUpdate <- nil
+            default:
+                sdl.Do(eventFunction)
+        }
     }
 
     log.Printf("Waiting to quit..")
@@ -759,44 +924,48 @@ func main(){
     }()
     */
 
-    if arguments.NESPath != "" {
-        if arguments.CpuProfile {
-            profile, err := os.Create("profile.cpu")
-            if err != nil {
-                log.Fatal(err)
-            }
-            defer profile.Close()
-            pprof.StartCPUProfile(profile)
-            defer pprof.StopCPUProfile()
+    if arguments.CpuProfile {
+        profile, err := os.Create("profile.cpu")
+        if err != nil {
+            log.Fatal(err)
         }
+        defer profile.Close()
+        pprof.StartCPUProfile(profile)
+        defer pprof.StopCPUProfile()
+    }
 
-        if nes.IsNESFile(arguments.NESPath) {
-            sdl.Main(func (){
-                err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
-                if err != nil {
-                    log.Printf("Error: %v\n", err)
-                }
-            })
-        } else if nes.IsNSFFile(arguments.NESPath) {
+    if nes.IsNESFile(arguments.NESPath) {
+        sdl.Main(func (){
+            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
+            if err != nil {
+                log.Printf("Error: %v\n", err)
+            }
+        })
+    } else if nes.IsNSFFile(arguments.NESPath) {
+        sdl.Main(func (){
             err := RunNSF(arguments.NESPath)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }
-        } else {
-            fmt.Printf("%v is neither a .nes nor .nsf file\n", arguments.NESPath)
-        }
-        log.Printf("Bye")
-
-        if arguments.MemoryProfile {
-            file, err := os.Create("profile.memory")
-            if err != nil {
-                log.Fatal(err)
-            }
-            pprof.WriteHeapProfile(file)
-            file.Close()
-            return
-        }
+        })
     } else {
-        fmt.Printf("Give a .nes argument\n")
+        /* Open up the loading menu immediately */
+        sdl.Main(func (){
+            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
+            if err != nil {
+                log.Printf("Error: %v\n", err)
+            }
+        })
+    }
+    log.Printf("Bye")
+
+    if arguments.MemoryProfile {
+        file, err := os.Create("profile.memory")
+        if err != nil {
+            log.Fatal(err)
+        }
+        pprof.WriteHeapProfile(file)
+        file.Close()
+        return
     }
 }

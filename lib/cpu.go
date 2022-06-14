@@ -702,6 +702,12 @@ const (
     ButtonIndexRight = 7
 )
 
+func AllButtons() []Button {
+    return []Button{ButtonIndexA, ButtonIndexB, ButtonIndexSelect,
+                    ButtonIndexStart, ButtonIndexUp, ButtonIndexDown,
+                    ButtonIndexLeft, ButtonIndexRight}
+}
+
 type ButtonMapping map[Button]bool
 
 type HostInput interface {

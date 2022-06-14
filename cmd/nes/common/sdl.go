@@ -28,6 +28,10 @@ type ProgramPauseEmulator struct {
 type ProgramUnpauseEmulator struct {
 }
 
+type ProgramQueryAudioState struct {
+    Response chan bool
+}
+
 type ProgramLoadRom struct {
     Path string
 }

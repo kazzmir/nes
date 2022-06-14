@@ -94,18 +94,30 @@ func RunNSF(path string) error {
     sdl.DisableScreenSaver()
     defer sdl.EnableScreenSaver()
 
+    var window *sdl.Window
+    var renderer *sdl.Renderer
+
     /* to resize the window */
     // | sdl.WINDOW_RESIZABLE
-    window, err := sdl.CreateWindow("nes", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED, int32(640), int32(480), sdl.WINDOW_SHOWN)
-    if err != nil {
-        return err
-    }
+    sdl.Do(func(){
+        window, renderer, err = sdl.CreateWindowAndRenderer(int32(640), int32(480), sdl.WINDOW_SHOWN)
+
+        if err != nil {
+            log.Printf("Unable to create renderer: %v\n", err)
+            os.Exit(1)
+        }
+
+        window.SetTitle("nsf player")
+    })
+
     defer window.Destroy()
 
+    /*
     renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
     if err != nil {
         return err
     }
+    */
 
     err = ttf.Init()
     if err != nil {
@@ -115,7 +127,7 @@ func RunNSF(path string) error {
     defer ttf.Quit()
 
     /* FIXME: choose a font somehow if this one is not found */
-    font, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "font/DejaVuSans.ttf"), 20)
+    font, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "data/DejaVuSans.ttf"), 20)
     if err != nil {
         return err
     }
@@ -134,86 +146,88 @@ func RunNSF(path string) error {
             select {
                 case <-quit.Done():
                 case state := <-renderUpdates:
-                    renderer.Clear()
+                    sdl.Do(func (){
+                        renderer.Clear()
 
-                    _ = state
+                        _ = state
 
-                    x := 4
-                    y := 4
+                        x := 4
+                        y := 4
 
-                    err := writeFont(font, renderer, x, y, fmt.Sprintf("Song: %v", state.SongName), white)
-                    if err != nil {
-                        log.Printf("Unable to write font: %v", err)
-                    }
-                    y += fontHeight + 3
+                        err := writeFont(font, renderer, x, y, fmt.Sprintf("Song: %v", state.SongName), white)
+                        if err != nil {
+                            log.Printf("Unable to write font: %v", err)
+                        }
+                        y += fontHeight + 3
 
-                    err = writeFont(font, renderer, x, y, fmt.Sprintf("Artist: %v", state.Artist), white)
-                    if err != nil {
-                        log.Printf("Unable to write font: %v", err)
-                    }
-                    y += fontHeight + 3
+                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Artist: %v", state.Artist), white)
+                        if err != nil {
+                            log.Printf("Unable to write font: %v", err)
+                        }
+                        y += fontHeight + 3
 
-                    err = writeFont(font, renderer, x, y, fmt.Sprintf("Coyright: %v", state.Copyright), white)
-                    if err != nil {
-                        log.Printf("Unable to write font: %v", err)
-                    }
-                    y += fontHeight + 3
+                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Coyright: %v", state.Copyright), white)
+                        if err != nil {
+                            log.Printf("Unable to write font: %v", err)
+                        }
+                        y += fontHeight + 3
 
-                    err = writeFont(font, renderer, x, y, fmt.Sprintf("Track %v/%v", state.Track + 1, state.MaxTrack + 1), white)
-                    if err != nil {
-                        log.Printf("Unable to write font: %v", err)
-                    }
-                    y += fontHeight + 3
+                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Track %v/%v", state.Track + 1, state.MaxTrack + 1), white)
+                        if err != nil {
+                            log.Printf("Unable to write font: %v", err)
+                        }
+                        y += fontHeight + 3
 
-                    if state.Paused {
-                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Paused"), red)
-                    } else {
-                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Play time %d:%02d", state.PlayTime / 60, state.PlayTime % 60), white)
-                    }
-                    if err != nil {
-                        log.Printf("Unable to write font: %v", err)
-                    }
-                    y += fontHeight + 3
+                        if state.Paused {
+                            err = writeFont(font, renderer, x, y, fmt.Sprintf("Paused"), red)
+                        } else {
+                            err = writeFont(font, renderer, x, y, fmt.Sprintf("Play time %d:%02d", state.PlayTime / 60, state.PlayTime % 60), white)
+                        }
+                        if err != nil {
+                            log.Printf("Unable to write font: %v", err)
+                        }
+                        y += fontHeight + 3
 
-                    y += fontHeight * 2
+                        y += fontHeight * 2
 
-                    err = writeFont(font, renderer, x, y, fmt.Sprintf("Keys"), white)
-                    if err != nil {
-                        log.Printf("Unable to write font: %v", err)
-                    }
-                    y += fontHeight + 3
+                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Keys"), white)
+                        if err != nil {
+                            log.Printf("Unable to write font: %v", err)
+                        }
+                        y += fontHeight + 3
 
-                    err = writeFont(font, renderer, x, y, fmt.Sprintf("> or l: skip 1 track ahead"), white)
-                    if err != nil {
-                        log.Printf("Unable to write font: %v", err)
-                    }
-                    y += fontHeight + 3
+                        err = writeFont(font, renderer, x, y, fmt.Sprintf("> or l: skip 1 track ahead"), white)
+                        if err != nil {
+                            log.Printf("Unable to write font: %v", err)
+                        }
+                        y += fontHeight + 3
 
-                    err = writeFont(font, renderer, x, y, fmt.Sprintf("^ or k: skip 5 tracks ahead"), white)
-                    if err != nil {
-                        log.Printf("Unable to write font: %v", err)
-                    }
-                    y += fontHeight + 3
+                        err = writeFont(font, renderer, x, y, fmt.Sprintf("^ or k: skip 5 tracks ahead"), white)
+                        if err != nil {
+                            log.Printf("Unable to write font: %v", err)
+                        }
+                        y += fontHeight + 3
 
-                    err = writeFont(font, renderer, x, y, fmt.Sprintf("< or h: go 1 track back"), white)
-                    if err != nil {
-                        log.Printf("Unable to write font: %v", err)
-                    }
-                    y += fontHeight + 3
+                        err = writeFont(font, renderer, x, y, fmt.Sprintf("< or h: go 1 track back"), white)
+                        if err != nil {
+                            log.Printf("Unable to write font: %v", err)
+                        }
+                        y += fontHeight + 3
 
-                    err = writeFont(font, renderer, x, y, fmt.Sprintf("v or j: go 5 tracks back"), white)
-                    if err != nil {
-                        log.Printf("Unable to write font: %v", err)
-                    }
-                    y += fontHeight + 3
+                        err = writeFont(font, renderer, x, y, fmt.Sprintf("v or j: go 5 tracks back"), white)
+                        if err != nil {
+                            log.Printf("Unable to write font: %v", err)
+                        }
+                        y += fontHeight + 3
 
-                    err = writeFont(font, renderer, x, y, fmt.Sprintf("esc: quit"), white)
-                    if err != nil {
-                        log.Printf("Unable to write font: %v", err)
-                    }
+                        err = writeFont(font, renderer, x, y, fmt.Sprintf("esc: quit"), white)
+                        if err != nil {
+                            log.Printf("Unable to write font: %v", err)
+                        }
 
-                    // renderer.Copy(texture, nil, nil)
-                    renderer.Present()
+                        // renderer.Copy(texture, nil, nil)
+                        renderer.Present()
+                    })
             }
         }
     }()

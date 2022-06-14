@@ -9,6 +9,12 @@ import (
     nes "github.com/kazzmir/nes/lib"
 )
 
+type AudioResponse int
+const (
+    AudioResponseEnabled AudioResponse = iota
+    AudioResponseDisabled
+)
+
 type ScreenListeners struct {
     VideoListeners []chan nes.VirtualScreen
     AudioListeners []chan []float32
@@ -95,7 +101,8 @@ func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
 
 type EmulatorAction int
 const (
-    EmulatorNormal = iota
+    EmulatorNothing = iota // just a default value that has no behavior
+    EmulatorNormal
     EmulatorTurbo
     EmulatorInfinite
     EmulatorSlowDown
@@ -196,6 +203,8 @@ func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
                     return nil
                 case action := <-emulatorActions:
                     switch action {
+                        case EmulatorNothing:
+                            /* nothing */
                         case EmulatorTurbo:
                             turboMultiplier = 3
                         case EmulatorInfinite:
