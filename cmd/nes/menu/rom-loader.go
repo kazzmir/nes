@@ -87,7 +87,7 @@ type PossibleRom struct {
 }
 
 /* Find roms and show thumbnails of them, then let the user select one */
-func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NESFile, error) {
+func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     /* for each rom call runNES() and pass in EmulatorInfiniteSpeed to let
      * the emulator run as fast as possible. Pass in a maxCycle of whatever
      * correlates to about 4 seconds of runtime. Save the screens produced
@@ -226,7 +226,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
     close(generatorChannel)
     generatorWait.Wait()
 
-    return nes.NESFile{}, err
+    return err
 }
 
 func (loader *RomLoaderState) UpdateWindowSize(width int, height int){
