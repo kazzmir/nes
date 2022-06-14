@@ -81,6 +81,11 @@ type RomLoaderState struct {
     Search string
 }
 
+type PossibleRom struct {
+    Path string
+    RomId RomId
+}
+
 /* Find roms and show thumbnails of them, then let the user select one */
 func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NESFile, error) {
     /* for each rom call runNES() and pass in EmulatorInfiniteSpeed to let
@@ -92,7 +97,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
      * return that nesfile so it can be played normally.
      */
 
-    possibleRoms := make(chan string, 1000)
+    possibleRoms := make(chan PossibleRom, 1000)
 
     loaderQuit, loaderCancel := context.WithCancel(mainQuit)
     _ = loaderCancel
@@ -118,30 +123,27 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
     /* Have 4 go routines running roms */
     for i := 0; i < 4; i++ {
         wait.Add(1)
-        go func(baseRomId RomId){
+        go func(){
             defer wait.Done()
 
-            nextRomId := baseRomId
-
-            for rom := range possibleRoms {
-                nesFile, err := nes.ParseNesFile(rom, false)
+            for possibleRom := range possibleRoms {
+                nesFile, err := nes.ParseNesFile(possibleRom.Path, false)
                 if err != nil {
-                    log.Printf("Unable to parse nes file %v: %v", rom, err)
+                    log.Printf("Unable to parse nes file %v: %v", possibleRom.Path, err)
                     continue
                 }
 
                 cpu, err := common.SetupCPU(nesFile, false)
                 if err != nil {
-                    log.Printf("Unable to setup cpu for %v: %v", rom, err)
+                    log.Printf("Unable to setup cpu for %v: %v", possibleRom.Path, err)
                     continue
                 }
 
-                romId := nextRomId
-                nextRomId += 1
+                romId := possibleRom.RomId
 
                 romLoaderState.NewRom <- RomLoaderAdd{
                     Id: romId,
-                    Path: rom,
+                    Path: possibleRom.Path,
                 }
 
                 /* Run the actual frame generation in a separate goroutine */
@@ -187,26 +189,31 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
                         }
                     }()
 
-                    log.Printf("Start loading %v", rom)
+                    log.Printf("Start loading %v", possibleRom.Path)
                     err = common.RunNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
                     if err == common.MaxCyclesReached {
-                        log.Printf("%v complete", rom)
+                        log.Printf("%v complete", possibleRom.Path)
                     }
 
                     cancel()
                 }
             }
-        }(RomId(uint64(i) * 1000000))
+        }()
     }
 
+    var romId RomId
     err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
         if mainQuit.Err() != nil {
             return fmt.Errorf("quitting")
         }
 
         if nes.IsNESFile(path){
+            romId += 1
             // log.Printf("Possible nes file %v", path)
-            possibleRoms <- path
+            possibleRoms <- PossibleRom{
+                Path: path,
+                RomId: romId,
+            }
         }
 
         return nil
@@ -437,6 +444,22 @@ func renderDownArrow(x int, y int, texture *sdl.Texture, renderer *sdl.Renderer)
     }
 }
 
+func (loader *RomLoaderState) GetFilteredRoms() []RomIdAndPath {
+    if loader.Search == "" {
+        return loader.SortedRomIdsAndPaths
+    }
+
+    var roms []RomIdAndPath
+
+    for _, rom := range loader.SortedRomIdsAndPaths {
+        if strings.Contains(strings.ToLower(rom.Path), strings.ToLower(loader.Search)) {
+            roms = append(roms, rom)
+        }
+    }
+
+    return roms
+}
+
 func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager) error {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
@@ -445,7 +468,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
     green := sdl.Color{R: 0, G: 255, B: 0, A: 255}
 
-    writeFont(font, renderer, 1, 1, fmt.Sprintf("Load a rom. Roms found %v", len(loader.SortedRomIdsAndPaths)), white)
+    writeFont(font, renderer, 1, 1, fmt.Sprintf("Press enter to load a rom. Roms found %v", len(loader.SortedRomIdsAndPaths)), white)
 
     layout := loader.TileLayout()
 
@@ -464,16 +487,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         writeFont(font, renderer, 100, font.Height() + 3, loader.SortedRomIdsAndPaths[selectedIndex].Path, white)
     }
 
-    var showTiles []RomIdAndPath
-    for _, rom := range loader.SortedRomIdsAndPaths {
-        if loader.Search == "" {
-            showTiles = append(showTiles, rom)
-        } else {
-            if strings.Contains(strings.ToLower(rom.Path), strings.ToLower(loader.Search)) {
-                showTiles = append(showTiles, rom)
-            }
-        }
-    }
+    showTiles := loader.GetFilteredRoms()
 
     err := renderer.SetDrawBlendMode(sdl.BLENDMODE_NONE)
     _ = err
