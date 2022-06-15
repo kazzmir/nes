@@ -516,7 +516,11 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
             selectedIndex = 0
         }
         selectedId = showTiles[selectedIndex].Id
-        writeFont(font, renderer, 100, font.Height() + 3, showTiles[selectedIndex].Path, white)
+
+        selectedX := 100
+        selectedY := font.Height() + 3
+
+        writeFont(font, renderer, selectedX, selectedY, showTiles[selectedIndex].Path, white)
 
         if loader.Search != "" {
             path := showTiles[selectedIndex].Path
@@ -530,7 +534,8 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
 
                 // get the length of the text minus the last character
                 length := textWidth(font, rendered) - textWidth(font, string(rendered[len(rendered)-1]))
-                writeFont(font, renderer, 100 + length, font.Height() + 3, base[index:index+len(loader.Search)], green)
+                matched := base[index:index+len(loader.Search)]
+                writeFont(font, renderer, selectedX + length, selectedY, matched, green)
             }
         }
     }
