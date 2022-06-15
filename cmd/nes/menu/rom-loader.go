@@ -226,6 +226,8 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     close(generatorChannel)
     generatorWait.Wait()
 
+    log.Printf("Rom loader done")
+
     return err
 }
 
@@ -515,6 +517,22 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         }
         selectedId = showTiles[selectedIndex].Id
         writeFont(font, renderer, 100, font.Height() + 3, showTiles[selectedIndex].Path, white)
+
+        if loader.Search != "" {
+            path := showTiles[selectedIndex].Path
+            base := filepath.Base(path)
+            // the path without the basename on it
+            startPath := path[0:len(path)-len(base)]
+
+            index := strings.Index(strings.ToLower(base), strings.ToLower(loader.Search))
+            if index != -1 {
+                rendered := startPath + base[0:index+1]
+
+                // get the length of the text minus the last character
+                length := textWidth(font, rendered) - textWidth(font, string(rendered[len(rendered)-1]))
+                writeFont(font, renderer, 100 + length, font.Height() + 3, base[index:index+len(loader.Search)], green)
+            }
+        }
     }
 
     err := renderer.SetDrawBlendMode(sdl.BLENDMODE_NONE)
