@@ -520,6 +520,15 @@ func drawOverlayString(font *ttf.Font, renderer *sdl.Renderer, x int, y int, bas
     return writeFont(font, renderer, x + startLength, y, matched, color)
 }
 
+func maxTextWidth(font *ttf.Font, maxWidth int) int {
+    if maxWidth <= 0 {
+        return 0
+    }
+
+    size := textWidth(font, "A")
+    return maxWidth / size
+}
+
 func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager) error {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
@@ -632,7 +641,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
 
     writeFont(font, renderer, 30, maxHeight - 30, loader.Search, green)
 
-    const MaxNameSize = 15
+    MaxNameSize := maxTextWidth(smallFont, int(float32(width) / layout.Thumbnail))
 
     for _, romIdAndPath := range showTiles[start:end+1] {
         info := loader.Roms[romIdAndPath.Id]
