@@ -77,10 +77,17 @@ type RomLoaderState struct {
 
     SortedRomIdsAndPaths []RomIdAndPath
     SelectedRomKey string
+    /* a substring to search for matches with */
+    Search string
+}
+
+type PossibleRom struct {
+    Path string
+    RomId RomId
 }
 
 /* Find roms and show thumbnails of them, then let the user select one */
-func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NESFile, error) {
+func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     /* for each rom call runNES() and pass in EmulatorInfiniteSpeed to let
      * the emulator run as fast as possible. Pass in a maxCycle of whatever
      * correlates to about 4 seconds of runtime. Save the screens produced
@@ -90,7 +97,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
      * return that nesfile so it can be played normally.
      */
 
-    possibleRoms := make(chan string, 1000)
+    possibleRoms := make(chan PossibleRom, 1000)
 
     loaderQuit, loaderCancel := context.WithCancel(mainQuit)
     _ = loaderCancel
@@ -116,30 +123,27 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
     /* Have 4 go routines running roms */
     for i := 0; i < 4; i++ {
         wait.Add(1)
-        go func(baseRomId RomId){
+        go func(){
             defer wait.Done()
 
-            nextRomId := baseRomId
-
-            for rom := range possibleRoms {
-                nesFile, err := nes.ParseNesFile(rom, false)
+            for possibleRom := range possibleRoms {
+                nesFile, err := nes.ParseNesFile(possibleRom.Path, false)
                 if err != nil {
-                    log.Printf("Unable to parse nes file %v: %v", rom, err)
+                    log.Printf("Unable to parse nes file %v: %v", possibleRom.Path, err)
                     continue
                 }
 
                 cpu, err := common.SetupCPU(nesFile, false)
                 if err != nil {
-                    log.Printf("Unable to setup cpu for %v: %v", rom, err)
+                    log.Printf("Unable to setup cpu for %v: %v", possibleRom.Path, err)
                     continue
                 }
 
-                romId := nextRomId
-                nextRomId += 1
+                romId := possibleRom.RomId
 
                 romLoaderState.NewRom <- RomLoaderAdd{
                     Id: romId,
-                    Path: rom,
+                    Path: possibleRom.Path,
                 }
 
                 /* Run the actual frame generation in a separate goroutine */
@@ -185,26 +189,31 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
                         }
                     }()
 
-                    log.Printf("Start loading %v", rom)
+                    log.Printf("Start loading %v", possibleRom.Path)
                     err = common.RunNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
                     if err == common.MaxCyclesReached {
-                        log.Printf("%v complete", rom)
+                        log.Printf("%v complete", possibleRom.Path)
                     }
 
                     cancel()
                 }
             }
-        }(RomId(uint64(i) * 1000000))
+        }()
     }
 
+    var romId RomId
     err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
         if mainQuit.Err() != nil {
             return fmt.Errorf("quitting")
         }
 
         if nes.IsNESFile(path){
+            romId += 1
             // log.Printf("Possible nes file %v", path)
-            possibleRoms <- path
+            possibleRoms <- PossibleRom{
+                Path: path,
+                RomId: romId,
+            }
         }
 
         return nil
@@ -217,7 +226,9 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) (nes.NE
     close(generatorChannel)
     generatorWait.Wait()
 
-    return nes.NESFile{}, err
+    log.Printf("Rom loader done")
+
+    return err
 }
 
 func (loader *RomLoaderState) UpdateWindowSize(width int, height int){
@@ -233,7 +244,7 @@ func (loader *RomLoaderState) GetSelectedRom() (string, bool) {
     defer loader.Lock.Unlock()
 
     if loader.SelectedRomKey != "" {
-        index := loader.FindSortedIdIndex(loader.SelectedRomKey)
+        index := loader.FindSortedIdIndex(loader.SortedRomIdsAndPaths, loader.SelectedRomKey)
         return loader.SortedRomIdsAndPaths[index].Path, true
     }
 
@@ -248,11 +259,16 @@ func (loader *RomLoaderState) moveSelection(count int){
         return
     }
 
-    currentIndex := loader.FindSortedIdIndex(loader.SelectedRomKey)
+    roms := loader.GetFilteredRoms()
+
+    currentIndex := loader.FindSortedIdIndex(roms, loader.SelectedRomKey)
     if currentIndex != -1 {
-        length := len(loader.SortedRomIdsAndPaths)
+        length := len(roms)
         currentIndex = (currentIndex + count + length) % length
-        loader.SelectedRomKey = loader.SortedRomIdsAndPaths[currentIndex].SortKey()
+        if currentIndex < 0 {
+            currentIndex = 0
+        }
+        loader.SelectedRomKey = roms[currentIndex].SortKey()
     }
 
     maximumTiles := loader.MaximumTiles()
@@ -268,6 +284,43 @@ func (loader *RomLoaderState) moveSelection(count int){
 
     if loader.MinRenderIndex < 0 {
         loader.MinRenderIndex = 0
+    }
+}
+
+func (loader *RomLoaderState) SearchBackspace() {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    if len(loader.Search) > 0 {
+        loader.Search = loader.Search[0:len(loader.Search)-1]
+
+        loader.updateSelectedRom()
+    }
+}
+
+func (loader *RomLoaderState) SearchAdd(letter string) {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    loader.Search = loader.Search + letter
+    loader.updateSelectedRom()
+}
+
+func (loader *RomLoaderState) updateSelectedRom() {
+    if loader.SelectedRomKey != "" {
+        roms := loader.GetFilteredRoms()
+        for _, rom := range roms {
+            /* found the rom in the filtered list so its fine */
+            if rom.SortKey() == loader.SelectedRomKey {
+                return
+            }
+        }
+
+        if len(roms) > 0 {
+            loader.SelectedRomKey = roms[0].SortKey()
+        } else {
+            loader.SelectedRomKey = ""
+        }
     }
 }
 
@@ -296,15 +349,15 @@ func (loader *RomLoaderState) AdvanceFrames() {
     }
 }
 
-func (loader *RomLoaderState) FindSortedIdIndex(path string) int {
+func (loader *RomLoaderState) FindSortedIdIndex(roms []RomIdAndPath, path string) int {
     baseKey := filepath.Base(path)
     /* must hold the loader.Lock before calling this */
-    index := sort.Search(len(loader.SortedRomIdsAndPaths), func (check int) bool {
-        info := loader.SortedRomIdsAndPaths[check]
+    index := sort.Search(len(roms), func (check int) bool {
+        info := roms[check]
         return strings.Compare(baseKey, info.SortKey()) <= 0
     })
 
-    if index == len(loader.SortedRomIdsAndPaths) {
+    if index == len(roms) {
         return -1
     }
 
@@ -312,7 +365,7 @@ func (loader *RomLoaderState) FindSortedIdIndex(path string) int {
 }
 
 func (loader *RomLoaderState) FindRomIdByPath(path string) RomId {
-    index := loader.FindSortedIdIndex(path)
+    index := loader.FindSortedIdIndex(loader.SortedRomIdsAndPaths, path)
     if index == -1 {
         return 0
     }
@@ -419,14 +472,42 @@ func renderDownArrow(x int, y int, texture *sdl.Texture, renderer *sdl.Renderer)
     }
 }
 
+func (loader *RomLoaderState) GetFilteredRoms() []RomIdAndPath {
+    if loader.Search == "" {
+        return loader.SortedRomIdsAndPaths
+    }
+
+    var roms []RomIdAndPath
+
+    for _, rom := range loader.SortedRomIdsAndPaths {
+        if strings.Contains(strings.ToLower(filepath.Base(rom.Path)), strings.ToLower(loader.Search)) {
+            roms = append(roms, rom)
+        }
+    }
+
+    return roms
+}
+
+// draw part of the string in a new color where the substring is from 'startPosition' and goes for 'length' characters
+func drawOverlayString(font *ttf.Font, renderer *sdl.Renderer, x int, y int, base string, startPosition int, length int, color sdl.Color) error {
+    rendered := base[0:startPosition+1]
+    // get the length of the text minus the last character
+    startLength := textWidth(font, rendered) - textWidth(font, string(rendered[len(rendered)-1]))
+    matched := base[startPosition:startPosition+length]
+    // show the matched part of the selected rom
+    return writeFont(font, renderer, x + startLength, y, matched, color)
+}
+
 func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager) error {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
 
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+    green := sdl.Color{R: 0, G: 255, B: 0, A: 255}
 
-    writeFont(font, renderer, 1, 1, fmt.Sprintf("Load a rom. Roms found %v", len(loader.SortedRomIdsAndPaths)), white)
+    showTiles := loader.GetFilteredRoms()
+    writeFont(font, renderer, 1, 1, fmt.Sprintf("Press enter to load a rom. Roms found %v (%v filtered)", len(loader.SortedRomIdsAndPaths), len(showTiles)), white)
 
     layout := loader.TileLayout()
 
@@ -436,13 +517,32 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     x := layout.XStart
     y := layout.YStart
 
-    selectedIndex := -1
     selectedId := RomId(0)
 
-    if loader.SelectedRomKey != "" {
-        selectedIndex = loader.FindSortedIdIndex(loader.SelectedRomKey)
-        selectedId = loader.SortedRomIdsAndPaths[selectedIndex].Id
-        writeFont(font, renderer, 100, font.Height() + 3, loader.SortedRomIdsAndPaths[selectedIndex].Path, white)
+    if loader.SelectedRomKey != "" && len(showTiles) > 0 {
+        selectedIndex := loader.FindSortedIdIndex(showTiles, loader.SelectedRomKey)
+        if selectedIndex == -1 {
+            selectedIndex = 0
+        }
+        selectedId = showTiles[selectedIndex].Id
+
+        selectedX := 100
+        selectedY := font.Height() + 3
+
+        // show the filename of the selected rom
+        writeFont(font, renderer, selectedX, selectedY, showTiles[selectedIndex].Path, white)
+
+        if loader.Search != "" {
+            path := showTiles[selectedIndex].Path
+            base := filepath.Base(path)
+            // the path without the basename on it
+            startPath := path[0:len(path)-len(base)]
+
+            index := strings.Index(strings.ToLower(base), strings.ToLower(loader.Search))
+            if index != -1 {
+                drawOverlayString(font, renderer, selectedX, selectedY, path, len(startPath) + index, len(loader.Search), green)
+            }
+        }
     }
 
     err := renderer.SetDrawBlendMode(sdl.BLENDMODE_NONE)
@@ -461,10 +561,13 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     if start < 0 {
         start = 0
     }
+    if start >= len(showTiles) {
+        start = 0
+    }
 
     end := start + loader.MaximumTiles()
-    if end >= len(loader.SortedRomIdsAndPaths) {
-        end = len(loader.SortedRomIdsAndPaths) - 1
+    if end >= len(showTiles) {
+        end = len(showTiles) - 1
     }
 
     arrowInfo, _ := textureManager.GetCachedTexture(loader.ArrowId, func() (TextureInfo, error){
@@ -495,7 +598,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         }
     }
 
-    if loader.MinRenderIndex + loader.MaximumTiles() < len(loader.SortedRomIdsAndPaths) {
+    if loader.MinRenderIndex + loader.MaximumTiles() < len(showTiles) {
         if arrowInfo.Texture != nil {
             downY := maxHeight - 50
             if downY < 30 {
@@ -505,9 +608,11 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         }
     }
 
+    writeFont(font, renderer, 30, maxHeight - 30, loader.Search, green)
+
     const MaxNameSize = 15
 
-    for _, romIdAndPath := range loader.SortedRomIdsAndPaths[start:end+1] {
+    for _, romIdAndPath := range showTiles[start:end+1] {
         info := loader.Roms[romIdAndPath.Id]
         frame, has := info.GetFrame()
         if !has {
@@ -564,7 +669,7 @@ func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
     distanceToMin := 0
     // distanceToMax := 0
     if loader.SelectedRomKey != "" {
-        selectedIndex := loader.FindSortedIdIndex(loader.SelectedRomKey)
+        selectedIndex := loader.FindSortedIdIndex(loader.SortedRomIdsAndPaths, loader.SelectedRomKey)
         distanceToMin = selectedIndex - loader.MinRenderIndex
     }
 
@@ -577,7 +682,7 @@ func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
         loader.MinRenderIndex = 0
         loader.SelectedRomKey = newRomIdAndPath.SortKey()
     } else {
-        selectedIndex := loader.FindSortedIdIndex(loader.SelectedRomKey)
+        selectedIndex := loader.FindSortedIdIndex(loader.SortedRomIdsAndPaths, loader.SelectedRomKey)
         loader.MinRenderIndex = selectedIndex - distanceToMin
     }
 }
@@ -610,6 +715,7 @@ func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int,
         WindowSizeHeight: windowHeight,
         Arrow: arrow,
         ArrowId: arrowId,
+        Search: "",
     }
 
     go func(){
