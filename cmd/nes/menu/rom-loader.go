@@ -488,6 +488,16 @@ func (loader *RomLoaderState) GetFilteredRoms() []RomIdAndPath {
     return roms
 }
 
+// draw part of the string in a new color where the substring is from 'startPosition' and goes for 'length' characters
+func drawOverlayString(font *ttf.Font, renderer *sdl.Renderer, x int, y int, base string, startPosition int, length int, color sdl.Color) error {
+    rendered := base[0:startPosition+1]
+    // get the length of the text minus the last character
+    startLength := textWidth(font, rendered) - textWidth(font, string(rendered[len(rendered)-1]))
+    matched := base[startPosition:startPosition+length]
+    // show the matched part of the selected rom
+    return writeFont(font, renderer, x + startLength, y, matched, color)
+}
+
 func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager) error {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
@@ -509,7 +519,6 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
 
     selectedId := RomId(0)
 
-
     if loader.SelectedRomKey != "" && len(showTiles) > 0 {
         selectedIndex := loader.FindSortedIdIndex(showTiles, loader.SelectedRomKey)
         if selectedIndex == -1 {
@@ -520,6 +529,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         selectedX := 100
         selectedY := font.Height() + 3
 
+        // show the filename of the selected rom
         writeFont(font, renderer, selectedX, selectedY, showTiles[selectedIndex].Path, white)
 
         if loader.Search != "" {
@@ -530,12 +540,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
 
             index := strings.Index(strings.ToLower(base), strings.ToLower(loader.Search))
             if index != -1 {
-                rendered := startPath + base[0:index+1]
-
-                // get the length of the text minus the last character
-                length := textWidth(font, rendered) - textWidth(font, string(rendered[len(rendered)-1]))
-                matched := base[index:index+len(loader.Search)]
-                writeFont(font, renderer, selectedX + length, selectedY, matched, green)
+                drawOverlayString(font, renderer, selectedX, selectedY, path, len(startPath) + index, len(loader.Search), green)
             }
         }
     }
