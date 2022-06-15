@@ -496,7 +496,8 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
     green := sdl.Color{R: 0, G: 255, B: 0, A: 255}
 
-    writeFont(font, renderer, 1, 1, fmt.Sprintf("Press enter to load a rom. Roms found %v", len(loader.SortedRomIdsAndPaths)), white)
+    showTiles := loader.GetFilteredRoms()
+    writeFont(font, renderer, 1, 1, fmt.Sprintf("Press enter to load a rom. Roms found %v (%v filtered)", len(loader.SortedRomIdsAndPaths), len(showTiles)), white)
 
     layout := loader.TileLayout()
 
@@ -508,7 +509,6 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
 
     selectedId := RomId(0)
 
-    showTiles := loader.GetFilteredRoms()
 
     if loader.SelectedRomKey != "" && len(showTiles) > 0 {
         selectedIndex := loader.FindSortedIdIndex(showTiles, loader.SelectedRomKey)
