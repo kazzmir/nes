@@ -1630,6 +1630,10 @@ func (loadRomMenu *LoadRomMenu) RawInput(event sdl.Event){
                 loadRomMenu.LoaderState.SearchBackspace()
             } else if keyboard_event.Keysym.Sym == sdl.K_SPACE {
                 loadRomMenu.LoaderState.SearchAdd(" ")
+            } else if keyboard_event.Keysym.Sym == sdl.K_MINUS {
+                loadRomMenu.LoaderState.ZoomOut()
+            } else if keyboard_event.Keysym.Sym == sdl.K_EQUALS {
+                loadRomMenu.LoaderState.ZoomIn()
             } else {
                 name := sdl.GetKeyName(keyboard_event.Keysym.Sym)
                 if len(name) == 1 {
