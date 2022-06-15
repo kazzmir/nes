@@ -79,6 +79,8 @@ type RomLoaderState struct {
     SelectedRomKey string
     /* a substring to search for matches with */
     Search string
+
+    Layout TileLayout
 }
 
 type PossibleRom struct {
@@ -412,10 +414,12 @@ type TileLayout struct {
     XSpace int
     YSpace int
     /* amount to divide the nes screen by to make a thumbnail */
-    Thumbnail int
+    Thumbnail float32
 }
 
-func (loader *RomLoaderState) TileLayout() TileLayout {
+func (loader *RomLoaderState) TileLayout() *TileLayout {
+    return &loader.Layout
+    /*
     return TileLayout{
         XStart: 50,
         YStart: 80,
@@ -423,16 +427,17 @@ func (loader *RomLoaderState) TileLayout() TileLayout {
         YSpace: 25,
         Thumbnail: 2,
     }
+    */
 }
 
 func (loader *RomLoaderState) TilesPerRow(maxWidth int) int {
     count := 0
     layout := loader.TileLayout()
-    x := layout.XStart
+    x := float32(layout.XStart)
     width := nes.VideoWidth
 
-    for x + width / layout.Thumbnail + 5 < maxWidth {
-        x += width / layout.Thumbnail + layout.XSpace
+    for x + float32(width) / layout.Thumbnail + 5 < float32(maxWidth) {
+        x += float32(width) / layout.Thumbnail + float32(layout.XSpace)
         count += 1
     }
 
@@ -442,13 +447,13 @@ func (loader *RomLoaderState) TilesPerRow(maxWidth int) int {
 func (loader *RomLoaderState) TileRows(maxHeight int) int {
     layout := loader.TileLayout()
 
-    height := nes.VideoHeight - nes.OverscanPixels * 2
+    height := float32(nes.VideoHeight - nes.OverscanPixels * 2)
 
-    y := layout.YStart
+    y := float32(layout.YStart)
     count := 0
 
-    yDiff := height / layout.Thumbnail + layout.YSpace
-    for y + yDiff < maxHeight {
+    yDiff := height / layout.Thumbnail + float32(layout.YSpace)
+    for y + yDiff < float32(maxHeight) {
         count += 1
         y += yDiff
     }
@@ -488,6 +493,23 @@ func (loader *RomLoaderState) GetFilteredRoms() []RomIdAndPath {
     return roms
 }
 
+func (loader *RomLoaderState) ZoomIn() {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    if loader.TileLayout().Thumbnail > 1 {
+        loader.TileLayout().Thumbnail -= 0.2
+    }
+}
+
+func (loader *RomLoaderState) ZoomOut() {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+    if loader.TileLayout().Thumbnail < 4 {
+        loader.TileLayout().Thumbnail += 0.2
+    }
+}
+
 // draw part of the string in a new color where the substring is from 'startPosition' and goes for 'length' characters
 func drawOverlayString(font *ttf.Font, renderer *sdl.Renderer, x int, y int, base string, startPosition int, length int, color sdl.Color) error {
     rendered := base[0:startPosition+1]
@@ -514,8 +536,8 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     overscanPixels := 8
     width := nes.VideoWidth
     height := nes.VideoHeight-nes.OverscanPixels*2
-    x := layout.XStart
-    y := layout.YStart
+    x := float32(layout.XStart)
+    y := float32(layout.YStart)
 
     selectedId := RomId(0)
 
@@ -622,27 +644,27 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         /* Highlight the selected rom with a yellow outline */
         if selectedId == romIdAndPath.Id {
             renderer.SetDrawColor(255, 255, 0, 255)
-            rect := sdl.Rect{X: int32(x-outlineSize), Y: int32(y-outlineSize), W: int32(width / layout.Thumbnail + outlineSize*2), H: int32(height / layout.Thumbnail + outlineSize*2)}
+            rect := sdl.Rect{X: int32(x-float32(outlineSize)), Y: int32(y-float32(outlineSize)), W: int32(float32(width) / layout.Thumbnail + float32(outlineSize*2)), H: int32(float32(height) / layout.Thumbnail + float32(outlineSize*2))}
             renderer.FillRect(&rect)
         }
 
         /* FIXME: cache these textures with the texture manager */
         common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
-        doRender(width, height, raw_pixels, x, y, width / layout.Thumbnail, height / layout.Thumbnail, pixelFormat, renderer)
+        doRender(width, height, raw_pixels, int(x), int(y), int(float32(width) / layout.Thumbnail), int(float32(height) / layout.Thumbnail), pixelFormat, renderer)
 
         name := filepath.Base(info.Path)
         if len(name) > MaxNameSize {
             name = fmt.Sprintf("%v..", name[0:MaxNameSize-2])
         }
 
-        writeFont(smallFont, renderer, x, y + height / layout.Thumbnail + 1, name, white)
+        writeFont(smallFont, renderer, int(x), int(y + float32(height) / layout.Thumbnail + 1), name, white)
 
-        x += width / layout.Thumbnail + layout.XSpace
-        if x + width / layout.Thumbnail + 5 > maxWidth {
-            x = layout.XStart
-            y += height / layout.Thumbnail + layout.YSpace
+        x += float32(width) / layout.Thumbnail + float32(layout.XSpace)
+        if x + float32(width) / layout.Thumbnail + 5 > float32(maxWidth) {
+            x = float32(layout.XStart)
+            y += float32(height) / layout.Thumbnail + float32(layout.YSpace)
 
-            if y + height / layout.Thumbnail > maxHeight {
+            if y + float32(height) / layout.Thumbnail > float32(maxHeight) {
                 break
             }
         }
@@ -716,6 +738,13 @@ func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int,
         Arrow: arrow,
         ArrowId: arrowId,
         Search: "",
+        Layout: TileLayout{
+            XStart: 50,
+            YStart: 80,
+            XSpace: 20,
+            YSpace: 25,
+            Thumbnail: 2,
+        },
     }
 
     go func(){
