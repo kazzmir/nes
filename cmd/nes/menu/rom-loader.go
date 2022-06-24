@@ -701,9 +701,6 @@ func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
 
     newRomIdAndPath := RomIdAndPath{Id: rom.Id, Path: rom.Path}
     loader.RomIdsAndPaths.Add(&newRomIdAndPath)
-    // loader.SortedRomIdsAndPaths = append(loader.SortedRomIdsAndPaths, newRomIdAndPath)
-
-    // sort.Sort(SortRomIds(loader.SortedRomIdsAndPaths))
 
     if loader.SelectedRomKey == "" {
         loader.MinRenderIndex = 0
