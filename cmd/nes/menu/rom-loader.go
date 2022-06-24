@@ -78,8 +78,6 @@ type RomLoaderState struct {
 
     RomIdsAndPaths filterlist.List[*RomIdAndPath]
     SelectedRomKey string
-    /* a substring to search for matches with */
-    // Search string
 
     Layout TileLayout
 }
@@ -298,15 +296,6 @@ func (loader *RomLoaderState) SearchBackspace() {
     if loader.RomIdsAndPaths.BackspaceFilter() {
         loader.updateSelectedRom()
     }
-
-    /*
-    if len(loader.Search) > 0 {
-        loader.RomIdAndPaths.BackspaceFilter()
-        // loader.Search = loader.Search[0:len(loader.Search)-1]
-
-        loader.updateSelectedRom()
-    }
-    */
 }
 
 func (loader *RomLoaderState) SearchAdd(letter string) {
@@ -496,25 +485,7 @@ func renderDownArrow(x int, y int, texture *sdl.Texture, renderer *sdl.Renderer)
 }
 
 func (loader *RomLoaderState) GetFilteredRoms() []*RomIdAndPath {
-    /*
-    if loader.Search == "" {
-        return loader.RomIdsAndPaths.All()
-    }
-    */
-
     return loader.RomIdsAndPaths.Filtered()
-
-    /*
-    var roms []RomIdAndPath
-
-    for _, rom := range loader.SortedRomIdsAndPaths {
-        if strings.Contains(strings.ToLower(filepath.Base(rom.Path)), strings.ToLower(loader.Search)) {
-            roms = append(roms, rom)
-        }
-    }
-
-    return roms
-    */
 }
 
 func (loader *RomLoaderState) ZoomIn() {
