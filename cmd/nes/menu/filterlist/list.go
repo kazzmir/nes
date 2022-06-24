@@ -28,28 +28,26 @@ func (list *List[E]) Size() int {
     return len(list.values)
 }
 
-type SortRomIds[E Base[E]] []E
+type Sortable[E Base[E]] []E
 
-func (data SortRomIds[E]) Len() int {
+func (data Sortable[E]) Len() int {
     return len(data)
 }
 
-func (data SortRomIds[E]) Swap(left, right int){
+func (data Sortable[E]) Swap(left, right int){
     data[left], data[right] = data[right], data[left]
 }
 
-func (data SortRomIds[E]) Less(left, right int) bool {
+func (data Sortable[E]) Less(left, right int) bool {
     return data[left].Less(data[right])
-    // return strings.Compare(data[left].SortKey(), data[right].SortKey()) == -1
 }
-
 
 func (list *List[E]) Add(value E){
      list.values = append(list.values, value)
-     sort.Sort(SortRomIds[E](list.values))
+     sort.Sort(Sortable[E](list.values))
      if value.Contains(list.filter){
          list.filtered = append(list.filtered, value)
-         sort.Sort(SortRomIds[E](list.filtered))
+         sort.Sort(Sortable[E](list.filtered))
      }
 }
 
