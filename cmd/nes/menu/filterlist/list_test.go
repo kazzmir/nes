@@ -53,3 +53,52 @@ func TestBasicList(test *testing.T){
         test.Fatalf("expected filtered size to be 3 but was %v", len(filtered))
     }
 }
+
+func TestFilter(test *testing.T){
+    var list List[*Data]
+    list.Add(&Data{
+        Value: "xxaxx",
+        Other: 0,
+    })
+    list.Add(&Data{
+        Value: "xxaaxx",
+        Other: 0,
+    })
+    list.Add(&Data{
+        Value: "xxaaaxxx",
+        Other: 0,
+    })
+
+    if len(list.Filtered()) != 3 {
+        test.Fatalf("expected filtered size to be 3 but was %v", len(list.Filtered()))
+    }
+
+    list.AddFilter("a")
+
+    if len(list.Filtered()) != 3 {
+        test.Fatalf("expected filtered size to be 3 but was %v", len(list.Filtered()))
+    }
+
+    list.AddFilter("a")
+
+    if len(list.Filtered()) != 2 {
+        test.Fatalf("expected filtered size to be 2 but was %v", len(list.Filtered()))
+    }
+
+    list.AddFilter("a")
+
+    if len(list.Filtered()) != 1 {
+        test.Fatalf("expected filtered size to be 1 but was %v", len(list.Filtered()))
+    }
+
+    list.AddFilter("a")
+
+    if len(list.Filtered()) != 0 {
+        test.Fatalf("expected filtered size to be 0 but was %v", len(list.Filtered()))
+    }
+
+    list.BackspaceFilter()
+    if len(list.Filtered()) != 1 {
+        test.Fatalf("expected filtered size to be 1 but was %v", len(list.Filtered()))
+    }
+}
