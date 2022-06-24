@@ -404,7 +404,7 @@ type RomIdAndPath struct {
     Path string
 }
 
-func (info *RomIdAndPath) Less(other filterlist.Base) bool {
+func (info *RomIdAndPath) Less(other *RomIdAndPath) bool {
     return strings.Compare(info.SortKey(), other.SortKey()) == -1
 }
 

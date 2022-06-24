@@ -4,13 +4,13 @@ import (
     "sort"
 )
 
-type Base interface {
+type Base[T any] interface {
     Contains (string) bool
-    Less (Base) bool
+    Less (T) bool
     SortKey() string
 }
 
-type List[E Base] struct {
+type List[E Base[E]] struct {
     values []E
     filtered []E
     filter string
@@ -28,7 +28,7 @@ func (list *List[E]) Size() int {
     return len(list.values)
 }
 
-type SortRomIds[E Base] []E
+type SortRomIds[E Base[E]] []E
 
 func (data SortRomIds[E]) Len() int {
     return len(data)
