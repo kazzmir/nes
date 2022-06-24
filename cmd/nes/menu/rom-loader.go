@@ -713,7 +713,7 @@ func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
         loader.MinRenderIndex = 0
         loader.SelectedRomKey = newRomIdAndPath.SortKey()
     } else {
-        selectedIndex := loader.FindSortedIdIndex(loader.SortedRomIdsAndPaths, loader.SelectedRomKey)
+        selectedIndex := loader.FindSortedIdIndex(loader.GetFilteredRoms(), loader.SelectedRomKey)
         loader.MinRenderIndex = selectedIndex - distanceToMin
     }
 }
