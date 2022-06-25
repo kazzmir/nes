@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/fatih/color v1.13.0
+	github.com/fortytw2/leaktest v1.3.0
 	github.com/jroimartin/gocui v0.5.0
 	github.com/veandco/go-sdl2 v0.4.24
 	golang.org/x/image v0.0.0-20220617043117-41969df76e82

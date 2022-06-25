@@ -33,6 +33,8 @@ import (
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/menu"
 
+    "github.com/fortytw2/leaktest"
+
     // rdebug "runtime/debug"
 )
 
@@ -904,7 +906,7 @@ func parseArguments() (Arguments, error) {
     return arguments, nil
 }
 
-func main(){
+func main2(){
     log.SetFlags(log.Lshortfile | log.Lmicroseconds | log.Ldate)
 
     arguments, err := parseArguments()
@@ -968,4 +970,21 @@ func main(){
         file.Close()
         return
     }
+}
+
+type F struct {
+}
+
+func (f *F) Errorf(format string, args... interface{}){
+    log.Printf(format, args...)
+    /*
+    fmt.Printf("Leak check failed\n")
+    log.Fatalf(format, args...)
+    */
+}
+
+func main(){
+    check := leaktest.Check(&F{})
+    main2()
+    check()
 }
