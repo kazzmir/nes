@@ -142,13 +142,19 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
 
                 romId := possibleRom.RomId
 
-                romLoaderState.NewRom <- RomLoaderAdd{
+                add := RomLoaderAdd{
                     Id: romId,
                     Path: possibleRom.Path,
                 }
 
+                select {
+                    case romLoaderState.NewRom <- add:
+                    case <-loaderQuit.Done():
+                        return
+                }
+
                 /* Run the actual frame generation in a separate goroutine */
-                generatorChannel <- func(){
+                generator := func(){
                     if loaderQuit.Err() != nil {
                         return
                     }
@@ -178,9 +184,15 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
                                     count += 1
                                     /* every 60 frames should be 1 second */
                                     if count == 60 {
-                                        romLoaderState.AddFrame <- RomLoaderFrame{
+                                        frame := RomLoaderFrame{
                                             Id: romId,
                                             Frame: screen.Copy(),
+                                        }
+
+                                        select {
+                                            case romLoaderState.AddFrame <- frame:
+                                            case <-quit.Done():
+                                                return
                                         }
                                         count = 0
                                     }
@@ -198,6 +210,12 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
 
                     cancel()
                 }
+
+                select {
+                    case generatorChannel <- generator:
+                    case <-loaderQuit.Done():
+                        return
+                }
             }
         }()
     }
@@ -211,9 +229,15 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
         if nes.IsNESFile(path){
             romId += 1
             // log.Printf("Possible nes file %v", path)
-            possibleRoms <- PossibleRom{
+            rom := PossibleRom{
                 Path: path,
                 RomId: romId,
+            }
+
+            select {
+                case possibleRoms <- rom:
+                case <-mainQuit.Done():
+                    return fmt.Errorf("quitting")
             }
         }
 
