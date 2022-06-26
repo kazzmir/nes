@@ -11,10 +11,17 @@ import (
     "log"
     "path/filepath"
     "os"
+    "math"
+    "math/rand"
     "fmt"
     "sort"
     "time"
+    "io"
+    "io/ioutil"
     "strings"
+    "crypto/sha256"
+
+    imagelib "image"
 
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
@@ -87,8 +94,153 @@ type PossibleRom struct {
     RomId RomId
 }
 
+var uniqueIdentifier string
+var computeIdentifier sync.Once
 
-func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomId, path string, addFrame chan<- RomLoaderFrame){
+/* compute the sha256 of the program itself */
+func getUniqueProgramIdentifier() string {
+    computeIdentifier.Do(func (){
+        value, err := getSha256(os.Args[0])
+        if err != nil {
+            log.Printf("Warning: could not compute program hash: %v", err)
+            /* couldn't read the program hash for some reason, just compute some random string */
+            min := int(math.Pow10(5))
+            max := int(math.Pow10(6))
+            uniqueIdentifier = fmt.Sprintf("%v-%v", time.Now().UnixNano(), rand.Intn(max-min) + min)
+        } else {
+            uniqueIdentifier = value
+        }
+    })
+
+    return uniqueIdentifier
+}
+
+func getSha256(path string) (string, error){
+    hash := sha256.New()
+    data, err := os.Open(path)
+    if err != nil {
+        return "", err
+    }
+    _, err = io.Copy(hash, data)
+    if err != nil {
+        return "", err
+    }
+    return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func getHome() string {
+    // FIXME
+    return "/home/jon"
+}
+
+func dirExists(path string) bool {
+    info, err := os.Stat(path)
+    if os.IsNotExist(err) {
+        // file does not exists return false
+        return false
+    }
+
+    // return true if exist and is a directory
+    return info.IsDir()
+}
+
+func fileExists(path string) bool {
+    info, err := os.Stat(path)
+    if os.IsNotExist(err) {
+        // file does not exists return false
+        return false
+    }
+
+    // return true if exist and is not a directory
+    return !info.IsDir()
+}
+
+/* convert an image to the nes virtual screen representation */
+func imageToScreen(image imagelib.Image) nes.VirtualScreen {
+    width := image.Bounds().Max.X
+    height := image.Bounds().Max.Y
+
+    out := nes.VirtualScreen{
+        Width: width,
+        Height: height,
+        Buffer: make([]uint32, width * height),
+    }
+
+    for x := 0; x < width; x++ {
+        for y := 0; y < height; y++ {
+            color := image.At(x, y)
+            red, green, blue, alpha := color.RGBA()
+
+            value := (red << 24) | (green << 16) | (blue << 8) | (alpha << 0)
+            out.Buffer[x+y*width] = value
+        }
+    }
+
+    return out
+}
+
+/* returns true if this function was able to load the thumbnails from files, otherwise false */
+func getCachedThumbnails(loaderQuit context.Context, romId RomId, path string, addFrame chan<- RomLoaderFrame) bool {
+    /* look in ~/.cache/jon-nes/<sha256 of rom>/{1,2,3,4}.png
+     * also keep a metadata file in the sha256 dir that correlates to the version of the emulator
+     * if the running emulator is not the same as the saved one then return false
+     * if all 4 png's are not there then return false
+     * otherwise read each png and pass them to the addFrame
+     */
+
+    sha, err := getSha256(path)
+    if err != nil {
+        return false
+    }
+    cachePath := filepath.Join(getHome(), ".cache", "jon-nes", sha)
+
+    if !dirExists(cachePath) {
+        return false
+    }
+
+    meta := filepath.Join(cachePath, "metadata")
+
+    expectedProgramSha, err := ioutil.ReadFile(meta)
+    if err != nil {
+        return false
+    }
+
+    /* meta sha must match the current program identifier */
+    if strings.TrimSpace(string(expectedProgramSha)) != getUniqueProgramIdentifier() {
+        return false
+    }
+
+    expectedFiles := []string{"1.png", "2.png", "3.png", "4.png"}
+    for _, file := range expectedFiles {
+        imagePath := filepath.Join(cachePath, file)
+        if !fileExists(imagePath) {
+            return false
+        }
+    }
+
+    for _, file := range expectedFiles {
+        imagePath := filepath.Join(cachePath, file)
+        frame, err := loadPng(imagePath)
+        if err != nil {
+            return false
+        }
+
+        load := RomLoaderFrame{
+            Id: romId,
+            Frame: imageToScreen(frame),
+        }
+
+        select {
+            case addFrame <- load:
+            case <-loaderQuit.Done():
+                return false
+        }
+    }
+
+    return true
+}
+
+func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomId, path string, addFrame chan<- RomLoaderFrame, doCache bool){
     if loaderQuit.Err() != nil {
         return
     }
@@ -212,7 +364,9 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
 
                 /* Run the actual frame generation in a separate goroutine */
                 generator := func(){
-                    generateThumbnails(loaderQuit, cpu, romId, possibleRom.Path, romLoaderState.AddFrame)
+                    if !getCachedThumbnails(loaderQuit, romId, possibleRom.Path, romLoaderState.AddFrame) {
+                        generateThumbnails(loaderQuit, cpu, romId, possibleRom.Path, romLoaderState.AddFrame, true)
+                    }
                 }
 
                 select {
