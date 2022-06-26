@@ -11,10 +11,19 @@ import (
     "log"
     "path/filepath"
     "os"
+    "math"
+    "math/rand"
     "fmt"
     "sort"
     "time"
+    "io"
+    "io/ioutil"
     "strings"
+    "crypto/sha256"
+
+    imagelib "image"
+    "image/png"
+    "image/color"
 
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
@@ -87,6 +96,302 @@ type PossibleRom struct {
     RomId RomId
 }
 
+var uniqueIdentifier string
+var computeIdentifier sync.Once
+
+/* compute the sha256 of the program itself */
+func getUniqueProgramIdentifier() string {
+    computeIdentifier.Do(func (){
+        value, err := getSha256(os.Args[0])
+        if err != nil {
+            log.Printf("Warning: could not compute program hash: %v", err)
+            /* couldn't read the program hash for some reason, just compute some random string */
+            min := int(math.Pow10(5))
+            max := int(math.Pow10(6))
+            uniqueIdentifier = fmt.Sprintf("%v-%v", time.Now().UnixNano(), rand.Intn(max-min) + min)
+        } else {
+            uniqueIdentifier = value
+        }
+    })
+
+    return uniqueIdentifier
+}
+
+func getSha256(path string) (string, error){
+    hash := sha256.New()
+    data, err := os.Open(path)
+    if err != nil {
+        return "", err
+    }
+    _, err = io.Copy(hash, data)
+    if err != nil {
+        return "", err
+    }
+    return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func getHome() string {
+    home, err := os.UserHomeDir()
+    if err != nil {
+        return os.TempDir()
+    }
+    return home
+}
+
+func dirExists(path string) bool {
+    info, err := os.Stat(path)
+    if os.IsNotExist(err) {
+        // file does not exists return false
+        return false
+    }
+
+    // return true if exist and is a directory
+    return info.IsDir()
+}
+
+func fileExists(path string) bool {
+    info, err := os.Stat(path)
+    if os.IsNotExist(err) {
+        // file does not exists return false
+        return false
+    }
+
+    // return true if exist and is not a directory
+    return !info.IsDir()
+}
+
+/* convert an image to the nes virtual screen representation */
+func imageToScreen(image imagelib.Image) nes.VirtualScreen {
+    width := image.Bounds().Max.X
+    height := image.Bounds().Max.Y
+
+    out := nes.VirtualScreen{
+        Width: width,
+        Height: height,
+        Buffer: make([]uint32, width * height),
+    }
+
+    for x := 0; x < width; x++ {
+        for y := 0; y < height; y++ {
+            c := image.At(x, y)
+            red, green, blue, alpha := color.NRGBAModel.Convert(c).RGBA()
+
+            alpha = 255
+
+            /* convert to 8-bit value */
+            red = (red * 255 / alpha) & 0xff
+            green = (green * 255 / alpha) & 0xff
+            blue = (blue * 255 / alpha) & 0xff
+            // alpha = 255
+            // fmt.Printf("%v,%v: r=%v g=%v b=%v a=%v\n", x, y, red, green, blue, alpha)
+
+            value := (red << 24) | (green << 16) | (blue << 8) | (alpha << 0)
+            out.Buffer[x+y*width] = value
+        }
+    }
+
+    return out
+}
+
+func getCachedPath(sha string) string {
+    return filepath.Join(getHome(), ".cache", "jon-nes", sha)
+}
+
+/* returns true if this function was able to load the thumbnails from files, otherwise false */
+func getCachedThumbnails(loaderQuit context.Context, romId RomId, path string, addFrame chan<- RomLoaderFrame) bool {
+    /* look in ~/.cache/jon-nes/<sha256 of rom>/{1,2,3,4}.png
+     * also keep a metadata file in the sha256 dir that correlates to the version of the emulator
+     * if the running emulator is not the same as the saved one then return false
+     * if all 4 png's are not there then return false
+     * otherwise read each png and pass them to the addFrame
+     */
+
+    sha, err := getSha256(path)
+    if err != nil {
+        // log.Printf("cached-thumbnail: could not get sha256")
+        return false
+    }
+    cachePath := getCachedPath(sha)
+
+    if !dirExists(cachePath) {
+        // log.Printf("cached-thumbnail: cached path doesnt exist: %v", cachePath)
+        return false
+    }
+
+    meta := filepath.Join(cachePath, "metadata")
+
+    programSha, err := ioutil.ReadFile(meta)
+    if err != nil {
+        // log.Printf("cached-thumbnail: could not read metadata")
+        return false
+    }
+
+    /* meta sha must match the current program identifier */
+    if strings.TrimSpace(string(programSha)) != getUniqueProgramIdentifier() {
+        // log.Printf("cached-thumbnail: expected program sha doesn't match expected='%v' actual='%v'", strings.TrimSpace(string(programSha)), getUniqueProgramIdentifier())
+        return false
+    }
+
+    expectedFiles := []string{"1.png", "2.png", "3.png", "4.png"}
+    for _, file := range expectedFiles {
+        imagePath := filepath.Join(cachePath, file)
+        if !fileExists(imagePath) {
+            // log.Printf("cached-thumbnail: could not find png %v", imagePath)
+            return false
+        }
+    }
+
+    for _, file := range expectedFiles {
+        imagePath := filepath.Join(cachePath, file)
+        frame, err := loadPng(imagePath)
+        if err != nil {
+            // log.Printf("cached-thumbnail: could not load png %v", err)
+            return false
+        }
+
+        load := RomLoaderFrame{
+            Id: romId,
+            Frame: imageToScreen(frame),
+        }
+
+        select {
+            case addFrame <- load:
+            case <-loaderQuit.Done():
+                return false
+        }
+    }
+
+    return true
+}
+
+/* FIXME: stole this from test/screenshot/screenshot.go */
+func convertToPng(screen nes.VirtualScreen) image.Image {
+    out := image.NewRGBA(image.Rect(0, 0, screen.Width, screen.Height))
+
+    for x := 0; x < screen.Width; x++ {
+        for y := 0; y < screen.Height; y++ {
+            r, g, b, a := screen.GetRGBA(x, y)
+            out.Set(x, y, color.RGBA{R: r, G: g, B: b, A: a})
+        }
+    }
+
+    return out
+}
+
+/* save the nes screen to a file */
+func saveCachedFrame(count int, cachedSha256 string, path string, screen nes.VirtualScreen) error {
+    cachedPath := getCachedPath(cachedSha256)
+    if !dirExists(cachedPath) {
+        err := os.MkdirAll(cachedPath, 0755)
+        if err != nil {
+            return err
+        }
+    }
+
+    metadata := filepath.Join(cachedPath, "metadata")
+    err := os.WriteFile(metadata, []byte(getUniqueProgramIdentifier() + "\n"), 0644)
+    if err != nil {
+        return err
+    }
+
+    // write the path of the rom just for info purposes
+    os.WriteFile(filepath.Join(cachedPath, "info"), []byte(path + "\n"), 0644)
+
+    name := fmt.Sprintf("%v.png", count)
+    image := convertToPng(screen)
+
+    out, err := os.Create(filepath.Join(cachedPath, name))
+    if err != nil {
+        return err
+    }
+    defer out.Close()
+
+    return png.Encode(out, image)
+}
+
+func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomId, path string, addFrame chan<- RomLoaderFrame, doCache bool){
+    if loaderQuit.Err() != nil {
+        return
+    }
+    quit, cancel := context.WithCancel(loaderQuit)
+    defer cancel()
+
+    cpu.Input = nes.MakeInput(&NullInput{})
+
+    audioOutput := make(chan []float32, 1)
+    emulatorActionsInput := make(chan common.EmulatorAction, 5)
+    emulatorActionsInput <- common.EmulatorInfinite
+    var screenListeners common.ScreenListeners
+    const AudioSampleRate float32 = 44100.0
+
+    toDraw := make(chan nes.VirtualScreen, 1)
+    bufferReady := make(chan nes.VirtualScreen, 1)
+
+    buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
+    bufferReady <- buffer
+
+    var err error
+    cachedSha := ""
+    if doCache {
+        cachedSha, err = getSha256(path)
+        if err != nil {
+            log.Printf("Could not get sha of '%v': %v", path, err)
+            cachedSha = "x"
+        }
+    }
+
+    go func(){
+        frameNumber := 1
+        count := 0
+        for {
+            select {
+            case <-quit.Done():
+                return
+            case screen := <-toDraw:
+                count += 1
+                /* every 60 frames should be 1 second */
+                if count == 60 {
+                    frame := RomLoaderFrame{
+                        Id: romId,
+                        Frame: screen.Copy(),
+                    }
+
+                    if doCache {
+                        err := saveCachedFrame(frameNumber, cachedSha, path, screen)
+                        if err != nil {
+                            log.Printf("Could not save cached frame: %v", err)
+                        }
+                    }
+
+                    frameNumber += 1
+                    /* once we have all 4 frames stop running the emulator */
+                    if frameNumber == 5 {
+                        cancel()
+                    }
+
+                    select {
+                    case addFrame <- frame:
+                    case <-quit.Done():
+                        return
+                    }
+                    count = 0
+                }
+
+                bufferReady <- screen
+            }
+        }
+    }()
+
+    /* don't load more than 30s worth */
+    const maxCycles = uint64(30 * nes.CPUSpeed)
+
+    log.Printf("Start loading %v", path)
+    err = common.RunNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
+    if err == common.MaxCyclesReached {
+        log.Printf("%v complete", path)
+    }
+}
+
 /* Find roms and show thumbnails of them, then let the user select one */
 func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     /* for each rom call runNES() and pass in EmulatorInfiniteSpeed to let
@@ -102,9 +407,6 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
 
     loaderQuit, loaderCancel := context.WithCancel(mainQuit)
     _ = loaderCancel
-
-    /* 3 seconds worth of cycles */
-    const maxCycles = uint64(3 * nes.CPUSpeed)
 
     var wait sync.WaitGroup
     var generatorWait sync.WaitGroup
@@ -155,60 +457,9 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
 
                 /* Run the actual frame generation in a separate goroutine */
                 generator := func(){
-                    if loaderQuit.Err() != nil {
-                        return
+                    if !getCachedThumbnails(loaderQuit, romId, add.Path, romLoaderState.AddFrame) {
+                        generateThumbnails(loaderQuit, cpu, romId, add.Path, romLoaderState.AddFrame, true)
                     }
-                    quit, cancel := context.WithCancel(loaderQuit)
-
-                    cpu.Input = nes.MakeInput(&NullInput{})
-
-                    audioOutput := make(chan []float32, 1)
-                    emulatorActionsInput := make(chan common.EmulatorAction, 5)
-                    emulatorActionsInput <- common.EmulatorInfinite
-                    var screenListeners common.ScreenListeners
-                    const AudioSampleRate float32 = 44100.0
-
-                    toDraw := make(chan nes.VirtualScreen, 1)
-                    bufferReady := make(chan nes.VirtualScreen, 1)
-
-                    buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
-                    bufferReady <- buffer
-
-                    go func(){
-                        count := 0
-                        for {
-                            select {
-                                case <-quit.Done():
-                                    return
-                                case screen := <-toDraw:
-                                    count += 1
-                                    /* every 60 frames should be 1 second */
-                                    if count == 60 {
-                                        frame := RomLoaderFrame{
-                                            Id: romId,
-                                            Frame: screen.Copy(),
-                                        }
-
-                                        select {
-                                            case romLoaderState.AddFrame <- frame:
-                                            case <-quit.Done():
-                                                return
-                                        }
-                                        count = 0
-                                    }
-
-                                    bufferReady <- screen
-                            }
-                        }
-                    }()
-
-                    log.Printf("Start loading %v", possibleRom.Path)
-                    err = common.RunNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
-                    if err == common.MaxCyclesReached {
-                        log.Printf("%v complete", possibleRom.Path)
-                    }
-
-                    cancel()
                 }
 
                 select {
