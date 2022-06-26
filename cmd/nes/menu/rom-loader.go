@@ -287,7 +287,7 @@ func saveCachedFrame(count int, cachedSha256 string, path string, screen nes.Vir
             return err
         }
     }
-    
+
     metadata := filepath.Join(cachedPath, "metadata")
     err := os.WriteFile(metadata, []byte(getUniqueProgramIdentifier() + "\n"), 0644)
     if err != nil {
@@ -296,7 +296,7 @@ func saveCachedFrame(count int, cachedSha256 string, path string, screen nes.Vir
 
     // write the path of the rom just for info purposes
     os.WriteFile(filepath.Join(cachedPath, "info"), []byte(path + "\n"), 0644)
-    
+
     name := fmt.Sprintf("%v.png", count)
     image := convertToPng(screen)
 
@@ -329,7 +329,7 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
 
     buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
     bufferReady <- buffer
-    
+
     var err error
     cachedSha := ""
     if doCache {
@@ -355,7 +355,7 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
                         Id: romId,
                         Frame: screen.Copy(),
                     }
-                    
+
                     if doCache {
                         err := saveCachedFrame(frameNumber, cachedSha, path, screen)
                         if err != nil {
