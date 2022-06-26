@@ -170,8 +170,17 @@ func imageToScreen(image imagelib.Image) nes.VirtualScreen {
 
     for x := 0; x < width; x++ {
         for y := 0; y < height; y++ {
-            color := image.At(x, y)
-            red, green, blue, alpha := color.RGBA()
+            c := image.At(x, y)
+            red, green, blue, alpha := color.NRGBAModel.Convert(c).RGBA()
+
+            alpha = 255
+
+            /* convert to 8-bit value */
+            red = (red * 255 / alpha) & 0xff
+            green = (green * 255 / alpha) & 0xff
+            blue = (blue * 255 / alpha) & 0xff
+            // alpha = 255
+            // fmt.Printf("%v,%v: r=%v g=%v b=%v a=%v\n", x, y, red, green, blue, alpha)
 
             value := (red << 24) | (green << 16) | (blue << 8) | (alpha << 0)
             out.Buffer[x+y*width] = value
@@ -267,7 +276,7 @@ func convertToPng(screen nes.VirtualScreen) image.Image {
 }
 
 /* save the nes screen to a file */
-func saveCachedFrame(count int, cachedSha256 string, path string, romId RomId, screen nes.VirtualScreen) error {
+func saveCachedFrame(count int, cachedSha256 string, path string, screen nes.VirtualScreen) error {
     cachedPath := getCachedPath(cachedSha256)
     if !dirExists(cachedPath) {
         err := os.MkdirAll(cachedPath, 0755)
@@ -345,7 +354,7 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
                     }
                     
                     if doCache {
-                        err := saveCachedFrame(frameNumber, cachedSha, path, romId, screen)
+                        err := saveCachedFrame(frameNumber, cachedSha, path, screen)
                         if err != nil {
                             log.Printf("Could not save cached frame: %v", err)
                         }
@@ -445,8 +454,8 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
 
                 /* Run the actual frame generation in a separate goroutine */
                 generator := func(){
-                    if !getCachedThumbnails(loaderQuit, romId, possibleRom.Path, romLoaderState.AddFrame) {
-                        generateThumbnails(loaderQuit, cpu, romId, possibleRom.Path, romLoaderState.AddFrame, true)
+                    if !getCachedThumbnails(loaderQuit, romId, add.Path, romLoaderState.AddFrame) {
+                        generateThumbnails(loaderQuit, cpu, romId, add.Path, romLoaderState.AddFrame, true)
                     }
                 }
 
