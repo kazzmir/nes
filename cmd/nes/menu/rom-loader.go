@@ -87,6 +87,66 @@ type PossibleRom struct {
     RomId RomId
 }
 
+
+func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomId, path string, addFrame chan<- RomLoaderFrame){
+    if loaderQuit.Err() != nil {
+        return
+    }
+    quit, cancel := context.WithCancel(loaderQuit)
+    defer cancel()
+
+    cpu.Input = nes.MakeInput(&NullInput{})
+
+    audioOutput := make(chan []float32, 1)
+    emulatorActionsInput := make(chan common.EmulatorAction, 5)
+    emulatorActionsInput <- common.EmulatorInfinite
+    var screenListeners common.ScreenListeners
+    const AudioSampleRate float32 = 44100.0
+
+    toDraw := make(chan nes.VirtualScreen, 1)
+    bufferReady := make(chan nes.VirtualScreen, 1)
+
+    buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
+    bufferReady <- buffer
+
+    go func(){
+        count := 0
+        for {
+            select {
+            case <-quit.Done():
+                return
+            case screen := <-toDraw:
+                count += 1
+                /* every 60 frames should be 1 second */
+                if count == 60 {
+                    frame := RomLoaderFrame{
+                        Id: romId,
+                        Frame: screen.Copy(),
+                    }
+
+                    select {
+                    case addFrame <- frame:
+                    case <-quit.Done():
+                        return
+                    }
+                    count = 0
+                }
+
+                bufferReady <- screen
+            }
+        }
+    }()
+
+    /* 3 seconds worth of cycles */
+    const maxCycles = uint64(3 * nes.CPUSpeed)
+
+    log.Printf("Start loading %v", path)
+    err := common.RunNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
+    if err == common.MaxCyclesReached {
+        log.Printf("%v complete", path)
+    }
+}
+
 /* Find roms and show thumbnails of them, then let the user select one */
 func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     /* for each rom call runNES() and pass in EmulatorInfiniteSpeed to let
@@ -102,9 +162,6 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
 
     loaderQuit, loaderCancel := context.WithCancel(mainQuit)
     _ = loaderCancel
-
-    /* 3 seconds worth of cycles */
-    const maxCycles = uint64(3 * nes.CPUSpeed)
 
     var wait sync.WaitGroup
     var generatorWait sync.WaitGroup
@@ -155,60 +212,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
 
                 /* Run the actual frame generation in a separate goroutine */
                 generator := func(){
-                    if loaderQuit.Err() != nil {
-                        return
-                    }
-                    quit, cancel := context.WithCancel(loaderQuit)
-
-                    cpu.Input = nes.MakeInput(&NullInput{})
-
-                    audioOutput := make(chan []float32, 1)
-                    emulatorActionsInput := make(chan common.EmulatorAction, 5)
-                    emulatorActionsInput <- common.EmulatorInfinite
-                    var screenListeners common.ScreenListeners
-                    const AudioSampleRate float32 = 44100.0
-
-                    toDraw := make(chan nes.VirtualScreen, 1)
-                    bufferReady := make(chan nes.VirtualScreen, 1)
-
-                    buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
-                    bufferReady <- buffer
-
-                    go func(){
-                        count := 0
-                        for {
-                            select {
-                                case <-quit.Done():
-                                    return
-                                case screen := <-toDraw:
-                                    count += 1
-                                    /* every 60 frames should be 1 second */
-                                    if count == 60 {
-                                        frame := RomLoaderFrame{
-                                            Id: romId,
-                                            Frame: screen.Copy(),
-                                        }
-
-                                        select {
-                                            case romLoaderState.AddFrame <- frame:
-                                            case <-quit.Done():
-                                                return
-                                        }
-                                        count = 0
-                                    }
-
-                                    bufferReady <- screen
-                            }
-                        }
-                    }()
-
-                    log.Printf("Start loading %v", possibleRom.Path)
-                    err = common.RunNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
-                    if err == common.MaxCyclesReached {
-                        log.Printf("%v complete", possibleRom.Path)
-                    }
-
-                    cancel()
+                    generateThumbnails(loaderQuit, cpu, romId, possibleRom.Path, romLoaderState.AddFrame)
                 }
 
                 select {
