@@ -196,23 +196,27 @@ func getCachedThumbnails(loaderQuit context.Context, romId RomId, path string, a
 
     sha, err := getSha256(path)
     if err != nil {
+        // log.Printf("cached-thumbnail: could not get sha256")
         return false
     }
     cachePath := getCachedPath(sha)
 
     if !dirExists(cachePath) {
+        // log.Printf("cached-thumbnail: cached path doesnt exist: %v", cachePath)
         return false
     }
 
     meta := filepath.Join(cachePath, "metadata")
 
-    expectedProgramSha, err := ioutil.ReadFile(meta)
+    programSha, err := ioutil.ReadFile(meta)
     if err != nil {
+        // log.Printf("cached-thumbnail: could not read metadata")
         return false
     }
 
     /* meta sha must match the current program identifier */
-    if strings.TrimSpace(string(expectedProgramSha)) != getUniqueProgramIdentifier() {
+    if strings.TrimSpace(string(programSha)) != getUniqueProgramIdentifier() {
+        // log.Printf("cached-thumbnail: expected program sha doesn't match expected='%v' actual='%v'", strings.TrimSpace(string(programSha)), getUniqueProgramIdentifier())
         return false
     }
 
@@ -220,6 +224,7 @@ func getCachedThumbnails(loaderQuit context.Context, romId RomId, path string, a
     for _, file := range expectedFiles {
         imagePath := filepath.Join(cachePath, file)
         if !fileExists(imagePath) {
+            // log.Printf("cached-thumbnail: could not find png %v", imagePath)
             return false
         }
     }
@@ -228,6 +233,7 @@ func getCachedThumbnails(loaderQuit context.Context, romId RomId, path string, a
         imagePath := filepath.Join(cachePath, file)
         frame, err := loadPng(imagePath)
         if err != nil {
+            // log.Printf("cached-thumbnail: could not load png %v", err)
             return false
         }
 
@@ -346,6 +352,10 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
                     }
 
                     frameNumber += 1
+                    /* once we have all 4 frames stop running the emulator */
+                    if frameNumber == 5 {
+                        cancel()
+                    }
 
                     select {
                     case addFrame <- frame:
@@ -360,8 +370,8 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
         }
     }()
 
-    /* 3 seconds worth of cycles */
-    const maxCycles = uint64(3 * nes.CPUSpeed)
+    /* don't load more than 30s worth */
+    const maxCycles = uint64(30 * nes.CPUSpeed)
 
     log.Printf("Start loading %v", path)
     err = common.RunNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
