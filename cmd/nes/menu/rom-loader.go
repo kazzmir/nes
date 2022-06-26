@@ -131,8 +131,11 @@ func getSha256(path string) (string, error){
 }
 
 func getHome() string {
-    // FIXME
-    return "/home/jon"
+    home, err := os.UserHomeDir()
+    if err != nil {
+        return os.TempDir()
+    }
+    return home
 }
 
 func dirExists(path string) bool {
