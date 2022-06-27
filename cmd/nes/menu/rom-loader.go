@@ -51,6 +51,7 @@ type RomLoaderInfo struct {
 }
 
 func (info *RomLoaderInfo) GetFrame() (nes.VirtualScreen, bool) {
+    // FIXME: might need a lock here
     if len(info.Frames) > 0 {
         return info.Frames[info.ShowFrame], true
     }
@@ -513,6 +514,19 @@ func (loader *RomLoaderState) UpdateWindowSize(width int, height int){
 
     loader.WindowSizeWidth = width
     loader.WindowSizeHeight = height
+}
+
+func (loader *RomLoaderState) GetSelectedRomInfo() (*RomLoaderInfo, bool) {
+    loader.Lock.Lock()
+    defer loader.Lock.Unlock()
+
+    if loader.SelectedRomKey != "" {
+        roms := loader.RomIdsAndPaths.All()
+        index := loader.FindSortedIdIndex(roms, loader.SelectedRomKey)
+        return loader.Roms[roms[index].Id], true
+    }
+
+    return nil, false
 }
 
 func (loader *RomLoaderState) GetSelectedRom() (string, bool) {

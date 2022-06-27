@@ -1666,8 +1666,33 @@ func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
             loadRomMenu.LoaderCancel()
             return loadRomMenu.Back(loadRomMenu)
         case MenuSelect:
+            info, ok := loadRomMenu.LoaderState.GetSelectedRomInfo()
+            if ok {
+                var size int64 = 0
+                stat, err := os.Stat(info.Path)
+                if err == nil {
+                    size = stat.Size()
+                }
+
+                mapper := -1
+                nesFile, err := nes.ParseNesFile(info.Path, false)
+                if err == nil {
+                    mapper = int(nesFile.Mapper)
+                }
+
+                return &LoadRomInfoMenu{
+                    RomLoader: loadRomMenu,
+                    Mapper: mapper,
+                    Info: info,
+                    Filesize: size,
+                }
+            } else {
+                return loadRomMenu
+            }
+            /*
             loadRomMenu.SelectRom()
             return loadRomMenu
+            */
         default:
             return loadRomMenu
     }
@@ -1681,6 +1706,184 @@ func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, button
 
 func (loadRomMenu *LoadRomMenu) UpdateWindowSize(x int, y int){
     loadRomMenu.LoaderState.UpdateWindowSize(x, y)
+}
+
+/* displays info about a specific rom in the rom loader and gives the user a choice to actually load the rom or not */
+type LoadRomInfoMenu struct {
+    RomLoader *LoadRomMenu // the previous load rom menu
+    Selection int
+    Filesize int64
+    Mapper int
+    Info *RomLoaderInfo
+}
+
+const (
+    LoadRomInfoSelect = iota
+    LoadRomInfoBack
+)
+
+func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
+    inputs := 2
+    switch input {
+        case MenuNext:
+            loader.Selection = (loader.Selection + 1) % inputs
+            loader.PlayBeep()
+            return loader
+        case MenuPrevious:
+            loader.Selection = (loader.Selection - 1 + inputs) % inputs
+            loader.PlayBeep()
+            return loader
+        case MenuUp:
+            loader.Selection = (loader.Selection - 1 + inputs) % inputs
+            loader.PlayBeep()
+            return loader
+        case MenuDown:
+            loader.Selection = (loader.Selection + 1) % inputs
+            loader.PlayBeep()
+            return loader
+        case MenuQuit:
+            return loader.RomLoader
+        case MenuSelect:
+            switch loader.Selection {
+                case LoadRomInfoSelect:
+                    loader.RomLoader.SelectRom()
+                    return loader.RomLoader
+                case LoadRomInfoBack:
+                    return loader.RomLoader
+                default:
+                    return loader.RomLoader
+            }
+        default:
+            return loader
+    }
+}
+
+func (loader *LoadRomInfoMenu) GetSelectionColor(use int) sdl.Color {
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+    yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+    if use == loader.Selection {
+        return yellow
+    }
+    return white
+}
+
+/* convert a number into a human readable string, like 2100 => 2kb */
+func niceSize(size int64) string {
+    last := "b"
+    if size > 1024 {
+        size /= 1024
+        last = "kb"
+    }
+    if size > 1024 {
+        size /= 1024
+        last = "mb"
+    }
+    if size > 1024 {
+        size /= 1024
+        last = "gb"
+    }
+
+    return fmt.Sprintf("%v%v", size, last)
+}
+
+func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
+    old := loader.RomLoader.MakeRenderer(maxWidth, maxHeight, buttonManager, textureManager, font, smallFont)
+
+    return func(renderer *sdl.Renderer) error {
+        // render the rom loader in the background
+        err := old(renderer)
+        if err != nil {
+            return err
+        }
+
+        // render a semi-translucent black square on top of it
+        err = renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
+        _ = err
+        renderer.SetDrawColor(0, 0, 0, 240)
+
+        // margin = 5%
+        marginX := maxWidth * 5 / 100
+        marginY := maxHeight * 5 / 100
+        margin := marginY
+        if marginX < marginY {
+            margin = marginX
+        }
+
+        renderer.FillRect(&sdl.Rect{X: int32(margin), Y: int32(margin), W: int32(maxWidth - margin*2), H: int32(maxHeight - margin*2)})
+        renderer.SetDrawColor(255, 255, 255, 255)
+        renderer.DrawRect(&sdl.Rect{X: int32(margin), Y: int32(margin), W: int32(maxWidth - margin*2), H: int32(maxHeight - margin*2)})
+
+        x := margin + 5
+        y := margin + 5
+
+        maxX := maxWidth - margin * 2
+        maxY := maxHeight - margin * 2
+        _ = maxY
+
+        thumbnail := maxWidth * 50 / 100
+        if thumbnail > maxX - x {
+            thumbnail = maxX - x
+        }
+
+        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+        textY := y
+        textX := x
+        writeFont(font, renderer, textX, textY, fmt.Sprintf("%v", filepath.Base(loader.Info.Path)), white)
+
+        textY += font.Height() + 2
+
+        writeFont(font, renderer, textX, textY, fmt.Sprintf("File size: %v", niceSize(loader.Filesize)), white)
+        textY += font.Height() + 2
+
+        if loader.Mapper == -1 {
+            writeFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: unknown", loader.Mapper), white)
+        } else {
+            writeFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: %v", loader.Mapper), white)
+        }
+        textY += font.Height() + 2
+
+        frame, ok := loader.Info.GetFrame()
+        if ok {
+            width := frame.Width
+            height := frame.Height
+
+            divider := float32(frame.Width) / float32(thumbnail)
+
+            overscanPixels := 0
+            // FIXME: move this allocation into the object so its not repeated every draw frame
+            raw_pixels := make([]byte, width*height * 4)
+            common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
+            pixelFormat := common.FindPixelFormat()
+
+            romWidth := int(float32(width) / divider)
+            romHeight := int(float32(height) / divider)
+            doRender(width, height, raw_pixels, int(maxX - thumbnail - 2), int(y+10), romWidth, romHeight, pixelFormat, renderer)
+
+            renderer.SetDrawColor(255, 0, 0, 128)
+            renderer.DrawRect(&sdl.Rect{X: int32(maxX - thumbnail - 2), Y: int32(y+10), W: int32(romWidth), H: int32(romHeight)})
+
+            yPos := maxY - font.Height() * 4
+            writeFont(font, renderer, x, yPos, "Load rom", loader.GetSelectionColor(LoadRomInfoSelect))
+            yPos += font.Height() + 2
+            writeFont(font, renderer, x, yPos, "Back", loader.GetSelectionColor(LoadRomInfoBack))
+        }
+
+        return nil
+
+        // return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, smallFont, renderer, textureManager)
+    }
+}
+
+func (loader *LoadRomInfoMenu) PlayBeep() {
+    loader.RomLoader.PlayBeep()
+}
+
+func (loader *LoadRomInfoMenu) RawInput(event sdl.Event){
+}
+
+func (loader *LoadRomInfoMenu) UpdateWindowSize(x int, y int){
+    loader.RomLoader.UpdateWindowSize(x, y)
 }
 
 func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager) SubMenu {
