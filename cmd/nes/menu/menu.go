@@ -1717,15 +1717,61 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
     old := loader.RomLoader.MakeRenderer(maxWidth, maxHeight, buttonManager, textureManager, font, smallFont)
 
     return func(renderer *sdl.Renderer) error {
+        // render the rom loader in the background
         err := old(renderer)
         if err != nil {
             return err
         }
 
+        // render a semi-translucent black square on top of it
         err = renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
         _ = err
-        renderer.SetDrawColor(0, 64, 0, 230)
-        renderer.FillRect(&sdl.Rect{X: int32(50), Y: int32(50), W: int32(maxWidth - 100), H: int32(maxHeight - 100)})
+        renderer.SetDrawColor(0, 0, 0, 240)
+
+        // margin = 5%
+        marginX := maxWidth * 5 / 100
+        marginY := maxHeight * 5 / 100
+        margin := marginY
+        if marginX < marginY {
+            margin = marginX
+        }
+
+        renderer.FillRect(&sdl.Rect{X: int32(margin), Y: int32(margin), W: int32(maxWidth - margin*2), H: int32(maxHeight - margin*2)})
+        renderer.SetDrawColor(255, 255, 255, 255)
+        renderer.DrawRect(&sdl.Rect{X: int32(margin), Y: int32(margin), W: int32(maxWidth - margin*2), H: int32(maxHeight - margin*2)})
+
+        x := margin + 5
+        y := margin + 5
+
+        maxX := maxWidth - margin * 2
+        maxY := maxHeight - margin * 2
+        _ = maxY
+
+        thumbnail := maxWidth * 50 / 100
+        if thumbnail > maxX - x {
+            thumbnail = maxX - x
+        }
+
+        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+        info, ok := loader.RomLoader.LoaderState.GetSelectedRomInfo()
+        if ok {
+            writeFont(font, renderer, x, y, fmt.Sprintf("%v", filepath.Base(info.Path)), white)
+
+            frame, ok := info.GetFrame()
+            if ok {
+                width := frame.Width
+                height := frame.Height
+
+                divider := float32(frame.Width) / float32(thumbnail)
+
+                overscanPixels := 8
+                raw_pixels := make([]byte, width*height * 4)
+                common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
+                pixelFormat := common.FindPixelFormat()
+                doRender(width, height, raw_pixels, int(maxX - thumbnail - 2), int(y+10), int(float32(width) / divider), int(float32(height) / divider), pixelFormat, renderer)
+            }
+        }
 
         return nil
 
