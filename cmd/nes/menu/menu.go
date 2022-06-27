@@ -1666,8 +1666,13 @@ func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
             loadRomMenu.LoaderCancel()
             return loadRomMenu.Back(loadRomMenu)
         case MenuSelect:
+            return &LoadRomInfoMenu{
+                RomLoader: loadRomMenu,
+            }
+            /*
             loadRomMenu.SelectRom()
             return loadRomMenu
+            */
         default:
             return loadRomMenu
     }
@@ -1681,6 +1686,62 @@ func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, button
 
 func (loadRomMenu *LoadRomMenu) UpdateWindowSize(x int, y int){
     loadRomMenu.LoaderState.UpdateWindowSize(x, y)
+}
+
+/* displays info about a specific rom in the rom loader and gives the user a choice to actually load the rom or not */
+type LoadRomInfoMenu struct {
+    RomLoader *LoadRomMenu // the previous load rom menu
+}
+
+func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
+    switch input {
+        case MenuNext:
+            return loader
+        case MenuPrevious:
+            return loader
+        case MenuUp:
+            return loader
+        case MenuDown:
+            return loader
+        case MenuQuit:
+            return loader.RomLoader
+        case MenuSelect:
+            loader.RomLoader.SelectRom()
+            return loader.RomLoader
+        default:
+            return loader
+    }
+}
+
+func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
+    old := loader.RomLoader.MakeRenderer(maxWidth, maxHeight, buttonManager, textureManager, font, smallFont)
+
+    return func(renderer *sdl.Renderer) error {
+        err := old(renderer)
+        if err != nil {
+            return err
+        }
+
+        err = renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
+        _ = err
+        renderer.SetDrawColor(0, 64, 0, 230)
+        renderer.FillRect(&sdl.Rect{X: int32(50), Y: int32(50), W: int32(maxWidth - 100), H: int32(maxHeight - 100)})
+
+        return nil
+
+        // return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, smallFont, renderer, textureManager)
+    }
+}
+
+func (loader *LoadRomInfoMenu) PlayBeep() {
+    loader.RomLoader.PlayBeep()
+}
+
+func (loader *LoadRomInfoMenu) RawInput(event sdl.Event){
+}
+
+func (loader *LoadRomInfoMenu) UpdateWindowSize(x int, y int){
+    loader.RomLoader.UpdateWindowSize(x, y)
 }
 
 func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager) SubMenu {
