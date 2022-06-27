@@ -1691,26 +1691,57 @@ func (loadRomMenu *LoadRomMenu) UpdateWindowSize(x int, y int){
 /* displays info about a specific rom in the rom loader and gives the user a choice to actually load the rom or not */
 type LoadRomInfoMenu struct {
     RomLoader *LoadRomMenu // the previous load rom menu
+    Selection int
 }
 
+const (
+    LoadRomInfoSelect = iota
+    LoadRomInfoBack
+)
+
 func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
+    inputs := 2
     switch input {
         case MenuNext:
+            loader.Selection = (loader.Selection + 1) % inputs
+            loader.PlayBeep()
             return loader
         case MenuPrevious:
+            loader.Selection = (loader.Selection - 1 + inputs) % inputs
+            loader.PlayBeep()
             return loader
         case MenuUp:
+            loader.Selection = (loader.Selection - 1 + inputs) % inputs
+            loader.PlayBeep()
             return loader
         case MenuDown:
+            loader.Selection = (loader.Selection + 1) % inputs
+            loader.PlayBeep()
             return loader
         case MenuQuit:
             return loader.RomLoader
         case MenuSelect:
-            loader.RomLoader.SelectRom()
-            return loader.RomLoader
+            switch loader.Selection {
+                case LoadRomInfoSelect:
+                    loader.RomLoader.SelectRom()
+                    return loader.RomLoader
+                case LoadRomInfoBack:
+                    return loader.RomLoader
+                default:
+                    return loader.RomLoader
+            }
         default:
             return loader
     }
+}
+
+func (loader *LoadRomInfoMenu) GetSelectionColor(use int) sdl.Color {
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+    yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+    if use == loader.Selection {
+        return yellow
+    }
+    return white
 }
 
 func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
@@ -1765,11 +1796,23 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
 
                 divider := float32(frame.Width) / float32(thumbnail)
 
-                overscanPixels := 8
+                overscanPixels := 0
+                // FIXME: move this allocation into the object so its not repeated every draw frame
                 raw_pixels := make([]byte, width*height * 4)
                 common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
                 pixelFormat := common.FindPixelFormat()
-                doRender(width, height, raw_pixels, int(maxX - thumbnail - 2), int(y+10), int(float32(width) / divider), int(float32(height) / divider), pixelFormat, renderer)
+
+                romWidth := int(float32(width) / divider)
+                romHeight := int(float32(height) / divider)
+                doRender(width, height, raw_pixels, int(maxX - thumbnail - 2), int(y+10), romWidth, romHeight, pixelFormat, renderer)
+
+                renderer.SetDrawColor(255, 0, 0, 128)
+                renderer.DrawRect(&sdl.Rect{X: int32(maxX - thumbnail - 2), Y: int32(y+10), W: int32(romWidth), H: int32(romHeight)})
+
+                yPos := maxY - font.Height() * 4
+                writeFont(font, renderer, x, yPos, "Load rom", loader.GetSelectionColor(LoadRomInfoSelect))
+                yPos += font.Height() + 2
+                writeFont(font, renderer, x, yPos, "Back", loader.GetSelectionColor(LoadRomInfoBack))
             }
         }
 
