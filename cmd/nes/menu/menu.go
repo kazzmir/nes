@@ -1666,8 +1666,28 @@ func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
             loadRomMenu.LoaderCancel()
             return loadRomMenu.Back(loadRomMenu)
         case MenuSelect:
-            return &LoadRomInfoMenu{
-                RomLoader: loadRomMenu,
+            info, ok := loadRomMenu.LoaderState.GetSelectedRomInfo()
+            if ok {
+                var size int64 = 0
+                stat, err := os.Stat(info.Path)
+                if err == nil {
+                    size = stat.Size()
+                }
+
+                mapper := -1
+                nesFile, err := nes.ParseNesFile(info.Path, false)
+                if err == nil {
+                    mapper = int(nesFile.Mapper)
+                }
+
+                return &LoadRomInfoMenu{
+                    RomLoader: loadRomMenu,
+                    Mapper: mapper,
+                    Info: info,
+                    Filesize: size,
+                }
+            } else {
+                return loadRomMenu
             }
             /*
             loadRomMenu.SelectRom()
@@ -1692,6 +1712,9 @@ func (loadRomMenu *LoadRomMenu) UpdateWindowSize(x int, y int){
 type LoadRomInfoMenu struct {
     RomLoader *LoadRomMenu // the previous load rom menu
     Selection int
+    Filesize int64
+    Mapper int
+    Info *RomLoaderInfo
 }
 
 const (
@@ -1744,7 +1767,7 @@ func (loader *LoadRomInfoMenu) GetSelectionColor(use int) sdl.Color {
     return white
 }
 
-/* convert a number into a human readable string, like 2000 => 1.95kb */
+/* convert a number into a human readable string, like 2100 => 2kb */
 func niceSize(size int64) string {
     last := "b"
     if size > 1024 {
@@ -1804,45 +1827,46 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
 
         white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
-        info, ok := loader.RomLoader.LoaderState.GetSelectedRomInfo()
+        textY := y
+        textX := x
+        writeFont(font, renderer, textX, textY, fmt.Sprintf("%v", filepath.Base(loader.Info.Path)), white)
+
+        textY += font.Height() + 2
+
+        writeFont(font, renderer, textX, textY, fmt.Sprintf("File size: %v", niceSize(loader.Filesize)), white)
+        textY += font.Height() + 2
+
+        if loader.Mapper == -1 {
+            writeFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: unknown", loader.Mapper), white)
+        } else {
+            writeFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: %v", loader.Mapper), white)
+        }
+        textY += font.Height() + 2
+
+        frame, ok := loader.Info.GetFrame()
         if ok {
-            textY := y
-            textX := x
-            writeFont(font, renderer, textX, textY, fmt.Sprintf("%v", filepath.Base(info.Path)), white)
+            width := frame.Width
+            height := frame.Height
 
-            textY += font.Height() + 2
+            divider := float32(frame.Width) / float32(thumbnail)
 
-            stat, err := os.Stat(info.Path)
-            if err == nil {
-                writeFont(font, renderer, textX, textY, fmt.Sprintf("File size: %v", niceSize(stat.Size())), white)
-                textY += font.Height() + 2
-            }
+            overscanPixels := 0
+            // FIXME: move this allocation into the object so its not repeated every draw frame
+            raw_pixels := make([]byte, width*height * 4)
+            common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
+            pixelFormat := common.FindPixelFormat()
 
-            frame, ok := info.GetFrame()
-            if ok {
-                width := frame.Width
-                height := frame.Height
+            romWidth := int(float32(width) / divider)
+            romHeight := int(float32(height) / divider)
+            doRender(width, height, raw_pixels, int(maxX - thumbnail - 2), int(y+10), romWidth, romHeight, pixelFormat, renderer)
 
-                divider := float32(frame.Width) / float32(thumbnail)
+            renderer.SetDrawColor(255, 0, 0, 128)
+            renderer.DrawRect(&sdl.Rect{X: int32(maxX - thumbnail - 2), Y: int32(y+10), W: int32(romWidth), H: int32(romHeight)})
 
-                overscanPixels := 0
-                // FIXME: move this allocation into the object so its not repeated every draw frame
-                raw_pixels := make([]byte, width*height * 4)
-                common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
-                pixelFormat := common.FindPixelFormat()
-
-                romWidth := int(float32(width) / divider)
-                romHeight := int(float32(height) / divider)
-                doRender(width, height, raw_pixels, int(maxX - thumbnail - 2), int(y+10), romWidth, romHeight, pixelFormat, renderer)
-
-                renderer.SetDrawColor(255, 0, 0, 128)
-                renderer.DrawRect(&sdl.Rect{X: int32(maxX - thumbnail - 2), Y: int32(y+10), W: int32(romWidth), H: int32(romHeight)})
-
-                yPos := maxY - font.Height() * 4
-                writeFont(font, renderer, x, yPos, "Load rom", loader.GetSelectionColor(LoadRomInfoSelect))
-                yPos += font.Height() + 2
-                writeFont(font, renderer, x, yPos, "Back", loader.GetSelectionColor(LoadRomInfoBack))
-            }
+            yPos := maxY - font.Height() * 4
+            writeFont(font, renderer, x, yPos, "Load rom", loader.GetSelectionColor(LoadRomInfoSelect))
+            yPos += font.Height() + 2
+            writeFont(font, renderer, x, yPos, "Back", loader.GetSelectionColor(LoadRomInfoBack))
         }
 
         return nil
