@@ -1837,7 +1837,7 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
         textY += font.Height() + 2
 
         if loader.Mapper == -1 {
-            writeFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: unknown", loader.Mapper), white)
+            writeFont(font, renderer, textX, textY, "Mapper: unknown", white)
         } else {
             writeFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: %v", loader.Mapper), white)
         }
