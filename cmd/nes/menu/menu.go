@@ -1744,6 +1744,25 @@ func (loader *LoadRomInfoMenu) GetSelectionColor(use int) sdl.Color {
     return white
 }
 
+/* convert a number into a human readable string, like 2000 => 1.95kb */
+func niceSize(size int64) string {
+    last := "b"
+    if size > 1024 {
+        size /= 1024
+        last = "kb"
+    }
+    if size > 1024 {
+        size /= 1024
+        last = "mb"
+    }
+    if size > 1024 {
+        size /= 1024
+        last = "gb"
+    }
+
+    return fmt.Sprintf("%v%v", size, last)
+}
+
 func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
     old := loader.RomLoader.MakeRenderer(maxWidth, maxHeight, buttonManager, textureManager, font, smallFont)
 
@@ -1787,7 +1806,17 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
 
         info, ok := loader.RomLoader.LoaderState.GetSelectedRomInfo()
         if ok {
-            writeFont(font, renderer, x, y, fmt.Sprintf("%v", filepath.Base(info.Path)), white)
+            textY := y
+            textX := x
+            writeFont(font, renderer, textX, textY, fmt.Sprintf("%v", filepath.Base(info.Path)), white)
+
+            textY += font.Height() + 2
+
+            stat, err := os.Stat(info.Path)
+            if err == nil {
+                writeFont(font, renderer, textX, textY, fmt.Sprintf("File size: %v", niceSize(stat.Size())), white)
+                textY += font.Height() + 2
+            }
 
             frame, ok := info.GetFrame()
             if ok {
