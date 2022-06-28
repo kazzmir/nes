@@ -35,8 +35,16 @@ func Run(rom string, maxCycles int64) (nes.VirtualScreen, error) {
 
     cpu := nes.StartupState()
 
+    if nesFile.HorizontalMirror {
+        cpu.PPU.SetHorizontalMirror()
+    }
+    if nesFile.VerticalMirror {
+        cpu.PPU.SetVerticalMirror()
+    }
+    /*
     cpu.PPU.SetHorizontalMirror(nesFile.HorizontalMirror)
     cpu.PPU.SetVerticalMirror(nesFile.VerticalMirror)
+    */
 
     maxCharacterRomLength := len(nesFile.CharacterRom)
     if maxCharacterRomLength > 0x2000 {
