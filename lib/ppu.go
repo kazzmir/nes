@@ -1129,6 +1129,16 @@ func getNametableAddress(address uint16, table uint16) uint16 {
     return address + table * 0x400
 }
 
+/*     Vert              Horz
+ * --------------    --------------
+ * [ NTA ][ NTB ]    [ NTA ][ NTA ]
+ * [ NTA ][ NTB ]    [ NTB ][ NTB ]
+ *
+ *      1ScA              1ScB
+ * --------------    --------------
+ * [ NTA ][ NTA ]    [ NTB ][ NTB ]
+ * [ NTA ][ NTA ]    [ NTB ][ NTB ]
+ */
 func (ppu *PPUState) nametableMirrorAddress(address uint16) uint16 {
     /*
     * Nametable1 should appear at 0x2000 and 0x2800 in vertical mirroring
@@ -1146,28 +1156,6 @@ func (ppu *PPUState) nametableMirrorAddress(address uint16) uint16 {
                 case 2: return getNametableAddress(relative, 0)
                 case 3: return getNametableAddress(relative, 1)
             }
-
-            /*
-            // upper left = table 1
-            if isNametable1(address){
-                return address & 0xfff
-            }
-
-            // upper right = table 2
-            if isNametable2(address){
-                return address & 0xfff
-            }
-
-            // lower left = table 1
-            if isNametable3(address){
-                return (address - 0x800) & 0xfff
-            }
-
-            // lower right = table 2
-            if isNametable4(address){
-                return (address - 0x800) & 0xfff
-            }
-            */
         case NametableMirrorHorizontal:
             switch mirror {
                 case 0: return getNametableAddress(relative, 0)
@@ -1175,67 +1163,11 @@ func (ppu *PPUState) nametableMirrorAddress(address uint16) uint16 {
                 case 2: return getNametableAddress(relative, 1)
                 case 3: return getNametableAddress(relative, 1)
             }
-
-            // upper left = table 1
-            if isNametable1(address){
-                return address & 0xfff
-            }
-
-            // upper right = table 1
-            if isNametable2(address){
-                return (address - 0x400) & 0xfff
-            }
-
-            // lower left = table 2
-            if isNametable3(address){
-                return (address - 0x400) & 0xfff
-            }
-
-            // lower right = table 2
-            if isNametable4(address){
-                return (address - 0x800) & 0xfff
-            }
         case NametableMirrorScreenA:
             return getNametableAddress(relative, 0)
         case NametableMirrorScreenB:
             return getNametableAddress(relative, 1)
     }
-
-    /*
-    if ppu.HorizontalNametableMirror {
-        if isNametable1(address){
-            return address & 0xfff
-        }
-
-        if isNametable2(address){
-            return (address - 0x400) & 0xfff
-        }
-
-        if isNametable3(address){
-            return (address - 0x400) & 0xfff
-        }
-
-        if isNametable4(address){
-            return (address - 0x800) & 0xfff
-        }
-    } else if ppu.VerticalNametableMirror {
-        if isNametable1(address){
-            return address & 0xfff
-        }
-
-        if isNametable2(address){
-            return address & 0xfff
-        }
-
-        if isNametable3(address){
-            return (address - 0x800) & 0xfff
-        }
-
-        if isNametable4(address){
-            return (address - 0x800) & 0xfff
-        }
-    }
-    */
 
     return 0x0
 }
