@@ -628,9 +628,11 @@ func (mapper *Mapper7) Write(cpu *CPUState, address uint16, value byte) error {
             case 1:
                 cpu.PPU.SetScreenBMirror()
         }
+
+        return nil
     }
 
-    return fmt.Errorf("invalid mapper7 write address=%x value=%x", address, value)
+    return fmt.Errorf("invalid mapper7 write address=0x%x value=0x%x", address, value)
 }
 
 type Mapper9 struct {
