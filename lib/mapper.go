@@ -607,7 +607,7 @@ func (mapper *Mapper7) ReadBank(address uint16, bank int) byte {
 }
 
 func (mapper *Mapper7) Read(address uint16) byte {
-    if address >= 0x8000 && uint32(address) < 0x10000 {
+    if address >= 0x8000 {
         return mapper.ReadBank(address - 0x8000, mapper.Bank)
     }
 
@@ -615,7 +615,7 @@ func (mapper *Mapper7) Read(address uint16) byte {
 }
 
 func (mapper *Mapper7) Write(cpu *CPUState, address uint16, value byte) error {
-    if address >= 0x8000 && uint32(address) < 0x10000 {
+    if address >= 0x8000 {
         bank := value & 0b111
         mirror := (value >> 4) & 0x1
 
