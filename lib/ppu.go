@@ -14,6 +14,25 @@ const VideoHeight = 240
  */
 const OverscanPixels = 8
 
+type NametableMirrorConfiguration int
+const (
+    NametableMirrorVertical = iota
+    NametableMirrorHorizontal
+    NametableMirrorScreenA
+    NametableMirrorScreenB
+)
+
+func (mirror NametableMirrorConfiguration) String() string {
+    switch mirror {
+        case NametableMirrorVertical: return "vertical"
+        case NametableMirrorHorizontal: return "horizontal"
+        case NametableMirrorScreenA: return "screen A"
+        case NametableMirrorScreenB: return "screen B"
+    }
+
+    return "unknown"
+}
+
 type PPUState struct {
     Flags byte
     Mask byte
@@ -28,8 +47,11 @@ type PPUState struct {
     VideoAddress uint16 /* the v register */
     WriteState byte /* for writing to the video address or the t register */
 
+    NametableMirror NametableMirrorConfiguration
+    /*
     HorizontalNametableMirror bool
     VerticalNametableMirror bool
+    */
 
     /* for scrolling */
     FineX byte
@@ -85,6 +107,7 @@ func MakePPU() PPUState {
     return PPUState{
         VideoMemory: make([]byte, 64 * 1024), // FIXME: video memory is not this large..
         NametableMemory: make([]byte, 2 * 1024), // 2kb SRAM
+        NametableMirror: NametableMirrorVertical, // arbitrary default choice
         OAM: make([]byte, 256),
         Scanline: 0,
         Palette: get2c02Palette(),
@@ -95,18 +118,35 @@ func (ppu *PPUState) ToggleDebug() {
     ppu.Debug = 1 - ppu.Debug
 }
 
-func (ppu *PPUState) SetHorizontalMirror(value bool){
+func (ppu *PPUState) SetHorizontalMirror(){
     if ppu.Debug > 0 {
-        log.Printf("Set horizontal mirror to %v", value)
+        log.Printf("Set horizontal mirror")
     }
-    ppu.HorizontalNametableMirror = value
+
+    ppu.NametableMirror = NametableMirrorHorizontal
+    // ppu.HorizontalNametableMirror = value
 }
 
-func (ppu *PPUState) SetVerticalMirror(value bool){
+func (ppu *PPUState) SetVerticalMirror(){
     if ppu.Debug > 0 {
-        log.Printf("Set vertical mirror to %v", value)
+        log.Printf("Set vertical mirror")
     }
-    ppu.VerticalNametableMirror = value
+    // ppu.VerticalNametableMirror = value
+    ppu.NametableMirror = NametableMirrorVertical
+}
+
+func (ppu *PPUState) SetScreenAMirror(){
+    if ppu.Debug > 0 {
+        log.Printf("Set screen 1 (A) mirror")
+    }
+    ppu.NametableMirror = NametableMirrorScreenA
+}
+
+func (ppu *PPUState) SetScreenBMirror(){
+    if ppu.Debug > 0 {
+        log.Printf("Set screen 2 (B) mirror")
+    }
+    ppu.NametableMirror = NametableMirrorScreenB
 }
 
 func (ppu *PPUState) SetOAMAddress(value byte){
@@ -1056,6 +1096,39 @@ func isNametable4(address uint16) bool {
     return address >= 0x2c00 && address < 0x3000
 }
 
+/* given an address in the range of 0x2000 - 0x3000, return an address in the range 0-0x400
+ * and the nametable that the address appears in. for example, any input address in the range 0x2000-0x2400
+ * would be the same output address and nametable=0. input address 0x2400-x2800 would be
+ * output address in the range 0-0x400 and nametable=1.
+ *
+ * 0x2000-0x2400: (address - 0x2000) & 0xfff, 0
+ * 0x2400-0x2800: (address - 0x2400) & 0xfff, 1
+ * 0x2800-0x2c00: (address - 0x2800) & 0xfff, 2
+ * 0x2c00-0x3000: (address - 0x2c00) & 0xfff, 3
+ */
+func computeNametableAddress(address uint16) (uint16, byte) {
+    if isNametable1(address) {
+        return (address - 0x2000) & 0xfff, 0
+    }
+    if isNametable2(address) {
+        return (address - 0x2400) & 0xfff, 1
+    }
+    if isNametable3(address) {
+        return (address - 0x2800) & 0xfff, 2
+    }
+    if isNametable4(address) {
+        return (address - 0x2c00) & 0xfff, 3
+    }
+    return 0, 0
+}
+
+/* address should be in the range 0-0x400, and table should be 0 or 1.
+ * this returns some address in the nametable memory either in the first half or the second half
+ */
+func getNametableAddress(address uint16, table uint16) uint16 {
+    return address + table * 0x400
+}
+
 func (ppu *PPUState) nametableMirrorAddress(address uint16) uint16 {
     /*
     * Nametable1 should appear at 0x2000 and 0x2800 in vertical mirroring
@@ -1064,6 +1137,71 @@ func (ppu *PPUState) nametableMirrorAddress(address uint16) uint16 {
      * and 0x2800 and 0x2c00 in horizontal mirroring.
      */
 
+    relative, mirror := computeNametableAddress(address)
+    switch ppu.NametableMirror {
+        case NametableMirrorVertical:
+            switch mirror {
+                case 0: return getNametableAddress(relative, 0)
+                case 1: return getNametableAddress(relative, 1)
+                case 2: return getNametableAddress(relative, 0)
+                case 3: return getNametableAddress(relative, 1)
+            }
+
+            /*
+            // upper left = table 1
+            if isNametable1(address){
+                return address & 0xfff
+            }
+
+            // upper right = table 2
+            if isNametable2(address){
+                return address & 0xfff
+            }
+
+            // lower left = table 1
+            if isNametable3(address){
+                return (address - 0x800) & 0xfff
+            }
+
+            // lower right = table 2
+            if isNametable4(address){
+                return (address - 0x800) & 0xfff
+            }
+            */
+        case NametableMirrorHorizontal:
+            switch mirror {
+                case 0: return getNametableAddress(relative, 0)
+                case 1: return getNametableAddress(relative, 0)
+                case 2: return getNametableAddress(relative, 1)
+                case 3: return getNametableAddress(relative, 1)
+            }
+
+            // upper left = table 1
+            if isNametable1(address){
+                return address & 0xfff
+            }
+
+            // upper right = table 1
+            if isNametable2(address){
+                return (address - 0x400) & 0xfff
+            }
+
+            // lower left = table 2
+            if isNametable3(address){
+                return (address - 0x400) & 0xfff
+            }
+
+            // lower right = table 2
+            if isNametable4(address){
+                return (address - 0x800) & 0xfff
+            }
+        case NametableMirrorScreenA:
+            return getNametableAddress(relative, 0)
+        case NametableMirrorScreenB:
+            return getNametableAddress(relative, 1)
+    }
+
+    /*
     if ppu.HorizontalNametableMirror {
         if isNametable1(address){
             return address & 0xfff
@@ -1097,6 +1235,7 @@ func (ppu *PPUState) nametableMirrorAddress(address uint16) uint16 {
             return (address - 0x800) & 0xfff
         }
     }
+    */
 
     return 0x0
 }
@@ -1308,7 +1447,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
 
                     if ppu.Debug > 0 {
                         fineY, nametable, coarseY, coarseX := ppu.DeconstructVideoAddress()
-                        log.Printf("Draw coarse x %v coarse y %v fine x %v fine y %v nametable %v horizontal %v vertical %v. Video address 0x%x. Temporary video address 0x%x Background color 0x%x", coarseX, coarseY, ppu.FineX, fineY, nametable, ppu.HorizontalNametableMirror, ppu.VerticalNametableMirror, ppu.VideoAddress, ppu.TemporaryVideoAddress, ppu.VideoMemory[0x3f00])
+                        log.Printf("Draw coarse x %v coarse y %v fine x %v fine y %v nametable %v mirror %v. Video address 0x%x. Temporary video address 0x%x Background color 0x%x", coarseX, coarseY, ppu.FineX, fineY, nametable, ppu.NametableMirror.String(), ppu.VideoAddress, ppu.TemporaryVideoAddress, ppu.VideoMemory[0x3f00])
                     }
 
                     ppu.PreloadTiles()

@@ -61,6 +61,7 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
         case 2: return MakeMapper2(programRom), nil
         case 3: return MakeMapper3(programRom, chrMemory), nil
         case 4: return MakeMapper4(programRom, chrMemory), nil
+        case 7: return MakeMapper7(programRom, chrMemory), nil
         case 9: return MakeMapper9(programRom, chrMemory), nil
         default: return nil, fmt.Errorf("Unimplemented mapper %v", mapper)
     }
@@ -202,20 +203,20 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                 switch mapper.mirror {
                     case 0:
                         /* FIXME: 1 screen A */
-                        log.Printf("FIXME: mapper1 set mirror to 1 screen A")
+                        // log.Printf("FIXME: mapper1 set mirror to 1 screen A")
+                        cpu.PPU.SetScreenAMirror()
                     case 1:
                         /* FIXME: 1 screen B */
-                        log.Printf("FIXME: mapper1 set mirror to 1 screen B")
+                        // log.Printf("FIXME: mapper1 set mirror to 1 screen B")
+                        cpu.PPU.SetScreenBMirror()
                     case 2:
                         // log.Printf("mapper1: set vertical mirror")
                         /* vertical */
-                        cpu.PPU.SetHorizontalMirror(false)
-                        cpu.PPU.SetVerticalMirror(true)
+                        cpu.PPU.SetVerticalMirror()
                     case 3:
                         // log.Printf("mapper1: set horizontal mirror")
                         /* horizontal */
-                        cpu.PPU.SetHorizontalMirror(true)
-                        cpu.PPU.SetVerticalMirror(false)
+                        cpu.PPU.SetHorizontalMirror()
                 }
             } else if address >= 0xa000 && address <= 0xbfff {
                 /* chr bank 0 */
@@ -522,11 +523,9 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
             /* FIXME: dont set mirroring for nes files that set 4-way mirroring */
             switch mirror {
                 case 0:
-                    cpu.PPU.SetHorizontalMirror(false)
-                    cpu.PPU.SetVerticalMirror(true)
+                    cpu.PPU.SetVerticalMirror()
                 case 1:
-                    cpu.PPU.SetHorizontalMirror(true)
-                    cpu.PPU.SetVerticalMirror(false)
+                    cpu.PPU.SetHorizontalMirror()
             }
         case 0xa001:
             /* prg ram protect */
@@ -572,6 +571,66 @@ func MakeMapper4(programRom []byte, chrMemory []byte) Mapper {
         SaveRam: make([]byte, 0x2000),
         lastBank: pages-1,
     }
+}
+
+type Mapper7 struct {
+    ProgramRom []byte
+    CharacterRom []byte
+    Bank int // 0-7
+    Mirror int // 0=1ScA, 1=1ScB
+}
+
+func MakeMapper7(programRom []byte, chrMemory []byte) Mapper {
+    return &Mapper7{
+        ProgramRom: programRom,
+        CharacterRom: chrMemory,
+        Bank: 0,
+        Mirror: 0,
+    }
+}
+
+func (mapper *Mapper7) IsIRQAsserted() bool {
+    return false
+}
+
+func (mapper *Mapper7) ReadBank(address uint16, bank int) byte {
+    if bank < 0 {
+        return 0
+    }
+
+    final := uint32(bank) * 0x8000 + uint32(address)
+    if final < uint32(len(mapper.ProgramRom)) {
+        return mapper.ProgramRom[final]
+    }
+
+    return 0
+}
+
+func (mapper *Mapper7) Read(address uint16) byte {
+    if address >= 0x8000 && uint32(address) < 0x10000 {
+        return mapper.ReadBank(address - 0x8000, mapper.Bank)
+    }
+
+    return 0
+}
+
+func (mapper *Mapper7) Write(cpu *CPUState, address uint16, value byte) error {
+    if address >= 0x8000 && uint32(address) < 0x10000 {
+        bank := value & 0b111
+        mirror := (value >> 4) & 0x1
+
+        mapper.Bank = int(bank)
+        mapper.Mirror = int(mirror)
+
+        switch mirror {
+            case 0:
+                cpu.PPU.SetScreenAMirror()
+            case 1:
+                cpu.PPU.SetScreenBMirror()
+        }
+    }
+
+    return fmt.Errorf("invalid mapper7 write address=%x value=%x", address, value)
 }
 
 type Mapper9 struct {
@@ -644,11 +703,9 @@ func (mapper *Mapper9) Write(cpu *CPUState, address uint16, value byte) error {
             mirror := value & 0x1
             switch mirror {
                 case 0:
-                    cpu.PPU.SetHorizontalMirror(false)
-                    cpu.PPU.SetVerticalMirror(true)
+                    cpu.PPU.SetVerticalMirror()
                 case 1:
-                    cpu.PPU.SetHorizontalMirror(true)
-                    cpu.PPU.SetVerticalMirror(false)
+                    cpu.PPU.SetHorizontalMirror()
             }
 
             return nil
