@@ -202,20 +202,12 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
 
                 switch mapper.mirror {
                     case 0:
-                        /* FIXME: 1 screen A */
-                        // log.Printf("FIXME: mapper1 set mirror to 1 screen A")
                         cpu.PPU.SetScreenAMirror()
                     case 1:
-                        /* FIXME: 1 screen B */
-                        // log.Printf("FIXME: mapper1 set mirror to 1 screen B")
                         cpu.PPU.SetScreenBMirror()
                     case 2:
-                        // log.Printf("mapper1: set vertical mirror")
-                        /* vertical */
                         cpu.PPU.SetVerticalMirror()
                     case 3:
-                        // log.Printf("mapper1: set horizontal mirror")
-                        /* horizontal */
                         cpu.PPU.SetHorizontalMirror()
                 }
             } else if address >= 0xa000 && address <= 0xbfff {

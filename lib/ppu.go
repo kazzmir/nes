@@ -48,10 +48,6 @@ type PPUState struct {
     WriteState byte /* for writing to the video address or the t register */
 
     NametableMirror NametableMirrorConfiguration
-    /*
-    HorizontalNametableMirror bool
-    VerticalNametableMirror bool
-    */
 
     /* for scrolling */
     FineX byte
@@ -124,14 +120,13 @@ func (ppu *PPUState) SetHorizontalMirror(){
     }
 
     ppu.NametableMirror = NametableMirrorHorizontal
-    // ppu.HorizontalNametableMirror = value
 }
 
 func (ppu *PPUState) SetVerticalMirror(){
     if ppu.Debug > 0 {
         log.Printf("Set vertical mirror")
     }
-    // ppu.VerticalNametableMirror = value
+
     ppu.NametableMirror = NametableMirrorVertical
 }
 

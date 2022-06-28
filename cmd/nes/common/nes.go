@@ -123,10 +123,6 @@ func SetupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     if nesFile.VerticalMirror {
         cpu.PPU.SetVerticalMirror()
     }
-    /*
-    cpu.PPU.SetHorizontalMirror(nesFile.HorizontalMirror)
-    cpu.PPU.SetVerticalMirror(nesFile.VerticalMirror)
-    */
 
     mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom, nesFile.CharacterRom)
     if err != nil {
