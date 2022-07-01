@@ -1975,6 +1975,20 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                         Index: int(remove_event.Which),
                         InstanceId: remove_event.Which,
                     }
+                case sdl.DROPFILE:
+                    drop_event := event.(*sdl.DropEvent)
+                    switch drop_event.Type {
+                        case sdl.DROPFILE:
+                            menu.cancel()
+                            programActions <- &common.ProgramLoadRom{Path: drop_event.File}
+                        case sdl.DROPBEGIN:
+                            log.Printf("drop begin '%v'\n", drop_event.File)
+                        case sdl.DROPCOMPLETE:
+                            log.Printf("drop complete '%v'\n", drop_event.File)
+                        case sdl.DROPTEXT:
+                            log.Printf("drop text '%v'\n", drop_event.File)
+                    }
+
                 case sdl.WINDOWEVENT:
                     window_event := event.(*sdl.WindowEvent)
                     switch window_event.Event {
