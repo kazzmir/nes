@@ -692,6 +692,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         }
     }()
 
+    /* enable drag/drop events */
+    sdl.Do(func(){
+        sdl.EventState(sdl.DROPFILE, sdl.ENABLE)
+    })
+
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
         if event != nil {
@@ -720,6 +725,20 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             log.Printf("Warning: dropping a window event")
                     }
                     */
+                case sdl.DROPFILE:
+                    drop_event := event.(*sdl.DropEvent)
+                    switch drop_event.Type {
+                        case sdl.DROPFILE:
+                            // log.Printf("drop file '%v'\n", drop_event.File)
+                            programActionsOutput <- &common.ProgramLoadRom{Path: drop_event.File}
+                        case sdl.DROPBEGIN:
+                            log.Printf("drop begin '%v'\n", drop_event.File)
+                        case sdl.DROPCOMPLETE:
+                            log.Printf("drop complete '%v'\n", drop_event.File)
+                        case sdl.DROPTEXT:
+                            log.Printf("drop text '%v'\n", drop_event.File)
+                    }
+
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
