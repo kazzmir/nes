@@ -331,7 +331,11 @@ func (mapper *Mapper3) IsIRQAsserted() bool {
 func (mapper *Mapper3) Read(address uint16) byte {
     if address >= 0x8000 {
         offset := address - 0x8000
-        return mapper.ProgramRom[offset]
+        if uint32(offset) < uint32(len(mapper.ProgramRom)) {
+            return mapper.ProgramRom[offset]
+        } else {
+            log.Printf("mapper3: invalid read at address=0x%x offset into program rom=0x%x", address, offset)
+        }
     }
 
     return 0
