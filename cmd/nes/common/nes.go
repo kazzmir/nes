@@ -182,12 +182,36 @@ func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
     /* run without delays when this is true */
     infiniteSpeed := false
 
+    showTimings := false
+
+    start := time.Now()
+    cycleCheck := time.NewTicker(time.Second * 2)
+    defer cycleCheck.Stop()
+    cycleStart := cpu.Cycle
+
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
             if verbose > 0 {
                 log.Printf("Maximum cycles %v reached", maxCycles)
             }
             return MaxCyclesReached
+        }
+
+        if showTimings {
+            select {
+                case <-cycleCheck.C:
+                    diff := time.Now().Sub(start)
+                    cycleDiff := cpu.Cycle - cycleStart
+                    cyclesPerSecond := float64(cycleDiff) / (float64(diff)/float64(time.Second))
+                    xdiff := cyclesPerSecond - nes.CPUSpeed
+                    cycleXDiff := float64(cycleDiff) - float64(nes.CPUSpeed) * float64(diff) / float64(time.Second)
+                    /* cycle diffs should be as close to 0 as possible */
+                    log.Printf("Time=%v Cycles=%v. Expected=%v. Diff=%v Cycles/s=%v. Expected=%v. Diff=%v", diff, cycleDiff, int64(nes.CPUSpeed * float64(diff) / float64(time.Second)), cycleXDiff, cyclesPerSecond, nes.CPUSpeed, xdiff)
+
+                    start = time.Now()
+                    cycleStart = cpu.Cycle
+                default:
+            }
         }
 
         /* always run the system */
