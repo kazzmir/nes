@@ -151,7 +151,8 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
     }
 }
 
-func doRender(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat, renderer *sdl.Renderer, renderFunc common.RenderFunction) error {
+func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat, renderer *sdl.Renderer) error {
+
     pixels := C.CBytes(raw_pixels)
     defer C.free(pixels)
 
@@ -194,12 +195,35 @@ func doRender(width int, height int, raw_pixels []byte, pixelFormat common.Pixel
     }
 
     renderer.SetLogicalSize(0, 0)
-    err = renderFunc(renderer)
-    if err != nil {
-        log.Printf("Warning: render error: %v", err)
-    }
 
-    renderer.Present()
+    return nil
+}
+
+func doRenderEmulatorMessages(renderer *sdl.Renderer, font *ttf.Font, messages []EmulatorMessage, windowWidth int, windowHeight int) error {
+    y := windowHeight - font.Height() - 1
+    now := time.Now()
+    for i := len(messages)-1; i >= 0; i-- {
+        message := messages[i]
+        if message.DeathTime.After(now){
+            x := windowWidth - 100
+            remaining := message.DeathTime.Sub(now)
+            alpha := 255
+            if remaining < time.Millisecond * 500 {
+                alpha = int(255 * float64(remaining) / (float64(time.Millisecond) * 500))
+                if alpha > 255 {
+                    alpha = 255
+                }
+                /* strangely if alpha=0 it renders without transparency so the pixels are fully white */
+                if alpha < 1 {
+                    alpha = 1
+                }
+            }
+            white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
+            // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
+            common.WriteFont(font, renderer, x, y, message.Message, white)
+            y -= font.Height() + 2
+        }
+    }
 
     return nil
 }
@@ -212,6 +236,11 @@ type NesActionLoad struct {
 }
 
 type NesActionRestart struct {
+}
+
+type EmulatorMessage struct {
+    Message string
+    DeathTime time.Time
 }
 
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
@@ -454,6 +483,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     renderFuncUpdate := make(chan common.RenderFunction, 5)
     renderNow := make(chan bool, 2)
 
+    emulatorMessage := make(chan string, 10)
+
     waiter.Add(1)
     go func(){
         buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
@@ -465,6 +496,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         fpsTimer := time.NewTicker(time.Duration(fpsCounter) * time.Second)
         defer fpsTimer.Stop()
 
+        /* these messages appear in the bottom right */
+        var emulatorMessages []EmulatorMessage
+        emulatorMessageTicker := time.NewTicker(time.Second * 1)
+        defer emulatorMessageTicker.Stop()
+        maxEmulatorMessages := 10
+
         renderTimer := time.NewTicker(time.Second / time.Duration(desiredFps))
         defer renderTimer.Stop()
         canRender := false
@@ -474,10 +511,26 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         }
 
         render := func (){
-            err := doRender(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, renderer, renderFunc)
+            err := doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, renderer)
             if err != nil {
-                log.Printf("Could not render: %v\n", err)
+                log.Printf("Warning: Could not render nes pixels: %v\n", err)
             }
+
+            if len(emulatorMessages) > 0 {
+                width, height := window.GetSize()
+                err = doRenderEmulatorMessages(renderer, smallFont, emulatorMessages, int(width), int(height))
+                if err != nil {
+                    log.Printf("Warning: Could not render extra: %v", err)
+                }
+            }
+
+            /* this is the menu overlay usually */
+            err = renderFunc(renderer)
+            if err != nil {
+                log.Printf("Warning: render error: %v", err)
+            }
+
+            renderer.Present()
         }
 
         for {
@@ -500,6 +553,27 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
                     renderFunc = newFunction
                     sdl.Do(render)
+                case message := <-emulatorMessage:
+                    emulatorMessages = append(emulatorMessages, EmulatorMessage{
+                        Message: message,
+                        DeathTime: time.Now().Add(time.Millisecond * 1500),
+                    })
+                    if len(emulatorMessages) > maxEmulatorMessages {
+                        emulatorMessages = emulatorMessages[len(emulatorMessages) - maxEmulatorMessages:len(emulatorMessages)]
+                    }
+                /* remove deceased messages */
+                case <-emulatorMessageTicker.C:
+                    now := time.Now()
+                    i := 0
+                    for i < len(emulatorMessages) {
+                        /* find the first non-dead message */
+                        if emulatorMessages[i].DeathTime.Before(now) {
+                            i += 1
+                        } else {
+                            break
+                        }
+                    }
+                    emulatorMessages = emulatorMessages[i:]
                 case <-renderNow:
                     /* Force a rerender */
                     sdl.Do(render)
@@ -688,6 +762,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         } else {
                             log.Printf("Loaded rom '%v'", loadRom.Path)
                             nesChannel <- &NesActionLoad{File: nesFile}
+                            select {
+                                case emulatorMessage <- "Loaded rom":
+                                default:
+                            }
                         }
                     }
             }
@@ -755,84 +833,87 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         // theMenu.Input <- menu.MenuToggle
                     }
 
-                    /*
-                    if theMenu.IsActive() {
-                        switch keyboard_event.Keysym.Scancode {
-                            case sdl.SCANCODE_LEFT, sdl.SCANCODE_H:
-                                theMenu.Input <- menu.MenuPrevious
-                            case sdl.SCANCODE_RIGHT, sdl.SCANCODE_L:
-                                theMenu.Input <- menu.MenuNext
-                            case sdl.SCANCODE_UP, sdl.SCANCODE_K:
-                                theMenu.Input <- menu.MenuUp
-                            case sdl.SCANCODE_DOWN, sdl.SCANCODE_J:
-                                theMenu.Input <- menu.MenuDown
-                            case sdl.SCANCODE_RETURN:
-                                theMenu.Input <- menu.MenuSelect
-                        }
-                    } else {
-                        */
-                        switch keyboard_event.Keysym.Scancode {
-                            case turboKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorTurbo:
-                                    default:
-                                }
-                            case stepFrameKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorStepFrame:
-                                    default:
-                                }
-                            case saveStateKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorSaveState:
-                                    default:
-                                }
-                            case loadStateKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorLoadState:
-                                    default:
-                                }
-                            case recordKey:
-                                if recordQuit.Err() == nil {
-                                    recordCancel()
-                                } else {
-                                    recordQuit, recordCancel = context.WithCancel(mainQuit)
-                                    err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
-                                    if err != nil {
-                                        log.Printf("Could not record video: %v", err)
+                    switch keyboard_event.Keysym.Scancode {
+                        case turboKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorTurbo:
+                                default:
+                            }
+                        case stepFrameKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorStepFrame:
+                                default:
+                            }
+                        case saveStateKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorSaveState:
+                                    select {
+                                        case emulatorMessage <- "Saved state":
+                                        default:
                                     }
-                                }
-                            case pauseKey:
-                                log.Printf("Pause/unpause")
+                                default:
+                            }
+                        case loadStateKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorLoadState:
+                                    select {
+                                        case emulatorMessage <- "Loaded state":
+                                        default:
+                                    }
+                                default:
+                            }
+                        case recordKey:
+                            if recordQuit.Err() == nil {
+                                recordCancel()
                                 select {
-                                    case emulatorActionsOutput <- common.EmulatorTogglePause:
+                                    case emulatorMessage <- "Stopped recording":
                                     default:
                                 }
-                            case ppuDebugKey:
+                            } else {
+                                recordQuit, recordCancel = context.WithCancel(mainQuit)
+                                err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
+                                if err != nil {
+                                    log.Printf("Could not record video: %v", err)
+                                }
                                 select {
-                                    case emulatorActionsOutput <- common.EmulatorTogglePPUDebug:
+                                    case emulatorMessage <- "Started recording":
                                     default:
                                 }
-                            case slowDownKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorSlowDown:
-                                    default:
-                                }
-                            case speedUpKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorSpeedUp:
-                                    default:
-                                }
-                            case normalKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorNormal:
-                                    default:
-                                }
-                            case hardResetKey:
-                                log.Printf("Hard reset")
-                                nesChannel <- &NesActionRestart{}
-                        }
-                    // }
+                            }
+                        case pauseKey:
+                            log.Printf("Pause/unpause")
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorTogglePause:
+                                default:
+                            }
+                        case ppuDebugKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorTogglePPUDebug:
+                                default:
+                            }
+                        case slowDownKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorSlowDown:
+                                default:
+                            }
+                        case speedUpKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorSpeedUp:
+                                default:
+                            }
+                        case normalKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorNormal:
+                                default:
+                            }
+                        case hardResetKey:
+                            log.Printf("Hard reset")
+                            nesChannel <- &NesActionRestart{}
+                            select {
+                                case emulatorMessage <- "Hard reset":
+                                default:
+                            }
+                    }
                 case sdl.KEYUP:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     scancode := keyboard_event.Keysym.Scancode

@@ -223,7 +223,7 @@ func drawButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureM
     renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
     renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(info.Width + margin - 3), H: int32(info.Height + margin - 3)})
 
-    err = copyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
+    err = common.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
 
     return info.Width, info.Height, err
 }
@@ -246,45 +246,18 @@ func drawConstButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *Tex
     renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
     renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(info.Width + margin - 3), H: int32(info.Height + margin - 3)})
 
-    err = copyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
+    err = common.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
 
     return info.Width, info.Height, err
 }
 
-func copyTexture(texture *sdl.Texture, renderer *sdl.Renderer, width int, height int, x int, y int) error {
-    sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(width), H: int32(height)}
-    destRect := sourceRect
-    destRect.X = int32(x)
-    destRect.Y = int32(y)
-
-    return renderer.Copy(texture, &sourceRect, &destRect)
-}
-
-func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) error {
-    surface, err := font.RenderUTF8Blended(message, color)
-    if err != nil {
-        return err
-    }
-
-    defer surface.Free()
-
-    texture, err := renderer.CreateTextureFromSurface(surface)
-    if err != nil {
-        return err
-    }
-    defer texture.Destroy()
-
-    surfaceBounds := surface.Bounds()
-
-    return copyTexture(texture, renderer, surfaceBounds.Max.X, surfaceBounds.Max.Y, x, y)
-}
 
 func writeFontCached(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, id TextureId, x int, y int, message string, color sdl.Color) error {
     info, err := textureManager.RenderText(font, renderer, message, color, id)
     if err != nil {
         return err
     }
-    return copyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
+    return common.CopyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
 }
 
 type MenuState int
@@ -1274,7 +1247,7 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
         x := 10
         y := 10
 
-        err = copyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
+        err = common.CopyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
         if err != nil {
             return err
         }
@@ -1296,7 +1269,7 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
                 return err
             }
 
-            err = copyTexture(info2.Texture, renderer, info2.Width, info2.Height, x, y)
+            err = common.CopyTexture(info2.Texture, renderer, info2.Width, info2.Height, x, y)
             if err != nil {
                 return err
             }
@@ -1829,17 +1802,17 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
 
         textY := y
         textX := x
-        writeFont(font, renderer, textX, textY, fmt.Sprintf("%v", filepath.Base(loader.Info.Path)), white)
+        common.WriteFont(font, renderer, textX, textY, fmt.Sprintf("%v", filepath.Base(loader.Info.Path)), white)
 
         textY += font.Height() + 2
 
-        writeFont(font, renderer, textX, textY, fmt.Sprintf("File size: %v", niceSize(loader.Filesize)), white)
+        common.WriteFont(font, renderer, textX, textY, fmt.Sprintf("File size: %v", niceSize(loader.Filesize)), white)
         textY += font.Height() + 2
 
         if loader.Mapper == -1 {
-            writeFont(font, renderer, textX, textY, "Mapper: unknown", white)
+            common.WriteFont(font, renderer, textX, textY, "Mapper: unknown", white)
         } else {
-            writeFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: %v", loader.Mapper), white)
+            common.WriteFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: %v", loader.Mapper), white)
         }
         textY += font.Height() + 2
 
@@ -1864,9 +1837,9 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
             renderer.DrawRect(&sdl.Rect{X: int32(maxX - thumbnail - 2), Y: int32(y+10), W: int32(romWidth), H: int32(romHeight)})
 
             yPos := maxY - font.Height() * 4
-            writeFont(font, renderer, x, yPos, "Load rom", loader.GetSelectionColor(LoadRomInfoSelect))
+            common.WriteFont(font, renderer, x, yPos, "Load rom", loader.GetSelectionColor(LoadRomInfoSelect))
             yPos += font.Height() + 2
-            writeFont(font, renderer, x, yPos, "Back", loader.GetSelectionColor(LoadRomInfoBack))
+            common.WriteFont(font, renderer, x, yPos, "Back", loader.GetSelectionColor(LoadRomInfoBack))
         }
 
         return nil
