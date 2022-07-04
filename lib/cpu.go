@@ -5,6 +5,7 @@ import (
     "fmt"
     "log"
     "io"
+    "encoding/json"
 )
 
 /* opcode references
@@ -750,32 +751,37 @@ func MakeInput(host HostInput) *Input {
 }
 
 type CPUState struct {
-    A byte
-    X byte
-    Y byte
-    SP byte
-    PC uint16
-    Status byte
+    A byte `json:"a"`
+    X byte `json:"x"`
+    Y byte `json:"y"`
+    SP byte `json:"sp"`
+    PC uint16 `json:"pc"`
+    Status byte `json:"status"`
 
-    Cycle uint64
+    Cycle uint64 `json:"cycle"`
 
     /* holds a reference to the 2k ram the cpu can directly access.
      * this memory is mapped into Maps[] as well. Maps[] is redundant,
      * and can be removed at some point.
      */
-    Ram []byte
-    Maps [][]byte
-    StackBase uint16
+    Ram []byte `json:"ram,omitempty"`
+    Maps [][]byte `json:"-"`
+    StackBase uint16 `json:"stackbase"`
 
-    PPU PPUState
-    APU APUState
-    Debug uint
-    StallCycles int
+    PPU PPUState `json:"-"`
+    APU APUState `json:"-"`
+    Debug uint `json:"debug,omitempty"`
+    StallCycles int `json:"stallcycles,omitempty"`
 
     /* controller input */
-    Input *Input
+    Input *Input `json:"-"`
 
-    Mapper Mapper
+    Mapper Mapper `json:"-"`
+}
+
+func (cpu *CPUState) Serialize(writer io.Writer) error {
+    encoder := json.NewEncoder(writer)
+    return encoder.Encode(cpu)
 }
 
 func (cpu *CPUState) Load(other *CPUState){

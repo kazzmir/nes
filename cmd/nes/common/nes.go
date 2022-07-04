@@ -6,6 +6,8 @@ import (
     "log"
     "time"
     "sync"
+    "path/filepath"
+    "os"
     nes "github.com/kazzmir/nes/lib"
 )
 
@@ -148,6 +150,27 @@ func SetupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     return cpu, nil
 }
 
+func serializeState(quit context.Context, state *nes.CPUState){
+    path, err := GetOrCreateConfigDir()
+    if err != nil {
+        log.Printf("Unable to serialize saved state: %v", err)
+        return
+    }
+
+    full := filepath.Join(path, "state")
+    output, err := os.Create(full)
+    if err != nil {
+        log.Printf("Unable to serialize saved state: %v", err)
+        return
+    }
+    defer output.Close()
+
+    err = state.Serialize(output)
+    if err != nil {
+        log.Printf("Unable to serialize saved state: %v", err)
+    }
+}
+
 var MaxCyclesReached error = errors.New("maximum cycles reached")
 func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen,
             bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32,
@@ -238,6 +261,7 @@ func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
                         case EmulatorSaveState:
                             value := cpu.Copy()
                             cpuSavedState = &value
+                            go serializeState(quit, cpuSavedState)
                             log.Printf("State saved")
                         case EmulatorLoadState:
                             if cpuSavedState != nil {
