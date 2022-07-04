@@ -101,6 +101,28 @@ type PPUState struct {
 
 func (ppu *PPUState) Copy() PPUState {
     return PPUState{
+        Flags: ppu.Flags,
+        Mask: ppu.Mask,
+        Status: ppu.Status,
+        Scanline: ppu.Scanline,
+        ScanlineCycle: ppu.ScanlineCycle,
+        TemporaryVideoAddress: ppu.TemporaryVideoAddress,
+        VideoAddress: ppu.VideoAddress,
+        WriteState: ppu.WriteState,
+        NametableMirror: ppu.NametableMirror,
+        FineX: ppu.FineX,
+        Palette: copySlice(ppu.Palette),
+        CurrentSprites: copySlice(ppu.CurrentSprites),
+        VideoMemory: copySlice(ppu.VideoMemory),
+        NametableMemory: copySlice(ppu.NametableMemory),
+        OAM: copySlice(ppu.OAM),
+        OAMAddress: ppu.OAMAddress,
+        Debug: ppu.Debug,
+        InternalVideoBuffer: ppu.InternalVideoBuffer,
+        Shifts: ppu.Shifts,
+        BackgroundPixels: ppu.BackgroundPixels,
+        RawBackgroundPixels: ppu.RawBackgroundPixels,
+        HasSetSprite0: ppu.HasSetSprite0,
     }
 }
 
