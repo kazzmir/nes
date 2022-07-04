@@ -612,6 +612,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     var normalKey sdl.Scancode = sdl.SCANCODE_0
     var stepFrameKey sdl.Scancode = sdl.SCANCODE_O
     var recordKey sdl.Scancode = sdl.SCANCODE_M
+    var saveStateKey sdl.Scancode = sdl.SCANCODE_1
+    var loadStateKey sdl.Scancode = sdl.SCANCODE_2
 
     recordQuit, recordCancel := context.WithCancel(mainQuit)
     if recordOnStart {
@@ -778,6 +780,16 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             case stepFrameKey:
                                 select {
                                     case emulatorActionsOutput <- common.EmulatorStepFrame:
+                                    default:
+                                }
+                            case saveStateKey:
+                                select {
+                                    case emulatorActionsOutput <- common.EmulatorSaveState:
+                                    default:
+                                }
+                            case loadStateKey:
+                                select {
+                                    case emulatorActionsOutput <- common.EmulatorLoadState:
                                     default:
                                 }
                             case recordKey:

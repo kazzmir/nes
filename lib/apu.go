@@ -219,6 +219,10 @@ type Pulse struct {
     Sequencer SquareSequencer
 }
 
+func (pulse *Pulse) Copy() Pulse {
+    return *pulse
+}
+
 func (pulse *Pulse) ParseSweep(value byte){
     enable := (value >> 7) & 0x1
     period := (value >> 4) & 0x7
@@ -264,6 +268,10 @@ type Noise struct {
     ShiftRegister uint16
 }
 
+func (noise *Noise) Copy() Noise {
+    return *noise
+}
+
 func (noise *Noise) GenerateSample() byte {
     if noise.Length.Length == 0 {
         return 0
@@ -307,6 +315,10 @@ type Triangle struct {
     LinearCounterReloadFlag bool
     LinearCounterReload int
     LinearCounter int
+}
+
+func (triangle *Triangle) Copy() Triangle {
+    return *triangle
 }
 
 var TriangleWaveForm []byte = []byte{
@@ -377,6 +389,29 @@ type APUState struct {
     EnableTriangle bool
     EnablePulse2 bool
     EnablePulse1 bool
+}
+
+func (apu *APUState) Copy() APUState {
+    return APUState{
+        Cycles: apu.Cycles,
+        Clock: apu.Clock,
+        FrameMode: apu.FrameMode,
+        UpdatedFrameCounter: apu.UpdatedFrameCounter,
+        InterruptInhibit: apu.InterruptInhibit,
+        FrameIRQAsserted: apu.FrameIRQAsserted,
+        SampleCycles: apu.SampleCycles,
+        SampleBuffer: apu.SampleBuffer,
+        SamplePosition: apu.SamplePosition,
+        Pulse1: apu.Pulse1.Copy(),
+        Pulse2: apu.Pulse2.Copy(),
+        Triangle: apu.Triangle.Copy(),
+        Noise: apu.Noise.Copy(),
+        DMC: apu.DMC.Copy(),
+        EnableNoise: apu.EnableNoise,
+        EnableTriangle: apu.EnableTriangle,
+        EnablePulse2: apu.EnablePulse2,
+        EnablePulse1: apu.EnablePulse1,
+    }
 }
 
 func MakeAPU() APUState {
@@ -534,6 +569,10 @@ type DMC struct {
     BitsRemaining byte
 
     SampleBuffer byte
+}
+
+func (dmc *DMC) Copy() DMC {
+    return *dmc
 }
 
 func (dmc *DMC) GenerateSample() byte {

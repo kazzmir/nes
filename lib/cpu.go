@@ -759,6 +759,11 @@ type CPUState struct {
 
     Cycle uint64
 
+    /* holds a reference to the 2k ram the cpu can directly access.
+     * this memory is mapped into Maps[] as well. Maps[] is redundant,
+     * and can be removed at some point.
+     */
+    Ram []byte
     Maps [][]byte
     StackBase uint16
 
@@ -771,6 +776,43 @@ type CPUState struct {
     Input *Input
 
     Mapper Mapper
+}
+
+func (cpu *CPUState) Load(other *CPUState){
+    input := cpu.Input
+    *cpu = other.Copy()
+    cpu.Input = input
+    cpu.Maps = make([][]byte, 256)
+
+    cpu.MapMemory(0x0, cpu.Ram)
+    cpu.MapMemory(0x800, cpu.Ram)
+    cpu.MapMemory(0x1000, cpu.Ram)
+    cpu.MapMemory(0x1800, cpu.Ram)
+}
+
+func (cpu *CPUState) Copy() CPUState {
+    var mapper Mapper
+    if cpu.Mapper != nil {
+        mapper = cpu.Mapper.Copy()
+    }
+    return CPUState{
+        A: cpu.A,
+        X: cpu.X,
+        Y: cpu.Y,
+        SP: cpu.SP,
+        PC: cpu.PC,
+        Status: cpu.Status,
+        Cycle: cpu.Cycle,
+        Ram: copySlice(cpu.Ram),
+        Maps: nil,
+        StackBase: cpu.StackBase,
+        PPU: cpu.PPU.Copy(),
+        APU: cpu.APU.Copy(),
+        Debug: cpu.Debug,
+        StallCycles: cpu.StallCycles,
+        Input: nil,
+        Mapper: mapper,
+    }
 }
 
 func (cpu *CPUState) Equals(other CPUState) bool {
@@ -4082,6 +4124,7 @@ func StartupState() CPUState {
 
     /* http://wiki.nesdev.com/w/index.php/CPU_memory_map */
     memory := NewMemory(0x800)
+    cpu.Ram = memory
     cpu.MapMemory(0x0, memory)
     cpu.MapMemory(0x800, memory)
     cpu.MapMemory(0x1000, memory)
@@ -4093,4 +4136,3 @@ func StartupState() CPUState {
 
     return cpu
 }
-

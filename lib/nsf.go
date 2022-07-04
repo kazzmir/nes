@@ -163,6 +163,11 @@ func (mapper *NSFMapper) IsIRQAsserted() bool {
     return false
 }
 
+func (mapper *NSFMapper) Copy() Mapper {
+    /* FIXME: implement if useful */
+    return nil
+}
+
 func MakeNSFMapper(data []byte, loadAddress uint16) Mapper {
     return &NSFMapper{
         Data: data,
