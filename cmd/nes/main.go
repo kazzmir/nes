@@ -755,6 +755,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         } else {
                             log.Printf("Loaded rom '%v'", loadRom.Path)
                             nesChannel <- &NesActionLoad{File: nesFile}
+                            select {
+                                case emulatorMessage <- "Loaded rom":
+                                default:
+                            }
                         }
                     }
             }
