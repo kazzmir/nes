@@ -768,7 +768,7 @@ type CPUState struct {
     Maps [][]byte `json:"-"`
     StackBase uint16 `json:"stackbase"`
 
-    PPU PPUState `json:"-"`
+    PPU PPUState `json:"ppu"`
     APU APUState `json:"-"`
     Debug uint `json:"debug,omitempty"`
     StallCycles int `json:"stallcycles,omitempty"`
