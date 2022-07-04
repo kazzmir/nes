@@ -151,10 +151,7 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
     }
 }
 
-func doRender(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat,
-              renderer *sdl.Renderer, font *ttf.Font, messages []EmulatorMessage,
-              windowWidth int, windowHeight int,
-              renderFunc common.RenderFunction) error {
+func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat, renderer *sdl.Renderer) error {
 
     pixels := C.CBytes(raw_pixels)
     defer C.free(pixels)
@@ -199,6 +196,10 @@ func doRender(width int, height int, raw_pixels []byte, pixelFormat common.Pixel
 
     renderer.SetLogicalSize(0, 0)
 
+    return nil
+}
+
+func doRenderEmulatorMessages(renderer *sdl.Renderer, font *ttf.Font, messages []EmulatorMessage, windowWidth int, windowHeight int) error {
     y := windowHeight - font.Height() - 1
     now := time.Now()
     for i := len(messages)-1; i >= 0; i-- {
@@ -223,13 +224,6 @@ func doRender(width int, height int, raw_pixels []byte, pixelFormat common.Pixel
             y -= font.Height() + 2
         }
     }
-
-    err = renderFunc(renderer)
-    if err != nil {
-        log.Printf("Warning: render error: %v", err)
-    }
-
-    renderer.Present()
 
     return nil
 }
@@ -517,13 +511,26 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         }
 
         render := func (){
-            width, height := window.GetSize()
-            err := doRender(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat,
-                            renderer, smallFont, emulatorMessages, int(width), int(height),
-                            renderFunc)
+            err := doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, renderer)
             if err != nil {
-                log.Printf("Could not render: %v\n", err)
+                log.Printf("Warning: Could not render nes pixels: %v\n", err)
             }
+
+            if len(emulatorMessages) > 0 {
+                width, height := window.GetSize()
+                err = doRenderEmulatorMessages(renderer, smallFont, emulatorMessages, int(width), int(height))
+                if err != nil {
+                    log.Printf("Warning: Could not render extra: %v", err)
+                }
+            }
+
+            /* this is the menu overlay usually */
+            err = renderFunc(renderer)
+            if err != nil {
+                log.Printf("Warning: render error: %v", err)
+            }
+
+            renderer.Present()
         }
 
         for {
