@@ -219,7 +219,7 @@ func doRender(width int, height int, raw_pixels []byte, pixelFormat common.Pixel
             }
             white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
             // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
-            menu.WriteFont(font, renderer, x, y, message.Message, white)
+            common.WriteFont(font, renderer, x, y, message.Message, white)
             y -= font.Height() + 2
         }
     }

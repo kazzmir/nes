@@ -4,6 +4,7 @@ import (
     "bytes"
     "encoding/binary"
     "github.com/veandco/go-sdl2/sdl"
+    "github.com/veandco/go-sdl2/ttf"
 )
 
 type RenderFunction func(*sdl.Renderer) error
@@ -59,3 +60,32 @@ func FindPixelFormat() PixelFormat {
 
     return sdl.PIXELFORMAT_RGBA8888
 }
+
+func WriteFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) error {
+    surface, err := font.RenderUTF8Blended(message, color)
+    if err != nil {
+        return err
+    }
+
+    defer surface.Free()
+
+    texture, err := renderer.CreateTextureFromSurface(surface)
+    if err != nil {
+        return err
+    }
+    defer texture.Destroy()
+
+    surfaceBounds := surface.Bounds()
+
+    return CopyTexture(texture, renderer, surfaceBounds.Max.X, surfaceBounds.Max.Y, x, y)
+}
+
+func CopyTexture(texture *sdl.Texture, renderer *sdl.Renderer, width int, height int, x int, y int) error {
+    sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(width), H: int32(height)}
+    destRect := sourceRect
+    destRect.X = int32(x)
+    destRect.Y = int32(y)
+
+    return renderer.Copy(texture, &sourceRect, &destRect)
+}
+

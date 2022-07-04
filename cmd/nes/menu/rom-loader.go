@@ -801,7 +801,7 @@ func drawOverlayString(font *ttf.Font, renderer *sdl.Renderer, x int, y int, bas
     startLength := textWidth(font, rendered) - textWidth(font, string(rendered[len(rendered)-1]))
     matched := base[startPosition:startPosition+length]
     // show the matched part of the selected rom
-    return WriteFont(font, renderer, x + startLength, y, matched, color)
+    return common.WriteFont(font, renderer, x + startLength, y, matched, color)
 }
 
 func maxTextWidth(font *ttf.Font, maxWidth int) int {
@@ -822,7 +822,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     green := sdl.Color{R: 0, G: 255, B: 0, A: 255}
 
     showTiles := loader.GetFilteredRoms()
-    WriteFont(font, renderer, 1, 1, fmt.Sprintf("Press enter to load a rom. Roms found %v (%v filtered)", loader.RomIdsAndPaths.Size(), len(showTiles)), white)
+    common.WriteFont(font, renderer, 1, 1, fmt.Sprintf("Press enter to load a rom. Roms found %v (%v filtered)", loader.RomIdsAndPaths.Size(), len(showTiles)), white)
 
     layout := loader.TileLayout()
 
@@ -845,7 +845,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         selectedY := font.Height() + 3
 
         // show the filename of the selected rom
-        WriteFont(font, renderer, selectedX, selectedY, showTiles[selectedIndex].Path, white)
+        common.WriteFont(font, renderer, selectedX, selectedY, showTiles[selectedIndex].Path, white)
 
         if loader.RomIdsAndPaths.Filter() != "" {
             path := showTiles[selectedIndex].Path
@@ -923,7 +923,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         }
     }
 
-    WriteFont(font, renderer, 30, maxHeight - 30, loader.RomIdsAndPaths.Filter(), green)
+    common.WriteFont(font, renderer, 30, maxHeight - 30, loader.RomIdsAndPaths.Filter(), green)
 
     MaxNameSize := maxTextWidth(smallFont, int(float32(width) / layout.Thumbnail))
 
@@ -950,7 +950,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
             name = fmt.Sprintf("%v..", name[0:MaxNameSize-2])
         }
 
-        WriteFont(smallFont, renderer, int(x), int(y + float32(height) / layout.Thumbnail + 1), name, white)
+        common.WriteFont(smallFont, renderer, int(x), int(y + float32(height) / layout.Thumbnail + 1), name, white)
 
         x += float32(width) / layout.Thumbnail + float32(layout.XSpace)
         if x + float32(width) / layout.Thumbnail + 5 > float32(maxWidth) {
