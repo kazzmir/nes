@@ -8,6 +8,7 @@ import (
     "sync"
     "path/filepath"
     "os"
+    "compress/gzip"
     nes "github.com/kazzmir/nes/lib"
 )
 
@@ -157,7 +158,7 @@ func serializeState(quit context.Context, state *nes.CPUState){
         return
     }
 
-    full := filepath.Join(path, "state")
+    full := filepath.Join(path, "state.gz")
     output, err := os.Create(full)
     if err != nil {
         log.Printf("Unable to serialize saved state: %v", err)
@@ -165,7 +166,10 @@ func serializeState(quit context.Context, state *nes.CPUState){
     }
     defer output.Close()
 
-    err = state.Serialize(output)
+    compressor := gzip.NewWriter(output)
+    defer compressor.Close()
+
+    err = state.Serialize(compressor)
     if err != nil {
         log.Printf("Unable to serialize saved state: %v", err)
     }
