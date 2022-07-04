@@ -260,7 +260,7 @@ func copyTexture(texture *sdl.Texture, renderer *sdl.Renderer, width int, height
     return renderer.Copy(texture, &sourceRect, &destRect)
 }
 
-func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) error {
+func WriteFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) error {
     surface, err := font.RenderUTF8Blended(message, color)
     if err != nil {
         return err
@@ -1829,17 +1829,17 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
 
         textY := y
         textX := x
-        writeFont(font, renderer, textX, textY, fmt.Sprintf("%v", filepath.Base(loader.Info.Path)), white)
+        WriteFont(font, renderer, textX, textY, fmt.Sprintf("%v", filepath.Base(loader.Info.Path)), white)
 
         textY += font.Height() + 2
 
-        writeFont(font, renderer, textX, textY, fmt.Sprintf("File size: %v", niceSize(loader.Filesize)), white)
+        WriteFont(font, renderer, textX, textY, fmt.Sprintf("File size: %v", niceSize(loader.Filesize)), white)
         textY += font.Height() + 2
 
         if loader.Mapper == -1 {
-            writeFont(font, renderer, textX, textY, "Mapper: unknown", white)
+            WriteFont(font, renderer, textX, textY, "Mapper: unknown", white)
         } else {
-            writeFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: %v", loader.Mapper), white)
+            WriteFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: %v", loader.Mapper), white)
         }
         textY += font.Height() + 2
 
@@ -1864,9 +1864,9 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
             renderer.DrawRect(&sdl.Rect{X: int32(maxX - thumbnail - 2), Y: int32(y+10), W: int32(romWidth), H: int32(romHeight)})
 
             yPos := maxY - font.Height() * 4
-            writeFont(font, renderer, x, yPos, "Load rom", loader.GetSelectionColor(LoadRomInfoSelect))
+            WriteFont(font, renderer, x, yPos, "Load rom", loader.GetSelectionColor(LoadRomInfoSelect))
             yPos += font.Height() + 2
-            writeFont(font, renderer, x, yPos, "Back", loader.GetSelectionColor(LoadRomInfoBack))
+            WriteFont(font, renderer, x, yPos, "Back", loader.GetSelectionColor(LoadRomInfoBack))
         }
 
         return nil

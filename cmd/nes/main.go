@@ -151,7 +151,11 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
     }
 }
 
-func doRender(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat, renderer *sdl.Renderer, renderFunc common.RenderFunction) error {
+func doRender(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat,
+              renderer *sdl.Renderer, font *ttf.Font, messages []string,
+              windowWidth int, windowHeight int,
+              renderFunc common.RenderFunction) error {
+
     pixels := C.CBytes(raw_pixels)
     defer C.free(pixels)
 
@@ -194,6 +198,16 @@ func doRender(width int, height int, raw_pixels []byte, pixelFormat common.Pixel
     }
 
     renderer.SetLogicalSize(0, 0)
+
+    y := windowHeight - (font.Height() + 2) * len(messages)
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+    for _, message := range messages {
+        x := windowWidth - 100
+        log.Printf("Write message '%v' at %v, %v", message, x, y)
+        menu.WriteFont(font, renderer, x, y, message, white)
+        y += font.Height() + 2
+    }
+
     err = renderFunc(renderer)
     if err != nil {
         log.Printf("Warning: render error: %v", err)
@@ -454,6 +468,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     renderFuncUpdate := make(chan common.RenderFunction, 5)
     renderNow := make(chan bool, 2)
 
+    emulatorMessage := make(chan string, 10)
+
     waiter.Add(1)
     go func(){
         buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
@@ -465,6 +481,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         fpsTimer := time.NewTicker(time.Duration(fpsCounter) * time.Second)
         defer fpsTimer.Stop()
 
+        /* these messages appear in the bottom right */
+        var emulatorMessages []string
+        emulatorMessageTicker := time.NewTicker(time.Second * 1)
+        defer emulatorMessageTicker.Stop()
+
         renderTimer := time.NewTicker(time.Second / time.Duration(desiredFps))
         defer renderTimer.Stop()
         canRender := false
@@ -474,7 +495,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         }
 
         render := func (){
-            err := doRender(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, renderer, renderFunc)
+            width, height := window.GetSize()
+            err := doRender(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat,
+                            renderer, smallFont, emulatorMessages, int(width), int(height),
+                            renderFunc)
             if err != nil {
                 log.Printf("Could not render: %v\n", err)
             }
@@ -500,6 +524,16 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
                     renderFunc = newFunction
                     sdl.Do(render)
+                case message := <-emulatorMessage:
+                    emulatorMessages = append(emulatorMessages, message)
+                    if len(emulatorMessages) > 10 {
+                        emulatorMessages = emulatorMessages[len(emulatorMessages) - 10:len(emulatorMessages)]
+                    }
+                /* every few seconds remove the oldest message */
+                case <-emulatorMessageTicker.C:
+                    if len(emulatorMessages) > 0 {
+                        emulatorMessages = emulatorMessages[1:]
+                    }
                 case <-renderNow:
                     /* Force a rerender */
                     sdl.Do(render)
@@ -785,11 +819,19 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             case saveStateKey:
                                 select {
                                     case emulatorActionsOutput <- common.EmulatorSaveState:
+                                        select {
+                                            case emulatorMessage <- "Saved state":
+                                            default:
+                                        }
                                     default:
                                 }
                             case loadStateKey:
                                 select {
                                     case emulatorActionsOutput <- common.EmulatorLoadState:
+                                        select {
+                                            case emulatorMessage <- "Loaded state":
+                                            default:
+                                        }
                                     default:
                                 }
                             case recordKey:
