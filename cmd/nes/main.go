@@ -826,92 +826,87 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         // theMenu.Input <- menu.MenuToggle
                     }
 
-                    /*
-                    if theMenu.IsActive() {
-                        switch keyboard_event.Keysym.Scancode {
-                            case sdl.SCANCODE_LEFT, sdl.SCANCODE_H:
-                                theMenu.Input <- menu.MenuPrevious
-                            case sdl.SCANCODE_RIGHT, sdl.SCANCODE_L:
-                                theMenu.Input <- menu.MenuNext
-                            case sdl.SCANCODE_UP, sdl.SCANCODE_K:
-                                theMenu.Input <- menu.MenuUp
-                            case sdl.SCANCODE_DOWN, sdl.SCANCODE_J:
-                                theMenu.Input <- menu.MenuDown
-                            case sdl.SCANCODE_RETURN:
-                                theMenu.Input <- menu.MenuSelect
-                        }
-                    } else {
-                        */
-                        switch keyboard_event.Keysym.Scancode {
-                            case turboKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorTurbo:
-                                    default:
-                                }
-                            case stepFrameKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorStepFrame:
-                                    default:
-                                }
-                            case saveStateKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorSaveState:
-                                        select {
-                                            case emulatorMessage <- "Saved state":
-                                            default:
-                                        }
-                                    default:
-                                }
-                            case loadStateKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorLoadState:
-                                        select {
-                                            case emulatorMessage <- "Loaded state":
-                                            default:
-                                        }
-                                    default:
-                                }
-                            case recordKey:
-                                if recordQuit.Err() == nil {
-                                    recordCancel()
-                                } else {
-                                    recordQuit, recordCancel = context.WithCancel(mainQuit)
-                                    err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
-                                    if err != nil {
-                                        log.Printf("Could not record video: %v", err)
+                    switch keyboard_event.Keysym.Scancode {
+                        case turboKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorTurbo:
+                                default:
+                            }
+                        case stepFrameKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorStepFrame:
+                                default:
+                            }
+                        case saveStateKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorSaveState:
+                                    select {
+                                        case emulatorMessage <- "Saved state":
+                                        default:
                                     }
-                                }
-                            case pauseKey:
-                                log.Printf("Pause/unpause")
+                                default:
+                            }
+                        case loadStateKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorLoadState:
+                                    select {
+                                        case emulatorMessage <- "Loaded state":
+                                        default:
+                                    }
+                                default:
+                            }
+                        case recordKey:
+                            if recordQuit.Err() == nil {
+                                recordCancel()
                                 select {
-                                    case emulatorActionsOutput <- common.EmulatorTogglePause:
+                                    case emulatorMessage <- "Stopped recording":
                                     default:
                                 }
-                            case ppuDebugKey:
+                            } else {
+                                recordQuit, recordCancel = context.WithCancel(mainQuit)
+                                err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
+                                if err != nil {
+                                    log.Printf("Could not record video: %v", err)
+                                }
                                 select {
-                                    case emulatorActionsOutput <- common.EmulatorTogglePPUDebug:
+                                    case emulatorMessage <- "Started recording":
                                     default:
                                 }
-                            case slowDownKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorSlowDown:
-                                    default:
-                                }
-                            case speedUpKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorSpeedUp:
-                                    default:
-                                }
-                            case normalKey:
-                                select {
-                                    case emulatorActionsOutput <- common.EmulatorNormal:
-                                    default:
-                                }
-                            case hardResetKey:
-                                log.Printf("Hard reset")
-                                nesChannel <- &NesActionRestart{}
-                        }
-                    // }
+                            }
+                        case pauseKey:
+                            log.Printf("Pause/unpause")
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorTogglePause:
+                                default:
+                            }
+                        case ppuDebugKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorTogglePPUDebug:
+                                default:
+                            }
+                        case slowDownKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorSlowDown:
+                                default:
+                            }
+                        case speedUpKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorSpeedUp:
+                                default:
+                            }
+                        case normalKey:
+                            select {
+                                case emulatorActionsOutput <- common.EmulatorNormal:
+                                default:
+                            }
+                        case hardResetKey:
+                            log.Printf("Hard reset")
+                            nesChannel <- &NesActionRestart{}
+                            select {
+                                case emulatorMessage <- "Hard reset":
+                                default:
+                            }
+                    }
                 case sdl.KEYUP:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     scancode := keyboard_event.Keysym.Scancode
