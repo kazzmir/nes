@@ -99,6 +99,11 @@ type PPUState struct {
     HasSetSprite0 bool
 }
 
+func (ppu *PPUState) Copy() PPUState {
+    return PPUState{
+    }
+}
+
 func MakePPU() PPUState {
     return PPUState{
         VideoMemory: make([]byte, 64 * 1024), // FIXME: video memory is not this large..

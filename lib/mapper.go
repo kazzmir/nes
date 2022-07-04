@@ -52,6 +52,7 @@ type Mapper interface {
     Write(cpu *CPUState, address uint16, value byte) error
     Read(address uint16) byte
     IsIRQAsserted() bool
+    Copy() Mapper
 }
 
 func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, error) {
@@ -69,6 +70,42 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
 
 type Mapper0 struct {
     BankMemory []byte
+}
+
+/*
+func copySlice[T any](x []T) []T {
+    return append(nil, x...)
+}
+*/
+
+func copySlice[T any](x []T) []T {
+    var f []T
+    return append(f, x...)
+}
+
+/* these copy functions can probably be made generic somehow */
+func copySlice6[T any](x [6]T) [6]T {
+    var y [6]T
+    copy(y[:], x[:])
+    return y
+}
+
+func copySlice4[T any](x [4]T) [4]T {
+    var y [4]T
+    copy(y[:], x[:])
+    return y
+}
+
+func copySlice2[T any](x [2]T) [2]T {
+    var y [2]T
+    copy(y[:], x[:])
+    return y
+}
+
+func (mapper *Mapper0) Copy() Mapper {
+    return &Mapper0{
+        BankMemory: copySlice(mapper.BankMemory),
+    }
 }
 
 func (mapper *Mapper0) Write(cpu *CPUState, address uint16, value byte) error {
@@ -130,6 +167,21 @@ func (mapper *Mapper1) ReadBank(pageSize uint16, bank int, offset uint16) byte {
     }
 
     return mapper.BankMemory[final]
+}
+
+func (mapper *Mapper1) Copy() Mapper {
+    return &Mapper1{
+        BankMemory: copySlice(mapper.BankMemory),
+        CharacterMemory: copySlice(mapper.CharacterMemory),
+        last4kBank: mapper.last4kBank,
+        shift: mapper.shift,
+        register: mapper.register,
+        mirror: mapper.mirror,
+        prgBankMode: mapper.prgBankMode,
+        chrBankMode: mapper.chrBankMode,
+        prgBank: mapper.prgBank,
+        PRGRam: copySlice(mapper.PRGRam),
+    }
 }
 
 func (mapper *Mapper1) Read(address uint16) byte {
@@ -288,6 +340,14 @@ type Mapper2 struct {
     bank byte
 }
 
+func (mapper *Mapper2) Copy() Mapper {
+    return &Mapper2{
+        BankMemory: copySlice(mapper.BankMemory),
+        lastBankAddress: mapper.lastBankAddress,
+        bank: mapper.bank,
+    }
+}
+
 func (mapper *Mapper2) IsIRQAsserted() bool {
     return false
 }
@@ -322,6 +382,13 @@ func MakeMapper2(bankMemory []byte) Mapper {
 type Mapper3 struct {
     ProgramRom []byte
     BankMemory []byte
+}
+
+func (mapper *Mapper3) Copy() Mapper {
+    return &Mapper3{
+        ProgramRom: copySlice(mapper.ProgramRom),
+        BankMemory: copySlice(mapper.BankMemory),
+    }
 }
 
 func (mapper *Mapper3) IsIRQAsserted() bool {
@@ -377,6 +444,26 @@ type Mapper4 struct {
 
     chrRegister [6]byte
     prgRegister [2]byte
+}
+
+func (mapper *Mapper4) Copy() Mapper {
+    return &Mapper4{
+        ProgramRom: copySlice(mapper.ProgramRom),
+        CharacterRom: copySlice(mapper.CharacterRom),
+        SaveRam: copySlice(mapper.SaveRam),
+        lastBank: mapper.lastBank,
+        irqEnabled: mapper.irqEnabled,
+        irqReload: mapper.irqReload,
+        irqCounter: mapper.irqCounter,
+        irqPending: mapper.irqPending,
+        wramEnabled: mapper.wramEnabled,
+        wramWrite: mapper.wramWrite,
+        chrMode: mapper.chrMode,
+        prgMode: mapper.prgMode,
+        registerIndex: mapper.registerIndex,
+        chrRegister: copySlice6(mapper.chrRegister),
+        prgRegister: copySlice2(mapper.prgRegister),
+    }
 }
 
 func (mapper *Mapper4) IsIRQAsserted() bool {
@@ -576,6 +663,15 @@ type Mapper7 struct {
     Mirror int // 0=1ScA, 1=1ScB
 }
 
+func (mapper *Mapper7) Copy() Mapper {
+    return &Mapper7{
+        ProgramRom: copySlice(mapper.ProgramRom),
+        CharacterRom: copySlice(mapper.CharacterRom),
+        Bank: mapper.Bank,
+        Mirror: mapper.Mirror,
+    }
+}
+
 func MakeMapper7(programRom []byte, chrMemory []byte) Mapper {
     return &Mapper7{
         ProgramRom: programRom,
@@ -638,6 +734,16 @@ type Mapper9 struct {
 
     prgRegister byte
     chrRegister [4]byte
+}
+
+func (mapper *Mapper9) Copy() Mapper {
+    return &Mapper9{
+        ProgramRom: copySlice(mapper.ProgramRom),
+        CharacterRom: copySlice(mapper.CharacterRom),
+        Pages: mapper.Pages,
+        prgRegister: mapper.prgRegister,
+        chrRegister: copySlice4(mapper.chrRegister),
+    }
 }
 
 func (mapper *Mapper9) IsIRQAsserted() bool {

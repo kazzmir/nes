@@ -379,6 +379,11 @@ type APUState struct {
     EnablePulse1 bool
 }
 
+func (apu *APUState) Copy() APUState {
+    return APUState{
+    }
+}
+
 func MakeAPU() APUState {
     return APUState{
         Cycles: 0,

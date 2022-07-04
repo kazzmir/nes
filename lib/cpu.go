@@ -773,6 +773,30 @@ type CPUState struct {
     Mapper Mapper
 }
 
+func (cpu *CPUState) Copy() CPUState {
+    var mapper Mapper
+    if cpu.Mapper != nil {
+        mapper = cpu.Mapper.Copy()
+    }
+    return CPUState{
+        A: cpu.A,
+        X: cpu.X,
+        Y: cpu.Y,
+        SP: cpu.SP,
+        PC: cpu.PC,
+        Status: cpu.Status,
+        Cycle: cpu.Cycle,
+        Maps: nil,
+        StackBase: cpu.StackBase,
+        PPU: cpu.PPU.Copy(),
+        APU: cpu.APU.Copy(),
+        Debug: cpu.Debug,
+        StallCycles: cpu.StallCycles,
+        Input: nil,
+        Mapper: mapper,
+    }
+}
+
 func (cpu *CPUState) Equals(other CPUState) bool {
     return cpu.A == other.A &&
            cpu.X == other.X &&
