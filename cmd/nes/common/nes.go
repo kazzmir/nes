@@ -112,6 +112,8 @@ const (
     EmulatorStepFrame
     EmulatorSetPause
     EmulatorUnpause
+    EmulatorSaveState
+    EmulatorLoadState
 )
 
 func SetupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
@@ -184,6 +186,8 @@ func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
 
     showTimings := false
 
+    var cpuSavedState *nes.CPUState
+
     start := time.Now()
     cycleCheck := time.NewTicker(time.Second * 2)
     defer cycleCheck.Stop()
@@ -231,6 +235,16 @@ func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
                     return nil
                 case action := <-emulatorActions:
                     switch action {
+                        case EmulatorSaveState:
+                            value := cpu.Copy()
+                            cpuSavedState = &value
+                            log.Printf("State saved")
+                        case EmulatorLoadState:
+                            if cpuSavedState != nil {
+                                cpu.Load(cpuSavedState)
+                                lastCpuCycle = cpu.Cycle
+                                log.Printf("State loaded")
+                            }
                         case EmulatorNothing:
                             /* nothing */
                         case EmulatorTurbo:

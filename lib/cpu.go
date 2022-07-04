@@ -778,6 +778,18 @@ type CPUState struct {
     Mapper Mapper
 }
 
+func (cpu *CPUState) Load(other *CPUState){
+    input := cpu.Input
+    *cpu = other.Copy()
+    cpu.Input = input
+    cpu.Maps = make([][]byte, 256)
+
+    cpu.MapMemory(0x0, cpu.Ram)
+    cpu.MapMemory(0x800, cpu.Ram)
+    cpu.MapMemory(0x1000, cpu.Ram)
+    cpu.MapMemory(0x1800, cpu.Ram)
+}
+
 func (cpu *CPUState) Copy() CPUState {
     var mapper Mapper
     if cpu.Mapper != nil {
