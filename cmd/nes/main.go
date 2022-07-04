@@ -152,7 +152,7 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
 }
 
 func doRender(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat,
-              renderer *sdl.Renderer, font *ttf.Font, messages []string,
+              renderer *sdl.Renderer, font *ttf.Font, messages []EmulatorMessage,
               windowWidth int, windowHeight int,
               renderFunc common.RenderFunction) error {
 
@@ -199,13 +199,29 @@ func doRender(width int, height int, raw_pixels []byte, pixelFormat common.Pixel
 
     renderer.SetLogicalSize(0, 0)
 
-    y := windowHeight - (font.Height() + 2) * len(messages)
-    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-    for _, message := range messages {
-        x := windowWidth - 100
-        log.Printf("Write message '%v' at %v, %v", message, x, y)
-        menu.WriteFont(font, renderer, x, y, message, white)
-        y += font.Height() + 2
+    y := windowHeight - font.Height() - 1
+    now := time.Now()
+    for i := len(messages)-1; i >= 0; i-- {
+        message := messages[i]
+        if message.DeathTime.After(now){
+            x := windowWidth - 100
+            remaining := message.DeathTime.Sub(now)
+            alpha := 255
+            if remaining < time.Millisecond * 500 {
+                alpha = int(255 * float64(remaining) / (float64(time.Millisecond) * 500))
+                if alpha > 255 {
+                    alpha = 255
+                }
+                /* strangely if alpha=0 it renders without transparency so the pixels are fully white */
+                if alpha < 1 {
+                    alpha = 1
+                }
+            }
+            white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
+            // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
+            menu.WriteFont(font, renderer, x, y, message.Message, white)
+            y -= font.Height() + 2
+        }
     }
 
     err = renderFunc(renderer)
@@ -226,6 +242,11 @@ type NesActionLoad struct {
 }
 
 type NesActionRestart struct {
+}
+
+type EmulatorMessage struct {
+    Message string
+    DeathTime time.Time
 }
 
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
@@ -482,9 +503,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         defer fpsTimer.Stop()
 
         /* these messages appear in the bottom right */
-        var emulatorMessages []string
+        var emulatorMessages []EmulatorMessage
         emulatorMessageTicker := time.NewTicker(time.Second * 1)
         defer emulatorMessageTicker.Stop()
+        maxEmulatorMessages := 10
 
         renderTimer := time.NewTicker(time.Second / time.Duration(desiredFps))
         defer renderTimer.Stop()
@@ -525,15 +547,26 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     renderFunc = newFunction
                     sdl.Do(render)
                 case message := <-emulatorMessage:
-                    emulatorMessages = append(emulatorMessages, message)
-                    if len(emulatorMessages) > 10 {
-                        emulatorMessages = emulatorMessages[len(emulatorMessages) - 10:len(emulatorMessages)]
+                    emulatorMessages = append(emulatorMessages, EmulatorMessage{
+                        Message: message,
+                        DeathTime: time.Now().Add(time.Millisecond * 1500),
+                    })
+                    if len(emulatorMessages) > maxEmulatorMessages {
+                        emulatorMessages = emulatorMessages[len(emulatorMessages) - maxEmulatorMessages:len(emulatorMessages)]
                     }
-                /* every few seconds remove the oldest message */
+                /* remove deceased messages */
                 case <-emulatorMessageTicker.C:
-                    if len(emulatorMessages) > 0 {
-                        emulatorMessages = emulatorMessages[1:]
+                    now := time.Now()
+                    i := 0
+                    for i < len(emulatorMessages) {
+                        /* find the first non-dead message */
+                        if emulatorMessages[i].DeathTime.Before(now) {
+                            i += 1
+                        } else {
+                            break
+                        }
                     }
+                    emulatorMessages = emulatorMessages[i:]
                 case <-renderNow:
                     /* Force a rerender */
                     sdl.Do(render)
