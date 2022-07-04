@@ -340,8 +340,6 @@ func doRender(width int, height int, raw_pixels []byte, destX int, destY int, de
     return nil
 }
 
-
-
 /* FIXME: cache the resulting texture */
 func imageToTexture(data image.Image, renderer *sdl.Renderer) (*sdl.Texture, error) {
     /* encode image to bmp to a raw memory stream
