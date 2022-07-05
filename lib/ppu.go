@@ -34,31 +34,31 @@ func (mirror NametableMirrorConfiguration) String() string {
 }
 
 type PPUState struct {
-    Flags byte
-    Mask byte
+    Flags byte `json:"flags"`
+    Mask byte `json:"mask"`
     /* http://wiki.nesdev.com/w/index.php/PPU_registers#PPUSTATUS */
-    Status byte
+    Status byte `json:"status"`
 
     /* counts in the y direction during rendering, from 0-262 */
-    Scanline int
+    Scanline int `json:"scanline"`
     /* counts in the x direction during rendering, from 0-340 */
-    ScanlineCycle int
-    TemporaryVideoAddress uint16 /* the t register */
-    VideoAddress uint16 /* the v register */
-    WriteState byte /* for writing to the video address or the t register */
+    ScanlineCycle int `json:"scanlinecycle"`
+    TemporaryVideoAddress uint16 `json:"t_register"` /* the t register */
+    VideoAddress uint16 `json:"videoaddress"` /* the v register */
+    WriteState byte `json:"writestate"` /* for writing to the video address or the t register */
 
-    NametableMirror NametableMirrorConfiguration
+    NametableMirror NametableMirrorConfiguration `json:"nametablemirror"`
 
     /* for scrolling */
-    FineX byte
+    FineX byte `json:"finex"`
 
     /* maps an nes integer 0-256 to an RGB value */
-    Palette [][]uint8
+    Palette [][]uint8 `json:"palette"`
 
     /* current sprites that will render on this scanline. a bit of a hack */
-    CurrentSprites []Sprite
+    CurrentSprites []Sprite `json:"sprites"`
 
-    VideoMemory []byte
+    VideoMemory []byte `json:"videomemory"`
 
     /* the 2kb SRAM stored on the NES board.
      * use nametable mirroring to map addresses to these ranges
@@ -69,19 +69,19 @@ type PPUState struct {
      *
      * http://wiki.nesdev.com/w/index.php/PPU_nametables
      */
-    NametableMemory []byte
+    NametableMemory []byte `json:"nametablememory"`
 
     /* sprite memory */
-    OAM []byte
-    OAMAddress int
+    OAM []byte `json:"oam"`
+    OAMAddress int `json:"oamaddress"`
 
     /* makes the ppu print stuff via log.Printf if set to a value > 0 */
-    Debug uint8
+    Debug uint8 `json:"-"`
 
-    InternalVideoBuffer byte
+    InternalVideoBuffer byte `json:"videobuffer"`
 
     /* how many times to shift out of the BackgroundPixels before needing to load a new tile */
-    Shifts byte
+    Shifts byte `json:"shifts"`
 
     /* each pixel is 4 bits, each tile is 8 pixels
      * so first 32 bits is the first tile
@@ -92,11 +92,11 @@ type PPUState struct {
      * is read from memory, its pixels computed, and
      * loaded into the upper 32 its of BackgroundPixels
      */
-    BackgroundPixels uint64
-    RawBackgroundPixels uint32
+    BackgroundPixels uint64 `json:"backgroundpixels"`
+    RawBackgroundPixels uint32 `json:"rawbackgroundpixels"`
 
     /* not sure if this is needed */
-    HasSetSprite0 bool
+    HasSetSprite0 bool `json:"sprite0"`
 }
 
 func (ppu *PPUState) Copy() PPUState {
@@ -521,13 +521,14 @@ func (ppu *PPUState) ReadStatus() byte {
 }
 
 type Sprite struct {
-    tile byte
-    x, y byte
-    flip_horizontal bool
-    flip_vertical bool
-    palette byte
-    priority byte
-    sprite0 bool
+    Tile byte `json:"tile"`
+    X byte `json:"x"`
+    Y byte `json:"y"`
+    Flip_horizontal bool `json:"fliphorizontal"`
+    Flip_vertical bool `json:"flipvertical"`
+    Palette byte `json:"palette"`
+    Priority byte `json:"priority"`
+    Sprite0 bool `json:"sprite0"`
 }
 
 func (ppu *PPUState) GetSprites() []Sprite {
@@ -552,14 +553,14 @@ func (ppu *PPUState) GetSprites() []Sprite {
         flip_vertical := (data >> 7) & 0x1 == 0x1
 
         out = append(out, Sprite{
-            tile: tile,
-            x: x,
-            y: y + 1, // sprites are offset by 1 pixel
-            flip_horizontal: flip_horizontal,
-            flip_vertical: flip_vertical,
-            palette: palette,
-            priority: priority,
-            sprite0: spriteCount == 0,
+            Tile: tile,
+            X: x,
+            Y: y + 1, // sprites are offset by 1 pixel
+            Flip_horizontal: flip_horizontal,
+            Flip_vertical: flip_vertical,
+            Palette: palette,
+            Priority: priority,
+            Sprite0: spriteCount == 0,
         })
 
         spriteCount += 1
@@ -817,23 +818,23 @@ func (ppu *PPUState) getSpritePixel(x int, y int, sprites []Sprite) ([]uint8, by
         maxSprites := len(sprites)
         for spriteIndex := 0; spriteIndex < maxSprites; spriteIndex += 1 {
             sprite := &sprites[spriteIndex]
-            tileIndex := sprite.tile
-            if x >= int(sprite.x) && x < int(sprite.x) + 8 && y >= int(sprite.y) && y < int(sprite.y) + 8 {
+            tileIndex := sprite.Tile
+            if x >= int(sprite.X) && x < int(sprite.X) + 8 && y >= int(sprite.Y) && y < int(sprite.Y) + 8 {
                 tileAddress := patternTable + uint16(tileIndex) * 16
                 leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
                 rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
-                palette_base := 0x3f10 + uint16(sprite.palette) * 4
+                palette_base := 0x3f10 + uint16(sprite.Palette) * 4
 
                 // for y := 0; y < 8; y++ {
                     // for x := 0; x < 8; x++ {
-                use_y := y - int(sprite.y)
-                use_x := x - int(sprite.x)
+                use_y := y - int(sprite.Y)
+                use_x := x - int(sprite.X)
 
-                if sprite.flip_vertical {
+                if sprite.Flip_vertical {
                     use_y = 7 - use_y
                 }
 
-                if sprite.flip_horizontal {
+                if sprite.Flip_horizontal {
                     use_x = 7 - use_x
                 }
 
@@ -866,7 +867,7 @@ func (ppu *PPUState) getSpritePixel(x int, y int, sprites []Sprite) ([]uint8, by
                             return nil, 0, false
                         }
 
-                        return ppu.Palette[palette_color], sprite.priority, sprite.sprite0
+                        return ppu.Palette[palette_color], sprite.Priority, sprite.Sprite0
 
                         /*
                         var final_x int
@@ -892,34 +893,34 @@ func (ppu *PPUState) getSpritePixel(x int, y int, sprites []Sprite) ([]uint8, by
         maxSprites := len(sprites)
         for spriteIndex := 0; spriteIndex < maxSprites; spriteIndex += 1 {
             sprite := &sprites[spriteIndex]
-            tileIndex := sprite.tile
-            if x >= int(sprite.x) && x < int(sprite.x) + 8 && y >= int(sprite.y) && y < int(sprite.y) + 16 {
+            tileIndex := sprite.Tile
+            if x >= int(sprite.X) && x < int(sprite.X) + 8 && y >= int(sprite.Y) && y < int(sprite.Y) + 16 {
                 tileAddress := (uint16(tileIndex & 0x1) << 12) | (uint16(tileIndex >> 1) * 32)
-                y_base := sprite.y
-                if sprite.flip_vertical {
-                    if y < int(sprite.y) + 8 {
+                y_base := sprite.Y
+                if sprite.Flip_vertical {
+                    if y < int(sprite.Y) + 8 {
                         tileAddress += 16
                     } else {
                         y_base += 8
                     }
                 } else {
-                    if y >= int(sprite.y) + 8 {
+                    if y >= int(sprite.Y) + 8 {
                         y_base += 8
                         tileAddress += 16
                     }
                 }
                 leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
                 rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
-                palette_base := 0x3f10 + uint16(sprite.palette) * 4
+                palette_base := 0x3f10 + uint16(sprite.Palette) * 4
 
                 use_y := y - int(y_base)
-                use_x := x - int(sprite.x)
+                use_x := x - int(sprite.X)
 
-                if sprite.flip_vertical {
+                if sprite.Flip_vertical {
                     use_y = 7 - use_y
                 }
 
-                if sprite.flip_horizontal {
+                if sprite.Flip_horizontal {
                     use_x = 7 - use_x
                 }
 
@@ -952,7 +953,7 @@ func (ppu *PPUState) getSpritePixel(x int, y int, sprites []Sprite) ([]uint8, by
                             return nil, 0, false
                         }
 
-                        return ppu.Palette[palette_color], sprite.priority, sprite.sprite0
+                        return ppu.Palette[palette_color], sprite.Priority, sprite.Sprite0
 
             }
         }
@@ -1371,7 +1372,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
                 }
                 for i := 0; i < len(sprites); i++ {
                     sprite := &sprites[i]
-                    if ppu.Scanline >= int(sprite.y) && ppu.Scanline < int(sprite.y) + size {
+                    if ppu.Scanline >= int(sprite.Y) && ppu.Scanline < int(sprite.Y) + size {
                         ppu.CurrentSprites = append(ppu.CurrentSprites, *sprite)
                         count += 1
                         /* 8 sprite limit per scanline */

@@ -6,6 +6,11 @@ import (
     "log"
     "time"
     "sync"
+    "path/filepath"
+    "os"
+    "fmt"
+    "compress/gzip"
+    "encoding/json"
     nes "github.com/kazzmir/nes/lib"
 )
 
@@ -148,8 +153,98 @@ func SetupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     return cpu, nil
 }
 
+const SaveStateVersion = 1
+
+type SaveState struct {
+    State *nes.CPUState `json:"state"`
+    Version int `json:"version"`
+    Date time.Time `json:"time"`
+}
+
+func doSerializeState(quit context.Context, state *nes.CPUState, sha256 string){
+    path, err := GetOrCreateConfigDir()
+    if err != nil {
+        log.Printf("Unable to serialize saved state: %v", err)
+        return
+    }
+
+    path2 := filepath.Join(path, sha256)
+    os.MkdirAll(path2, 0755)
+
+    full := filepath.Join(path2, "state.gz")
+    output, err := os.Create(full)
+    if err != nil {
+        log.Printf("Unable to serialize saved state: %v", err)
+        return
+    }
+    defer output.Close()
+
+    compressor := gzip.NewWriter(output)
+    defer compressor.Close()
+
+    encoder := json.NewEncoder(compressor)
+    err = encoder.Encode(SaveState{
+        State: state,
+        Version: SaveStateVersion,
+        Date: time.Now(),
+    })
+
+    if err != nil {
+        log.Printf("Unable to serialize saved state: %v", err)
+    }
+}
+
+func serializeState(quit context.Context, state *nes.CPUState, sha256 string){
+    doSerializeState(quit, state, sha256)
+
+    /* for debugging */
+
+    /*
+    state2, err := loadCpuState()
+    if err != nil {
+        log.Printf("Unable to load just saved state: %v", err)
+    } else {
+        err = state.Compare(state2)
+        if err != nil {
+            log.Printf("deserialized state doesn't match: %v", err)
+        }
+    }
+    */
+}
+
+func loadCpuState(sha256 string) (*nes.CPUState, error) {
+    path, err := GetOrCreateConfigDir()
+    if err != nil {
+        return nil, err
+    }
+
+    full := filepath.Join(path, sha256, "state.gz")
+    input, err := os.Open(full)
+    if err != nil {
+        return nil, err
+    }
+    defer input.Close()
+
+    decompress, err := gzip.NewReader(input)
+    if err != nil {
+        return nil, err
+    }
+    defer decompress.Close()
+
+    var out SaveState
+    decoder := json.NewDecoder(decompress)
+    err = decoder.Decode(&out)
+    if err != nil {
+        return nil, err
+    }
+    if out.Version != SaveStateVersion {
+        return nil, fmt.Errorf("invalid save state version: %v vs %v", out.Version, SaveStateVersion)
+    }
+    return out.State, nil
+}
+
 var MaxCyclesReached error = errors.New("maximum cycles reached")
-func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen,
+func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen,
             bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32,
             emulatorActions <-chan EmulatorAction, screenListeners *ScreenListeners,
             sampleRate float32, verbose int) error {
@@ -186,7 +281,23 @@ func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
 
     showTimings := false
 
-    var cpuSavedState *nes.CPUState
+    var sha256 string
+
+    var computeSha256 sync.Once
+    getSha256 := func() string {
+        /* lazily compute the sha256 */
+        computeSha256.Do(func(){
+            value, err := GetSha256(romPath)
+            if err == nil {
+                sha256 = value
+            } else {
+                log.Printf("Unable to compute sha256 for '%v': %v", romPath, err)
+                sha256 = fmt.Sprintf("%x", time.Now().UnixNano())
+            }
+        })
+
+        return sha256
+    }
 
     start := time.Now()
     cycleCheck := time.NewTicker(time.Second * 2)
@@ -237,11 +348,14 @@ func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
                     switch action {
                         case EmulatorSaveState:
                             value := cpu.Copy()
-                            cpuSavedState = &value
+                            go serializeState(quit, &value, getSha256())
                             log.Printf("State saved")
                         case EmulatorLoadState:
-                            if cpuSavedState != nil {
-                                cpu.Load(cpuSavedState)
+                            loadedState, err := loadCpuState(getSha256())
+                            if err != nil {
+                                log.Printf("Unable to load saved state: %v", err)
+                            } else {
+                                cpu.Load(loadedState)
                                 lastCpuCycle = cpu.Cycle
                                 log.Printf("State loaded")
                             }
@@ -318,7 +432,7 @@ func RunNES(cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw ch
         }
 
         /* ppu runs 3 times faster than cpu */
-        nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen, cpu.Mapper)
+        nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen, cpu.Mapper.Mapper)
 
         if drawn {
             screenListeners.ObserveVideo(screen)

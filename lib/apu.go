@@ -9,8 +9,8 @@ var ApuDebug int = 0
 
 type Divider struct {
     /* how many input clocks must pass before an output clock is generated */
-    ClockPeriod uint16
-    Count int16
+    ClockPeriod uint16 `json:"period"`
+    Count int16 `json:"count"`
 }
 
 func (divider *Divider) Reset() {
@@ -31,10 +31,10 @@ func (divider *Divider) Clock() bool {
 }
 
 type Timer struct {
-    Divider Divider
-    Cycles float64
-    Low uint16
-    High uint16
+    Divider Divider `json:"divider"`
+    Cycles float64 `json:"cycles"`
+    Low uint16 `json:"low"`
+    High uint16 `json:"high"`
 }
 
 func (timer *Timer) Period() uint16 {
@@ -65,11 +65,11 @@ func (timer *Timer) Reset(){
 }
 
 type EnvelopeGenerator struct {
-    Divider Divider
-    Loop bool
-    Disable bool
-    Value byte
-    Counter byte
+    Divider Divider `json:"divider"`
+    Loop bool `json:"loop"`
+    Disable bool `json:"disable"`
+    Value byte `json:"value"`
+    Counter byte `json:"counter"`
 }
 
 func (envelope *EnvelopeGenerator) Volume() byte {
@@ -111,8 +111,8 @@ func (envelope *EnvelopeGenerator) Set(loop bool, disable bool, value byte){
 }
 
 type SquareSequencer struct {
-    Duty byte
-    Position byte
+    Duty byte `json:"duty"`
+    Position byte `json:"position"`
 }
 
 func (sequencer *SquareSequencer) SetDuty(duty byte){
@@ -146,10 +146,10 @@ func (sequencer *SquareSequencer) Value() byte {
 }
 
 type Sweep struct {
-    Divider Divider
-    Enabled bool
-    Negate bool // false is add to period, true is subtract from period
-    ShiftCount byte
+    Divider Divider `json:"divider"`
+    Enabled bool `json:"enabled"`
+    Negate bool `json:"negate"` // false is add to period, true is subtract from period
+    ShiftCount byte `json:"shift"`
 }
 
 func (sweep *Sweep) Tick(pulse1 bool, timer *Timer){
@@ -176,8 +176,8 @@ func (sweep *Sweep) Tick(pulse1 bool, timer *Timer){
 }
 
 type LengthCounter struct {
-    Halt bool
-    Length byte
+    Halt bool `json:"halt"`
+    Length byte `json:"length"`
 }
 
 func (length *LengthCounter) SetLength(index byte){
@@ -208,15 +208,15 @@ func (length *LengthCounter) Tick() {
 }
 
 type Pulse struct {
-    Name string
-    Sweep Sweep
-    Timer Timer
-    Envelope EnvelopeGenerator
-    Length LengthCounter
-    Frequency float32
-    Phase float32
-    Duty byte
-    Sequencer SquareSequencer
+    Name string `json:"name"`
+    Sweep Sweep `json:"sweep"`
+    Timer Timer `json:"timer"`
+    Envelope EnvelopeGenerator `json:"envelope"`
+    Length LengthCounter `json:"length"`
+    Frequency float32 `json:"frequency"`
+    Phase float32 `json:"phase"`
+    Duty byte `json:"duty"`
+    Sequencer SquareSequencer `json:"sequencer"`
 }
 
 func (pulse *Pulse) Copy() Pulse {
@@ -261,11 +261,11 @@ func (pulse *Pulse) GenerateSample() byte {
 }
 
 type Noise struct {
-    Length LengthCounter
-    Envelope EnvelopeGenerator
-    Mode byte
-    Timer Timer
-    ShiftRegister uint16
+    Length LengthCounter `json:"length"`
+    Envelope EnvelopeGenerator `json:"envelope"`
+    Mode byte `json:"mode"`
+    Timer Timer `json:"timer"`
+    ShiftRegister uint16 `json:"shift"`
 }
 
 func (noise *Noise) Copy() Noise {
@@ -308,13 +308,13 @@ func (noise *Noise) Run(cycles float64){
 }
 
 type Triangle struct {
-    Timer Timer
-    Phase int
-    Length LengthCounter
-    ControlFlag bool
-    LinearCounterReloadFlag bool
-    LinearCounterReload int
-    LinearCounter int
+    Timer Timer `json:"timer"`
+    Phase int `json:"phase"`
+    Length LengthCounter `json:"length"`
+    ControlFlag bool `json:"control"`
+    LinearCounterReloadFlag bool `json:"linearcounterreloadflag"`
+    LinearCounterReload int `json:"linearcounterreload"`
+    LinearCounter int `json:"linearcounter"`
 }
 
 func (triangle *Triangle) Copy() Triangle {
@@ -364,31 +364,31 @@ func (triangle *Triangle) GenerateSample() byte {
 
 type APUState struct {
     /* APU cycles, 1 apu cycle for every 2 cpu cycles */
-    Cycles float64
+    Cycles float64 `json:"cycles"`
     /* frame sequencer clock, ticks at 240hz */
-    Clock uint64
+    Clock uint64 `json:"clock"`
     /* if true then apu is in 4-step mode that generates interrupts
      * otherwise if false then apu is in 5-step mode with no interrupts
      */
-    FrameMode bool
-    UpdatedFrameCounter float64
-    InterruptInhibit bool
-    FrameIRQAsserted bool
+    FrameMode bool `json:"framemode"`
+    UpdatedFrameCounter float64 `json:"framecounter"`
+    InterruptInhibit bool `json:"interruptinhibit"`
+    FrameIRQAsserted bool `json:"frameirq"`
 
-    SampleCycles float64
-    SampleBuffer []float32
-    SamplePosition int
+    SampleCycles float64 `json:"samplecycles"`
+    SampleBuffer []float32 `json:"samplebuffer"`
+    SamplePosition int `json:"sampleposition"`
 
-    Pulse1 Pulse
-    Pulse2 Pulse
-    Triangle Triangle
-    Noise Noise
-    DMC DMC
+    Pulse1 Pulse `json:"pulse1"`
+    Pulse2 Pulse `json:"pulse2"`
+    Triangle Triangle `json:"triangle"`
+    Noise Noise `json:"noise"`
+    DMC DMC `json:"dmc"`
 
-    EnableNoise bool
-    EnableTriangle bool
-    EnablePulse2 bool
-    EnablePulse1 bool
+    EnableNoise bool `json:"enablenoise"`
+    EnableTriangle bool `json:"enabletriangle"`
+    EnablePulse2 bool `json:"enablepulse2"`
+    EnablePulse1 bool `json:"enablepulse1"`
 }
 
 func (apu *APUState) Copy() APUState {
@@ -549,26 +549,26 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUSta
 }
 
 type DMC struct {
-    Irq bool
-    Loop bool
-    Frequency float64
-    Counter float64
-    StartingAddress uint16
-    Address uint16
-    Length uint16
-    BytesRemaining uint16
-    OutputLevel byte
+    Irq bool `json:"irq"`
+    Loop bool `json:"loop"`
+    Frequency float64 `json:"frequency"`
+    Counter float64 `json:"counter"`
+    StartingAddress uint16 `json:"startingaddress"`
+    Address uint16 `json:"address"`
+    Length uint16 `json:"length"`
+    BytesRemaining uint16 `json:"bytesremaining"`
+    OutputLevel byte `json:"outputlevel"`
 
-    IRQAsserted bool
+    IRQAsserted bool `json:"irqasserted"`
 
     // Divider Divider
 
-    Silence bool
+    Silence bool `json:"silence"`
 
-    ShiftRegister byte
-    BitsRemaining byte
+    ShiftRegister byte `json:"shift"`
+    BitsRemaining byte `json:"bitsremaining"`
 
-    SampleBuffer byte
+    SampleBuffer byte `json:"samplebuffer"`
 }
 
 func (dmc *DMC) Copy() DMC {

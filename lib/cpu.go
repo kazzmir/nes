@@ -750,32 +750,32 @@ func MakeInput(host HostInput) *Input {
 }
 
 type CPUState struct {
-    A byte
-    X byte
-    Y byte
-    SP byte
-    PC uint16
-    Status byte
+    A byte `json:"a"`
+    X byte `json:"x"`
+    Y byte `json:"y"`
+    SP byte `json:"sp"`
+    PC uint16 `json:"pc"`
+    Status byte `json:"status"`
 
-    Cycle uint64
+    Cycle uint64 `json:"cycle"`
 
     /* holds a reference to the 2k ram the cpu can directly access.
      * this memory is mapped into Maps[] as well. Maps[] is redundant,
      * and can be removed at some point.
      */
-    Ram []byte
-    Maps [][]byte
-    StackBase uint16
+    Ram []byte `json:"ram,omitempty"`
+    Maps [][]byte `json:"-"`
+    StackBase uint16 `json:"stackbase"`
 
-    PPU PPUState
-    APU APUState
-    Debug uint
-    StallCycles int
+    PPU PPUState `json:"ppu"`
+    APU APUState `json:"apu"`
+    Debug uint `json:"debug,omitempty"`
+    StallCycles int `json:"stallcycles,omitempty"`
 
     /* controller input */
-    Input *Input
+    Input *Input `json:"-"`
 
-    Mapper Mapper
+    Mapper MapperState `json:"mapper"`
 }
 
 func (cpu *CPUState) Load(other *CPUState){
@@ -791,8 +791,8 @@ func (cpu *CPUState) Load(other *CPUState){
 }
 
 func (cpu *CPUState) Copy() CPUState {
-    var mapper Mapper
-    if cpu.Mapper != nil {
+    var mapper MapperState
+    if cpu.Mapper.Mapper != nil {
         mapper = cpu.Mapper.Copy()
     }
     return CPUState{
@@ -813,6 +813,10 @@ func (cpu *CPUState) Copy() CPUState {
         Input: nil,
         Mapper: mapper,
     }
+}
+
+func (cpu *CPUState) Compare(other *CPUState) error {
+    return cpu.Mapper.Compare(other.Mapper)
 }
 
 func (cpu *CPUState) Equals(other CPUState) bool {
@@ -915,11 +919,11 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
     }
 
     if page >= 0x60 {
-        if cpu.Mapper == nil {
+        if cpu.Mapper.Mapper == nil {
             log.Printf("No mapper set, cannot read from mapper memory: 0x%x", address)
             return 0
         }
-        return cpu.Mapper.Read(address)
+        return cpu.Mapper.Mapper.Read(address)
     }
 
     if cpu.Maps[page] == nil {
@@ -991,7 +995,7 @@ const (
 )
 
 func (cpu *CPUState) SetMapper(mapper Mapper){
-    cpu.Mapper = mapper
+    cpu.Mapper.Set(mapper)
     // mapper.Initialize(cpu)
 }
 
@@ -1187,7 +1191,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     }
 
     if address >= 0x6000 {
-        err := cpu.Mapper.Write(cpu, address, value)
+        err := cpu.Mapper.Mapper.Write(cpu, address, value)
         if err != nil {
             log.Printf("Warning: writing to mapper memory: %v", err)
         }
@@ -4036,7 +4040,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 }
 
 func (cpu *CPUState) IsIRQAsserted() bool {
-    return cpu.APU.IsIRQAsserted() || (cpu.Mapper != nil && cpu.Mapper.IsIRQAsserted())
+    return cpu.APU.IsIRQAsserted() || (cpu.Mapper.Mapper != nil && cpu.Mapper.Mapper.IsIRQAsserted())
 }
 
 func (cpu *CPUState) Reset() {

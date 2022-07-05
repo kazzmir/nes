@@ -621,7 +621,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             sdl.PushEvent(&quitEvent)
         } else {
             log.Printf("Run NES")
-            err = common.RunNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 1)
+            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 1)
             if err != nil {
                 if err == common.MaxCyclesReached {
                 } else {

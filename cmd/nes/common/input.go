@@ -72,20 +72,28 @@ type ConfigData struct {
     Player1Joystick ConfigJoystickData
 }
 
-func (manager *JoystickManager) SaveInput() error {
-    manager.Lock.Lock()
-    defer manager.Lock.Unlock()
-
+func GetOrCreateConfigDir() (string, error) {
     configDir, err := os.UserConfigDir()
     if err != nil {
-        return err
+        return "", err
     }
     configPath := filepath.Join(configDir, "jon-nes")
     err = os.MkdirAll(configPath, 0755)
     if err != nil {
-        return err
+        return "", err
     }
 
+    return configPath, nil
+}
+
+func (manager *JoystickManager) SaveInput() error {
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
+    configPath, err := GetOrCreateConfigDir()
+    if err != nil {
+        return err
+    }
     config := filepath.Join(configPath, "config.json")
 
     file, err := os.Create(config)
