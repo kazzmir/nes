@@ -3,6 +3,7 @@ package lib
 import (
     "fmt"
     "log"
+    "encoding/json"
 )
 
 /* Mappers work by replacing a range of memory addressable by the cpu.
@@ -49,10 +50,158 @@ import (
  */
 
 type Mapper interface {
+    // Write a value to the mapper address space
     Write(cpu *CPUState, address uint16, value byte) error
+    // Read a value from the mapper address space
     Read(address uint16) byte
+    // True if the irq line is asserted
     IsIRQAsserted() bool
+    // Make a deep copy of this object
     Copy() Mapper
+    // Return an int that identifies this type of mapper
+    Kind() int
+    // Return an error that describes any difference to another mapper, or nil if
+    // there are no differences
+    Compare(Mapper) error
+}
+
+type MapperState struct {
+    Kind int `json:"kind"`
+    Mapper Mapper `json:"mapper"`
+}
+
+func (state *MapperState) Set(mapper Mapper){
+    state.Mapper = mapper
+    state.Kind = mapper.Kind()
+}
+
+func (state *MapperState) Compare(other MapperState) error {
+    if state.Kind != other.Kind {
+        return fmt.Errorf("mapper kind differs me=%v other=%v", state.Kind, other.Kind)
+    }
+
+    if (state.Mapper == nil && other.Mapper != nil) ||
+       (state.Mapper != nil && other.Mapper == nil){
+        return fmt.Errorf("one mapper was nil and the other wasn't. me=%v other=%v", state.Mapper, other.Mapper)
+    }
+
+    if state.Mapper == nil && other.Mapper == nil {
+        return nil
+    }
+
+    return state.Mapper.Compare(other.Mapper)
+}
+
+func (state *MapperState) Copy() MapperState {
+    return MapperState{
+        Kind: state.Kind,
+        Mapper: state.Mapper.Copy(),
+    }
+}
+
+type JustKind struct {
+    Kind int `json:"kind"`
+}
+
+func unmarshalMapper[T Mapper](data []byte) (T, error) {
+    var mapper struct {
+        Kind int `json:"kind"`
+        Mapper T `json:"mapper"`
+    }
+    err := json.Unmarshal(data, &mapper)
+    if err != nil {
+        return mapper.Mapper, err
+    }
+    return mapper.Mapper, nil
+}
+
+var _ json.Unmarshaler = &MapperState{}
+
+func (state *MapperState) UnmarshalJSON(data []byte) error {
+    var kind JustKind
+    err := json.Unmarshal(data, &kind)
+    if err != nil {
+        return err
+    }
+    state.Kind = kind.Kind
+    switch state.Kind {
+        case 0:
+            mapper0, err := unmarshalMapper[*Mapper0](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper0
+            return nil
+            /*
+            var mapper struct {
+                Kind int `json:"kind"`
+                Mapper0 Mapper0 `json:"mapper"`
+            }
+            err = json.Unmarshal(data, &mapper)
+            if err != nil {
+                return err
+            }
+            state.Mapper = &mapper.Mapper0
+            */
+        case 1:
+            mapper1, err := unmarshalMapper[*Mapper1](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper1
+            return nil
+        case 2:
+            mapper2, err := unmarshalMapper[*Mapper2](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper2
+            return nil
+        case 3:
+            mapper3, err := unmarshalMapper[*Mapper3](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper3
+            return nil
+        case 4:
+            mapper4, err := unmarshalMapper[*Mapper4](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper4
+            return nil
+        case 7:
+            mapper7, err := unmarshalMapper[*Mapper7](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper7
+            return nil
+        case 9:
+            mapper9, err := unmarshalMapper[*Mapper9](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper9
+            return nil
+    }
+
+    return fmt.Errorf("could not deserialize mapper. unknown mapper type %v", state.Kind)
+}
+
+func compareSlice[T comparable](slice1 []T, slice2 []T) error {
+    if len(slice1) != len(slice2) {
+        return fmt.Errorf("slices differ in size slice1=%v slice2=%v", len(slice1), len(slice2))
+    }
+
+    for i := 0; i < len(slice1); i++ {
+        if slice1[i] != slice2[i] {
+            return fmt.Errorf("slices differ at index %v: slice1=%v slice2=%v", i, slice1[i], slice2[i])
+        }
+    }
+
+    return nil
 }
 
 func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, error) {
@@ -69,7 +218,16 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
 }
 
 type Mapper0 struct {
-    BankMemory []byte
+    BankMemory []byte `json:"bank"`
+}
+
+func (mapper *Mapper0) Compare(other Mapper) error {
+    him, ok := other.(*Mapper0)
+    if !ok {
+        return fmt.Errorf("other was not a mapper0")
+    }
+
+    return compareSlice(mapper.BankMemory, him.BankMemory)
 }
 
 /*
@@ -126,6 +284,10 @@ func (mapper *Mapper0) Read(address uint16) byte {
     }
 }
 
+func (mapper *Mapper0) Kind() int {
+    return 0
+}
+
 func MakeMapper0(bankMemory []byte) Mapper {
     return &Mapper0{
         BankMemory: bankMemory,
@@ -149,6 +311,14 @@ type Mapper1 struct {
 
     /* FIXME: this might get mapped from the bank memory, not sure */
     PRGRam []byte
+}
+
+func (mapper *Mapper1) Kind() int {
+    return 1
+}
+
+func (mapper *Mapper1) Compare(other Mapper) error {
+    return fmt.Errorf("mapper1 compare unimplemented")
 }
 
 /* Read at address 'offset' within the 32k bank given by 'bank'.
@@ -335,17 +505,38 @@ func MakeMapper1(bankMemory []byte, chrMemory []byte) Mapper {
 }
 
 type Mapper2 struct {
-    BankMemory []byte
-    lastBankAddress uint32
-    bank byte
+    BankMemory []byte `json:"bankmemory"`
+    LastBankAddress uint32 `json:"lastaddress"`
+    Bank byte `json:"bank"`
+}
+
+func (mapper *Mapper2) Compare(other Mapper) error {
+    him, ok := other.(*Mapper2)
+    if !ok {
+        return fmt.Errorf("other was not a mapper2")
+    }
+
+    if mapper.Bank != him.Bank {
+        return fmt.Errorf("bank differs: me=%v him=%v", mapper.Bank, him.Bank)
+    }
+
+    if mapper.LastBankAddress != him.LastBankAddress {
+        return fmt.Errorf("lastBankAddress differs: me=%v him=%v", mapper.LastBankAddress, him.LastBankAddress)
+    }
+
+    return compareSlice(mapper.BankMemory, him.BankMemory)
 }
 
 func (mapper *Mapper2) Copy() Mapper {
     return &Mapper2{
         BankMemory: copySlice(mapper.BankMemory),
-        lastBankAddress: mapper.lastBankAddress,
-        bank: mapper.bank,
+        LastBankAddress: mapper.LastBankAddress,
+        Bank: mapper.Bank,
     }
+}
+
+func (mapper *Mapper2) Kind() int {
+    return 2
 }
 
 func (mapper *Mapper2) IsIRQAsserted() bool {
@@ -355,10 +546,10 @@ func (mapper *Mapper2) IsIRQAsserted() bool {
 func (mapper *Mapper2) Read(address uint16) byte {
     if address < 0xc000 {
         offset := uint32(address - 0x8000)
-        return mapper.BankMemory[uint32(mapper.bank) * 0x4000 + offset]
+        return mapper.BankMemory[uint32(mapper.Bank) * 0x4000 + offset]
     } else {
         offset := uint32(address - 0xc000)
-        return mapper.BankMemory[mapper.lastBankAddress + offset]
+        return mapper.BankMemory[mapper.LastBankAddress + offset]
     }
 }
 
@@ -367,7 +558,7 @@ func (mapper *Mapper2) Write(cpu *CPUState, address uint16, value byte) error {
         log.Printf("Accessing bank switching register 0x%x with value 0x%x", address, value)
     }
 
-    mapper.bank = value
+    mapper.Bank = value
 
     return nil
 }
@@ -375,7 +566,7 @@ func (mapper *Mapper2) Write(cpu *CPUState, address uint16, value byte) error {
 func MakeMapper2(bankMemory []byte) Mapper {
     return &Mapper2{
         BankMemory: bankMemory,
-        lastBankAddress: uint32(len(bankMemory) - 0x4000),
+        LastBankAddress: uint32(len(bankMemory) - 0x4000),
     }
 }
 
@@ -389,6 +580,14 @@ func (mapper *Mapper3) Copy() Mapper {
         ProgramRom: copySlice(mapper.ProgramRom),
         BankMemory: copySlice(mapper.BankMemory),
     }
+}
+
+func (mapper *Mapper3) Kind() int {
+    return 3
+}
+
+func (mapper *Mapper3) Compare(other Mapper) error {
+    return fmt.Errorf("mapper3 compare unimplemented")
 }
 
 func (mapper *Mapper3) IsIRQAsserted() bool {
@@ -444,6 +643,14 @@ type Mapper4 struct {
 
     chrRegister [6]byte
     prgRegister [2]byte
+}
+
+func (mapper *Mapper4) Kind() int {
+    return 4
+}
+
+func (mapper *Mapper4) Compare(other Mapper) error {
+    return fmt.Errorf("mapper4 compare unimplemented")
 }
 
 func (mapper *Mapper4) Copy() Mapper {
@@ -663,6 +870,14 @@ type Mapper7 struct {
     Mirror int // 0=1ScA, 1=1ScB
 }
 
+func (mapper *Mapper7) Compare(other Mapper) error {
+    return fmt.Errorf("mapper7 compare unimplemented")
+}
+
+func (mapper *Mapper7) Kind() int {
+    return 7
+}
+
 func (mapper *Mapper7) Copy() Mapper {
     return &Mapper7{
         ProgramRom: copySlice(mapper.ProgramRom),
@@ -734,6 +949,14 @@ type Mapper9 struct {
 
     prgRegister byte
     chrRegister [4]byte
+}
+
+func (mapper *Mapper9) Compare(other Mapper) error {
+    return fmt.Errorf("mapper9 compare unimplemented")
+}
+
+func (mapper *Mapper9) Kind() int {
+    return 9
 }
 
 func (mapper *Mapper9) Copy() Mapper {

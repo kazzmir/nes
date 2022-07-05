@@ -776,12 +776,22 @@ type CPUState struct {
     /* controller input */
     Input *Input `json:"-"`
 
-    Mapper Mapper `json:"-"`
+    Mapper MapperState `json:"mapper"`
 }
 
 func (cpu *CPUState) Serialize(writer io.Writer) error {
     encoder := json.NewEncoder(writer)
     return encoder.Encode(cpu)
+}
+
+func DeserializeState(reader io.Reader) (*CPUState, error) {
+    var out CPUState
+    decoder := json.NewDecoder(reader)
+    err := decoder.Decode(&out)
+    if err != nil {
+        return nil, err
+    }
+    return &out, nil
 }
 
 func (cpu *CPUState) Load(other *CPUState){
@@ -797,8 +807,8 @@ func (cpu *CPUState) Load(other *CPUState){
 }
 
 func (cpu *CPUState) Copy() CPUState {
-    var mapper Mapper
-    if cpu.Mapper != nil {
+    var mapper MapperState
+    if cpu.Mapper.Mapper != nil {
         mapper = cpu.Mapper.Copy()
     }
     return CPUState{
@@ -819,6 +829,10 @@ func (cpu *CPUState) Copy() CPUState {
         Input: nil,
         Mapper: mapper,
     }
+}
+
+func (cpu *CPUState) Compare(other *CPUState) error {
+    return cpu.Mapper.Compare(other.Mapper)
 }
 
 func (cpu *CPUState) Equals(other CPUState) bool {
@@ -921,11 +935,11 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
     }
 
     if page >= 0x60 {
-        if cpu.Mapper == nil {
+        if cpu.Mapper.Mapper == nil {
             log.Printf("No mapper set, cannot read from mapper memory: 0x%x", address)
             return 0
         }
-        return cpu.Mapper.Read(address)
+        return cpu.Mapper.Mapper.Read(address)
     }
 
     if cpu.Maps[page] == nil {
@@ -997,7 +1011,7 @@ const (
 )
 
 func (cpu *CPUState) SetMapper(mapper Mapper){
-    cpu.Mapper = mapper
+    cpu.Mapper.Set(mapper)
     // mapper.Initialize(cpu)
 }
 
@@ -1193,7 +1207,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     }
 
     if address >= 0x6000 {
-        err := cpu.Mapper.Write(cpu, address, value)
+        err := cpu.Mapper.Mapper.Write(cpu, address, value)
         if err != nil {
             log.Printf("Warning: writing to mapper memory: %v", err)
         }
@@ -4042,7 +4056,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 }
 
 func (cpu *CPUState) IsIRQAsserted() bool {
-    return cpu.APU.IsIRQAsserted() || (cpu.Mapper != nil && cpu.Mapper.IsIRQAsserted())
+    return cpu.APU.IsIRQAsserted() || (cpu.Mapper.Mapper != nil && cpu.Mapper.Mapper.IsIRQAsserted())
 }
 
 func (cpu *CPUState) Reset() {

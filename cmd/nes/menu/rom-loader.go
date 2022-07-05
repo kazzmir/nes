@@ -150,17 +150,6 @@ func dirExists(path string) bool {
     return info.IsDir()
 }
 
-func fileExists(path string) bool {
-    info, err := os.Stat(path)
-    if os.IsNotExist(err) {
-        // file does not exists return false
-        return false
-    }
-
-    // return true if exist and is not a directory
-    return !info.IsDir()
-}
-
 /* convert an image to the nes virtual screen representation */
 func imageToScreen(image imagelib.Image) nes.VirtualScreen {
     width := image.Bounds().Max.X
@@ -236,7 +225,7 @@ func getCachedThumbnails(loaderQuit context.Context, romId RomId, path string, a
     expectedFiles := []string{"1.png", "2.png", "3.png", "4.png"}
     for _, file := range expectedFiles {
         imagePath := filepath.Join(cachePath, file)
-        if !fileExists(imagePath) {
+        if !common.FileExists(imagePath) {
             // log.Printf("cached-thumbnail: could not find png %v", imagePath)
             return false
         }

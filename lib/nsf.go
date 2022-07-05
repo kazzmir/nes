@@ -163,9 +163,17 @@ func (mapper *NSFMapper) IsIRQAsserted() bool {
     return false
 }
 
+func (mapper *NSFMapper) Compare(other Mapper) error {
+    return fmt.Errorf("nsf mapper compare is unimplemented")
+}
+
 func (mapper *NSFMapper) Copy() Mapper {
     /* FIXME: implement if useful */
     return nil
+}
+
+func (mapper *NSFMapper) Kind() int {
+    return -1
 }
 
 func MakeNSFMapper(data []byte, loadAddress uint16) Mapper {

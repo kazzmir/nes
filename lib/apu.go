@@ -559,7 +559,7 @@ type DMC struct {
     BytesRemaining uint16 `json:"bytesremaining"`
     OutputLevel byte `json:"outputlevel"`
 
-    IRQAsserted bool `json:"irq"`
+    IRQAsserted bool `json:"irqasserted"`
 
     // Divider Divider
 
