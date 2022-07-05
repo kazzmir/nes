@@ -294,7 +294,7 @@ func MakeMapper0(bankMemory []byte) Mapper {
     }
 }
 
-/* http://wiki.nesdev.com/w/index.php/MMC1 */
+/* http://wiki.nesdev.org/w/index.php/MMC1 */
 type Mapper1 struct {
     BankMemory []byte `json:"bankmemory"`
     CharacterMemory []byte `json:"charmemory"`

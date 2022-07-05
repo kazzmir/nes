@@ -36,7 +36,7 @@ func (mirror NametableMirrorConfiguration) String() string {
 type PPUState struct {
     Flags byte `json:"flags"`
     Mask byte `json:"mask"`
-    /* http://wiki.nesdev.com/w/index.php/PPU_registers#PPUSTATUS */
+    /* http://wiki.nesdev.org/w/index.php/PPU_registers#PPUSTATUS */
     Status byte `json:"status"`
 
     /* counts in the y direction during rendering, from 0-262 */
@@ -67,7 +67,7 @@ type PPUState struct {
      * Nametable[0x400:0x800] should appear at 0x2400 and 0x2c00 in vertical mirroring
      * and 0x2800 and 0x2c00 in horizontal mirroring.
      *
-     * http://wiki.nesdev.com/w/index.php/PPU_nametables
+     * http://wiki.nesdev.org/w/index.php/PPU_nametables
      */
     NametableMemory []byte `json:"nametablememory"`
 
@@ -571,7 +571,7 @@ func (ppu *PPUState) GetSprites() []Sprite {
 
 func get2c02Palette() [][]uint8 {
     /* blargg's 2c02 palette
-     *   http://wiki.nesdev.com/w/index.php/PPU_palettes
+     *   http://wiki.nesdev.org/w/index.php/PPU_palettes
      */
     return [][]uint8{
         []uint8{84, 84, 84}, // 00
@@ -1292,7 +1292,7 @@ func (ppu *PPUState) UpdateMapper4Scanline(mapper Mapper){
 }
 
 func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bool, bool) {
-    /* http://wiki.nesdev.com/w/index.php/PPU_rendering */
+    /* http://wiki.nesdev.org/w/index.php/PPU_rendering */
     oldNMI := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
     didDraw := false
     for cycle := uint64(0); cycle < cycles; cycle++ {

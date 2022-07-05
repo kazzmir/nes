@@ -197,7 +197,7 @@ const (
 
 var MaxCyclesReached error = errors.New("maximum cycles reached")
 
-/* https://wiki.nesdev.com/w/index.php/NSF */
+/* https://wiki.nesdev.org/w/index.php/NSF */
 func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
     cpu := StartupState()
     cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress))

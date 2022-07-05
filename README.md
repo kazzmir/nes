@@ -2,7 +2,7 @@ An NES emulator written in Go.
 
 Resources:
 
-* Nes Development Wiki http://wiki.nesdev.com/w/index.php/Nesdev_Wiki
+* Nes Development Wiki http://wiki.nesdev.org/w/index.php/Nesdev_Wiki
 
 * Another nes emulator in go https://github.com/fogleman/nes
 

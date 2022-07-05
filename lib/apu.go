@@ -585,7 +585,7 @@ func (dmc *DMC) GenerateSample() byte {
     return dmc.OutputLevel
 }
 
-/* http://wiki.nesdev.com/w/index.php/APU_DMC */
+/* http://wiki.nesdev.org/w/index.php/APU_DMC */
 func dmcNTSCRate(value byte) uint16 {
     switch value & 0xf {
         case 0x0: return 428 /* low frequency, 4181.71hz */
@@ -909,7 +909,7 @@ func (apu *APUState) WriteTriangleTimerHigh(value byte){
     apu.Triangle.LinearCounterReloadFlag = true
 }
 
-/* http://wiki.nesdev.com/w/index.php/APU_Noise */
+/* http://wiki.nesdev.org/w/index.php/APU_Noise */
 func noisePeriod(period byte) uint16 {
     /* NTSC */
     switch period & 0xf {

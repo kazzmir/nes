@@ -1,10 +1,10 @@
 package aputest
 
 /* Test files are linked from
- *   http://wiki.nesdev.com/w/index.php/Emulator_tests
+ *   http://wiki.nesdev.org/w/index.php/Emulator_tests
  *
  * Direct link to file
- *   https://forums.nesdev.com/download/file.php?id=1494
+ *   https://forums.nesdev.org/download/file.php?id=1494
  *
  * Unzip into 'test-roms/apu'
  */

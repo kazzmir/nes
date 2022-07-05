@@ -8,7 +8,7 @@ import (
 )
 
 /* opcode references
- * http://wiki.nesdev.com/w/index.php/CPU_unofficial_opcodes -- nice table of opcodes
+ * http://wiki.nesdev.org/w/index.php/CPU_unofficial_opcodes -- nice table of opcodes
  * http://www.oxyron.de/html/opcodes02.html -- has illegal opcodes and their semantics
  * https://www.masswerk.at/6502/6502_instruction_set.html
  * http://www.6502.org/tutorials/6502opcodes.html
@@ -20,7 +20,7 @@ const ResetVector uint16 = 0xfffc
 const IRQVector uint16 = 0xfffe
 const BRKVector uint16 = 0xfff6
 
-/* http://wiki.nesdev.com/w/index.php/Cycle_reference_chart#Clock_rates
+/* http://wiki.nesdev.org/w/index.php/Cycle_reference_chart#Clock_rates
  * NTSC 2c0c clock speed is 21.47~ MHz ÷ 12 = 1.789773 MHz
  * Every second we should run this many cycles
  */
@@ -1050,7 +1050,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     // large := uint64(address)
 
     /* writes to certain ppu register are ignored before this cycle
-     * http://wiki.nesdev.com/w/index.php/PPU_power_up_state
+     * http://wiki.nesdev.org/w/index.php/PPU_power_up_state
      */
     const ignore_ppu_write_cycle = 29658
 
@@ -2217,7 +2217,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             _ = page_cross
 
             /* FIXME: probably not exactly right
-             * http://forums.nesdev.com/viewtopic.php?f=3&t=10698&start=15
+             * http://forums.nesdev.org/viewtopic.php?f=3&t=10698&start=15
              */
             cpu.StoreMemory(address, cpu.X & cpu.A & (byte(address >> 8) + 1))
 
@@ -2535,7 +2535,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             return nil
         case Instruction_PHP:
             /* PHP always sets the B flags to 1
-             * http://wiki.nesdev.com/w/index.php/CPU_ALL#The_B_flag
+             * http://wiki.nesdev.org/w/index.php/CPU_ALL#The_B_flag
              */
             value := cpu.Status | byte(1<<4) | byte(1<<5)
             cpu.PushStack(value)
@@ -4113,7 +4113,7 @@ func (cpu *CPUState) NMI() {
     cpu.Cycle += 7
 }
 
-/* http://wiki.nesdev.com/w/index.php/CPU_power_up_state */
+/* http://wiki.nesdev.org/w/index.php/CPU_power_up_state */
 func StartupState() CPUState {
     cpu := CPUState {
         A: 0,
@@ -4126,7 +4126,7 @@ func StartupState() CPUState {
         Maps: make([][]byte, 256),
     }
 
-    /* http://wiki.nesdev.com/w/index.php/CPU_memory_map */
+    /* http://wiki.nesdev.org/w/index.php/CPU_memory_map */
     memory := NewMemory(0x800)
     cpu.Ram = memory
     cpu.MapMemory(0x0, memory)
