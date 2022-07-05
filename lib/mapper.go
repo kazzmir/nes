@@ -622,27 +622,27 @@ func MakeMapper3(programRom []byte, chrMemory []byte) Mapper {
 }
 
 type Mapper4 struct {
-    ProgramRom []byte
-    CharacterRom []byte
-    SaveRam []byte
+    ProgramRom []byte `json:"programrom"`
+    CharacterRom []byte `json:"characterrom"`
+    SaveRam []byte `json:"saveram"`
 
-    lastBank int
+    LastBank int `json:"lastbank"`
 
-    irqEnabled bool
-    irqReload byte
-    irqCounter byte
-    irqPending bool
+    IrqEnabled bool `json:"irqenabled"`
+    IrqReload byte `json:"irqreload"`
+    IrqCounter byte `json:"irqcounter"`
+    IrqPending bool `json:"irqpending"`
 
-    wramEnabled bool
-    wramWrite bool
+    WramEnabled bool `json:"wramenabled"`
+    WramWrite bool `json:"wramwrite"`
 
-    chrMode byte
-    prgMode byte
+    ChrMode byte `json:"chrmode"`
+    PrgMode byte `json:"prgmode"`
     /* used to select which of the chrRegister/prgRegister to write to */
-    registerIndex byte
+    RegisterIndex byte `json:"register"`
 
-    chrRegister [6]byte
-    prgRegister [2]byte
+    ChrRegister [6]byte `json:"chrregister"`
+    PrgRegister [2]byte `json:"prgregister"`
 }
 
 func (mapper *Mapper4) Kind() int {
@@ -658,23 +658,23 @@ func (mapper *Mapper4) Copy() Mapper {
         ProgramRom: copySlice(mapper.ProgramRom),
         CharacterRom: copySlice(mapper.CharacterRom),
         SaveRam: copySlice(mapper.SaveRam),
-        lastBank: mapper.lastBank,
-        irqEnabled: mapper.irqEnabled,
-        irqReload: mapper.irqReload,
-        irqCounter: mapper.irqCounter,
-        irqPending: mapper.irqPending,
-        wramEnabled: mapper.wramEnabled,
-        wramWrite: mapper.wramWrite,
-        chrMode: mapper.chrMode,
-        prgMode: mapper.prgMode,
-        registerIndex: mapper.registerIndex,
-        chrRegister: copySlice6(mapper.chrRegister),
-        prgRegister: copySlice2(mapper.prgRegister),
+        LastBank: mapper.LastBank,
+        IrqEnabled: mapper.IrqEnabled,
+        IrqReload: mapper.IrqReload,
+        IrqCounter: mapper.IrqCounter,
+        IrqPending: mapper.IrqPending,
+        WramEnabled: mapper.WramEnabled,
+        WramWrite: mapper.WramWrite,
+        ChrMode: mapper.ChrMode,
+        PrgMode: mapper.PrgMode,
+        RegisterIndex: mapper.RegisterIndex,
+        ChrRegister: copySlice6(mapper.ChrRegister),
+        PrgRegister: copySlice2(mapper.PrgRegister),
     }
 }
 
 func (mapper *Mapper4) IsIRQAsserted() bool {
-    return mapper.irqPending
+    return mapper.IrqPending
 }
 
 func (mapper *Mapper4) ProgramBlock(page byte) ([]byte, error) {
@@ -704,7 +704,7 @@ func (mapper *Mapper4) ReadBank(offset uint16, bank int) byte {
 func (mapper *Mapper4) Read(address uint16) byte {
     if address >= 0x6000 && address < 0x8000 {
 
-        if mapper.wramEnabled {
+        if mapper.WramEnabled {
             use := address - 0x6000
             return mapper.SaveRam[use]
         }
@@ -712,29 +712,29 @@ func (mapper *Mapper4) Read(address uint16) byte {
         return 0
     }
 
-    switch mapper.prgMode {
+    switch mapper.PrgMode {
         case 0:
             if address >= 0x8000 && address < 0xa000 {
-                return mapper.ReadBank(address-0x8000, int(mapper.prgRegister[0]))
+                return mapper.ReadBank(address-0x8000, int(mapper.PrgRegister[0]))
             } else if address >= 0xa000 && address < 0xc000 {
-                return mapper.ReadBank(address-0xa000, int(mapper.prgRegister[1]))
+                return mapper.ReadBank(address-0xa000, int(mapper.PrgRegister[1]))
             } else if address >= 0xc000 && address < 0xe000 {
-                return mapper.ReadBank(address-0xc000, mapper.lastBank-1)
+                return mapper.ReadBank(address-0xc000, mapper.LastBank-1)
             } else {
-                return mapper.ReadBank(address-0xe000, mapper.lastBank)
+                return mapper.ReadBank(address-0xe000, mapper.LastBank)
             }
         case 1:
             if address >= 0x8000 && address < 0xa000 {
-                return mapper.ReadBank(address-0x8000, mapper.lastBank-1)
+                return mapper.ReadBank(address-0x8000, mapper.LastBank-1)
             } else if address >= 0xa000 && address < 0xc000 {
-                return mapper.ReadBank(address-0xa000, int(mapper.prgRegister[1]))
+                return mapper.ReadBank(address-0xa000, int(mapper.PrgRegister[1]))
             } else if address >= 0xc000 && address < 0xe000 {
-                return mapper.ReadBank(address-0xc000, int(mapper.prgRegister[0]))
+                return mapper.ReadBank(address-0xc000, int(mapper.PrgRegister[0]))
             } else {
-                return mapper.ReadBank(address-0xe000, mapper.lastBank)
+                return mapper.ReadBank(address-0xe000, mapper.LastBank)
             }
         default:
-            log.Printf("mapper4: unknown prg mode %v", mapper.prgMode)
+            log.Printf("mapper4: unknown prg mode %v", mapper.PrgMode)
             return 0
     }
 
@@ -754,26 +754,26 @@ func (mapper *Mapper4) CharacterBlock(length uint32, page byte) []byte {
 }
 
 func (mapper *Mapper4) SetChrBank(ppu *PPUState) error {
-    switch mapper.chrMode {
+    switch mapper.ChrMode {
         case 0:
-            ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x800, mapper.chrRegister[0]))
-            ppu.CopyCharacterRom(0x0800, mapper.CharacterBlock(0x800, mapper.chrRegister[1]))
-            ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x400, mapper.chrRegister[2]))
-            ppu.CopyCharacterRom(0x1400, mapper.CharacterBlock(0x400, mapper.chrRegister[3]))
-            ppu.CopyCharacterRom(0x1800, mapper.CharacterBlock(0x400, mapper.chrRegister[4]))
-            ppu.CopyCharacterRom(0x1c00, mapper.CharacterBlock(0x400, mapper.chrRegister[5]))
+            ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x800, mapper.ChrRegister[0]))
+            ppu.CopyCharacterRom(0x0800, mapper.CharacterBlock(0x800, mapper.ChrRegister[1]))
+            ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x400, mapper.ChrRegister[2]))
+            ppu.CopyCharacterRom(0x1400, mapper.CharacterBlock(0x400, mapper.ChrRegister[3]))
+            ppu.CopyCharacterRom(0x1800, mapper.CharacterBlock(0x400, mapper.ChrRegister[4]))
+            ppu.CopyCharacterRom(0x1c00, mapper.CharacterBlock(0x400, mapper.ChrRegister[5]))
             return nil
         case 1:
-            ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x400, mapper.chrRegister[2]))
-            ppu.CopyCharacterRom(0x0400, mapper.CharacterBlock(0x400, mapper.chrRegister[3]))
-            ppu.CopyCharacterRom(0x0800, mapper.CharacterBlock(0x400, mapper.chrRegister[4]))
-            ppu.CopyCharacterRom(0x0c00, mapper.CharacterBlock(0x400, mapper.chrRegister[5]))
-            ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x800, mapper.chrRegister[0]))
-            ppu.CopyCharacterRom(0x1800, mapper.CharacterBlock(0x800, mapper.chrRegister[1]))
+            ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x400, mapper.ChrRegister[2]))
+            ppu.CopyCharacterRom(0x0400, mapper.CharacterBlock(0x400, mapper.ChrRegister[3]))
+            ppu.CopyCharacterRom(0x0800, mapper.CharacterBlock(0x400, mapper.ChrRegister[4]))
+            ppu.CopyCharacterRom(0x0c00, mapper.CharacterBlock(0x400, mapper.ChrRegister[5]))
+            ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x800, mapper.ChrRegister[0]))
+            ppu.CopyCharacterRom(0x1800, mapper.CharacterBlock(0x800, mapper.ChrRegister[1]))
             return nil
     }
 
-    return fmt.Errorf("mapper4: unknown chr mode %v", mapper.chrMode)
+    return fmt.Errorf("mapper4: unknown chr mode %v", mapper.ChrMode)
 }
 
 func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
@@ -781,7 +781,7 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
 
         address -= 0x6000
 
-        if mapper.wramEnabled && mapper.wramWrite {
+        if mapper.WramEnabled && mapper.WramWrite {
             mapper.SaveRam[address] = value
         }
 
@@ -791,22 +791,22 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
     // log.Printf("mapper4: write to 0x%x value 0x%x", address, value)
     switch address {
         case 0x8000:
-            mapper.chrMode = (value >> 7) & 0x1
-            mapper.prgMode = (value >> 6) & 0x1
+            mapper.ChrMode = (value >> 7) & 0x1
+            mapper.PrgMode = (value >> 6) & 0x1
 
-            mapper.registerIndex = value & 0x7
+            mapper.RegisterIndex = value & 0x7
             mapper.SetChrBank(&cpu.PPU)
         case 0x8001:
-            switch mapper.registerIndex {
+            switch mapper.RegisterIndex {
                 case 0, 1, 2, 3, 4, 5:
-                    if mapper.registerIndex == 0 || mapper.registerIndex == 1 {
+                    if mapper.RegisterIndex == 0 || mapper.RegisterIndex == 1 {
                         value = value & (^byte(1))
                     }
-                    mapper.chrRegister[mapper.registerIndex] = value
+                    mapper.ChrRegister[mapper.RegisterIndex] = value
                     mapper.SetChrBank(&cpu.PPU)
                 case 6, 7:
                     /* only use the first 6 bits, top two are ignored */
-                    mapper.prgRegister[mapper.registerIndex-6] = value & 0x3f
+                    mapper.PrgRegister[mapper.RegisterIndex-6] = value & 0x3f
             }
         case 0xa000:
             mirror := value & 0x1
@@ -820,19 +820,19 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
         case 0xa001:
             /* prg ram protect */
 
-            mapper.wramEnabled = (value >> 7) & 0x1 == 0x1
-            mapper.wramWrite = (value >> 6) & 0x1 == 0
+            mapper.WramEnabled = (value >> 7) & 0x1 == 0x1
+            mapper.WramWrite = (value >> 6) & 0x1 == 0
 
             break
         case 0xc000:
-            mapper.irqReload = value
+            mapper.IrqReload = value
         case 0xc001:
-            mapper.irqCounter = value
+            mapper.IrqCounter = value
         case 0xe000:
-            mapper.irqEnabled = false
-            mapper.irqPending = false
+            mapper.IrqEnabled = false
+            mapper.IrqPending = false
         case 0xe001:
-            mapper.irqEnabled = true
+            mapper.IrqEnabled = true
         default:
             log.Printf("FIXME: unknown mapper4 write to 0x%x with 0x%x", address, value)
     }
@@ -841,12 +841,12 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
 }
 
 func (mapper *Mapper4) Scanline() {
-    if mapper.irqCounter == 0 {
-        mapper.irqCounter = mapper.irqReload
+    if mapper.IrqCounter == 0 {
+        mapper.IrqCounter = mapper.IrqReload
     } else {
-        mapper.irqCounter -= 1
-        if mapper.irqCounter == 0 && mapper.irqEnabled {
-            mapper.irqPending = true
+        mapper.IrqCounter -= 1
+        if mapper.IrqCounter == 0 && mapper.IrqEnabled {
+            mapper.IrqPending = true
         }
     }
 }
@@ -859,7 +859,7 @@ func MakeMapper4(programRom []byte, chrMemory []byte) Mapper {
         ProgramRom: programRom,
         CharacterRom: chrMemory,
         SaveRam: make([]byte, 0x2000),
-        lastBank: pages-1,
+        LastBank: pages-1,
     }
 }
 
