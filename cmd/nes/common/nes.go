@@ -10,6 +10,7 @@ import (
     "os"
     "fmt"
     "compress/gzip"
+    "encoding/json"
     nes "github.com/kazzmir/nes/lib"
 )
 
@@ -173,7 +174,9 @@ func doSerializeState(quit context.Context, state *nes.CPUState, sha256 string){
     compressor := gzip.NewWriter(output)
     defer compressor.Close()
 
-    err = state.Serialize(compressor)
+    encoder := json.NewEncoder(compressor)
+    err = encoder.Encode(state)
+
     if err != nil {
         log.Printf("Unable to serialize saved state: %v", err)
     }
@@ -216,11 +219,13 @@ func loadCpuState(sha256 string) (*nes.CPUState, error) {
     }
     defer decompress.Close()
 
-    state, err := nes.DeserializeState(decompress)
+    var out nes.CPUState
+    decoder := json.NewDecoder(decompress)
+    err = decoder.Decode(&out)
     if err != nil {
         return nil, err
     }
-    return state, nil
+    return &out, nil
 }
 
 var MaxCyclesReached error = errors.New("maximum cycles reached")
@@ -328,7 +333,6 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     switch action {
                         case EmulatorSaveState:
                             value := cpu.Copy()
-                            // cpuSavedState = &value
                             go serializeState(quit, &value, getSha256())
                             log.Printf("State saved")
                         case EmulatorLoadState:

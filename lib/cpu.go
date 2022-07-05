@@ -5,7 +5,6 @@ import (
     "fmt"
     "log"
     "io"
-    "encoding/json"
 )
 
 /* opcode references
@@ -777,21 +776,6 @@ type CPUState struct {
     Input *Input `json:"-"`
 
     Mapper MapperState `json:"mapper"`
-}
-
-func (cpu *CPUState) Serialize(writer io.Writer) error {
-    encoder := json.NewEncoder(writer)
-    return encoder.Encode(cpu)
-}
-
-func DeserializeState(reader io.Reader) (*CPUState, error) {
-    var out CPUState
-    decoder := json.NewDecoder(reader)
-    err := decoder.Decode(&out)
-    if err != nil {
-        return nil, err
-    }
-    return &out, nil
 }
 
 func (cpu *CPUState) Load(other *CPUState){
