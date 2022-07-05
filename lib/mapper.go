@@ -864,10 +864,10 @@ func MakeMapper4(programRom []byte, chrMemory []byte) Mapper {
 }
 
 type Mapper7 struct {
-    ProgramRom []byte
-    CharacterRom []byte
-    Bank int // 0-7
-    Mirror int // 0=1ScA, 1=1ScB
+    ProgramRom []byte `json:"programrom"`
+    CharacterRom []byte `json:"characterrom"`
+    Bank int `json:"bank"` // 0-7
+    Mirror int `json:"mirror"` // 0=1ScA, 1=1ScB
 }
 
 func (mapper *Mapper7) Compare(other Mapper) error {
@@ -943,12 +943,12 @@ func (mapper *Mapper7) Write(cpu *CPUState, address uint16, value byte) error {
 }
 
 type Mapper9 struct {
-    ProgramRom []byte
-    CharacterRom []byte
-    Pages int
+    ProgramRom []byte `json:"programrom"`
+    CharacterRom []byte `json:"characterrom"`
+    Pages int `json:"pages"`
 
-    prgRegister byte
-    chrRegister [4]byte
+    PrgRegister byte `json:"prg"`
+    ChrRegister [4]byte `json:"chr"`
 }
 
 func (mapper *Mapper9) Compare(other Mapper) error {
@@ -964,8 +964,8 @@ func (mapper *Mapper9) Copy() Mapper {
         ProgramRom: copySlice(mapper.ProgramRom),
         CharacterRom: copySlice(mapper.CharacterRom),
         Pages: mapper.Pages,
-        prgRegister: mapper.prgRegister,
-        chrRegister: copySlice4(mapper.chrRegister),
+        PrgRegister: mapper.PrgRegister,
+        ChrRegister: copySlice4(mapper.ChrRegister),
     }
 }
 
@@ -980,7 +980,7 @@ func (mapper *Mapper9) ReadBank(offset uint16, bank int) byte {
 
 func (mapper *Mapper9) Read(address uint16) byte {
     if address >= 0x8000 && address < 0xa000 {
-        return mapper.ReadBank(address - 0x8000, int(mapper.prgRegister))
+        return mapper.ReadBank(address - 0x8000, int(mapper.PrgRegister))
     } else if address >= 0xa000 && address < 0xc000 {
         return mapper.ReadBank(address - 0xa000, mapper.Pages-3)
     } else if address >= 0xc000 && address < 0xe000 {
@@ -999,31 +999,31 @@ func (mapper *Mapper9) CharacterBlock(pageSize uint16, register byte) []byte {
 
 func (mapper *Mapper9) SetChrBank(ppu *PPUState) {
     /* FIXME: Use chrRegister 0 or 2 depending on the ppu latch set at $fd or $fe */
-    ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x1000, mapper.chrRegister[1]))
+    ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x1000, mapper.ChrRegister[1]))
     /* FIXME: Use chrRegister 1 or 3 depending on the ppu latch set at $fd or $fe */
-    ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x1000, mapper.chrRegister[2]))
+    ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x1000, mapper.ChrRegister[2]))
 }
 
 func (mapper *Mapper9) Write(cpu *CPUState, address uint16, value byte) error {
     page := address >> 12
     switch page {
         case 0xa:
-            mapper.prgRegister = value
+            mapper.PrgRegister = value
             return nil
         case 0xb:
-            mapper.chrRegister[0] = value
+            mapper.ChrRegister[0] = value
             mapper.SetChrBank(&cpu.PPU)
             return nil
         case 0xc:
-            mapper.chrRegister[1] = value
+            mapper.ChrRegister[1] = value
             mapper.SetChrBank(&cpu.PPU)
             return nil
         case 0xd:
-            mapper.chrRegister[2] = value
+            mapper.ChrRegister[2] = value
             mapper.SetChrBank(&cpu.PPU)
             return nil
         case 0xe:
-            mapper.chrRegister[3] = value
+            mapper.ChrRegister[3] = value
             mapper.SetChrBank(&cpu.PPU)
             return nil
         case 0xf:
