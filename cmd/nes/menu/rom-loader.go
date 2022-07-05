@@ -16,10 +16,8 @@ import (
     "fmt"
     "sort"
     "time"
-    "io"
     "io/ioutil"
     "strings"
-    "crypto/sha256"
 
     imagelib "image"
     "image/png"
@@ -103,7 +101,7 @@ var computeIdentifier sync.Once
 /* compute the sha256 of the program itself */
 func getUniqueProgramIdentifier() string {
     computeIdentifier.Do(func (){
-        value, err := getSha256(os.Args[0])
+        value, err := common.GetSha256(os.Args[0])
         if err != nil {
             log.Printf("Warning: could not compute program hash: %v", err)
             /* couldn't read the program hash for some reason, just compute some random string */
@@ -116,19 +114,6 @@ func getUniqueProgramIdentifier() string {
     })
 
     return uniqueIdentifier
-}
-
-func getSha256(path string) (string, error){
-    hash := sha256.New()
-    data, err := os.Open(path)
-    if err != nil {
-        return "", err
-    }
-    _, err = io.Copy(hash, data)
-    if err != nil {
-        return "", err
-    }
-    return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
 func getHome() string {
@@ -196,7 +181,7 @@ func getCachedThumbnails(loaderQuit context.Context, romId RomId, path string, a
      * otherwise read each png and pass them to the addFrame
      */
 
-    sha, err := getSha256(path)
+    sha, err := common.GetSha256(path)
     if err != nil {
         // log.Printf("cached-thumbnail: could not get sha256")
         return false
@@ -323,7 +308,7 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
     var err error
     cachedSha := ""
     if doCache {
-        cachedSha, err = getSha256(path)
+        cachedSha, err = common.GetSha256(path)
         if err != nil {
             log.Printf("Could not get sha of '%v': %v", path, err)
             cachedSha = "x"
@@ -376,7 +361,7 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
     const maxCycles = uint64(30 * nes.CPUSpeed)
 
     log.Printf("Start loading %v", path)
-    err = common.RunNES(&cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
+    err = common.RunNES(path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
     if err == common.MaxCyclesReached {
         log.Printf("%v complete", path)
     }

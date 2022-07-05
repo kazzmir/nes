@@ -110,6 +110,7 @@ type NESFile struct {
     Mapper uint32
     HorizontalMirror bool
     VerticalMirror bool
+    Path string
 }
 
 func ParseNesFile(path string, debug bool) (NESFile, error) {
@@ -197,6 +198,7 @@ func ParseNesFile(path string, debug bool) (NESFile, error) {
         Mapper: uint32(mapper),
         HorizontalMirror: horizontalMirror,
         VerticalMirror: verticalMirror,
+        Path: path,
     }, nil
 }
 
