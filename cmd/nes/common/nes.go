@@ -292,7 +292,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                 sha256 = value
             } else {
                 log.Printf("Unable to compute sha256 for '%v': %v", romPath, err)
-                sha256 = fmt.Sprintf("%x", time.Now().UnixNano)
+                sha256 = fmt.Sprintf("%x", time.Now().UnixNano())
             }
         })
 
