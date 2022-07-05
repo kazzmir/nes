@@ -153,6 +153,14 @@ func SetupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     return cpu, nil
 }
 
+const SaveStateVersion = 1
+
+type SaveState struct {
+    State *nes.CPUState `json:"state"`
+    Version int `json:"version"`
+    Date time.Time `json:"time"`
+}
+
 func doSerializeState(quit context.Context, state *nes.CPUState, sha256 string){
     path, err := GetOrCreateConfigDir()
     if err != nil {
@@ -175,7 +183,11 @@ func doSerializeState(quit context.Context, state *nes.CPUState, sha256 string){
     defer compressor.Close()
 
     encoder := json.NewEncoder(compressor)
-    err = encoder.Encode(state)
+    err = encoder.Encode(SaveState{
+        State: state,
+        Version: SaveStateVersion,
+        Date: time.Now(),
+    })
 
     if err != nil {
         log.Printf("Unable to serialize saved state: %v", err)
@@ -219,13 +231,16 @@ func loadCpuState(sha256 string) (*nes.CPUState, error) {
     }
     defer decompress.Close()
 
-    var out nes.CPUState
+    var out SaveState
     decoder := json.NewDecoder(decompress)
     err = decoder.Decode(&out)
     if err != nil {
         return nil, err
     }
-    return &out, nil
+    if out.Version != SaveStateVersion {
+        return nil, fmt.Errorf("invalid save state version: %v vs %v", out.Version, SaveStateVersion)
+    }
+    return out.State, nil
 }
 
 var MaxCyclesReached error = errors.New("maximum cycles reached")
