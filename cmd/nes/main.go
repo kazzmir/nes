@@ -270,14 +270,23 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     log.Printf("Initializing SDL")
 
-    err := sdl.Init(sdl.INIT_EVERYTHING)
+    var err error
+    sdl.Do(func(){
+        err = sdl.Init(sdl.INIT_EVERYTHING)
+    })
     if err != nil {
         return err
     }
-    defer sdl.Quit()
+    defer sdl.Do(func(){
+        sdl.Quit()
+    })
 
-    sdl.DisableScreenSaver()
-    defer sdl.EnableScreenSaver()
+    sdl.Do(func(){
+        sdl.DisableScreenSaver()
+    })
+    defer sdl.Do(func(){
+        sdl.EnableScreenSaver()
+    })
 
     log.Printf("Create window")
     /* to resize the window */
@@ -327,8 +336,12 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         return err
     }
 
-    defer window.Destroy()
-    defer renderer.Destroy()
+    defer sdl.Do(func(){
+        window.Destroy()
+    })
+    defer sdl.Do(func(){
+        renderer.Destroy()
+    })
 
     /* debug stuff
     numDrivers, err := sdl.GetNumRenderDrivers()
