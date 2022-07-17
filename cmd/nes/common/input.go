@@ -223,20 +223,21 @@ func (manager *JoystickManager) Get() nes.ButtonMapping {
 }
 
 type SDLKeyboardButtons struct {
+    Keys EmulatorKeys
 }
 
 func (buttons *SDLKeyboardButtons) Get() nes.ButtonMapping {
     mapping := make(nes.ButtonMapping)
 
     keyboard := sdl.GetKeyboardState()
-    mapping[nes.ButtonIndexA] = keyboard[sdl.SCANCODE_A] == 1
-    mapping[nes.ButtonIndexB] = keyboard[sdl.SCANCODE_S] == 1
-    mapping[nes.ButtonIndexSelect] = keyboard[sdl.SCANCODE_Q] == 1
-    mapping[nes.ButtonIndexStart] = keyboard[sdl.SCANCODE_RETURN] == 1
-    mapping[nes.ButtonIndexUp] = keyboard[sdl.SCANCODE_UP] == 1
-    mapping[nes.ButtonIndexDown] = keyboard[sdl.SCANCODE_DOWN] == 1
-    mapping[nes.ButtonIndexLeft] = keyboard[sdl.SCANCODE_LEFT] == 1
-    mapping[nes.ButtonIndexRight] = keyboard[sdl.SCANCODE_RIGHT] == 1
+    mapping[nes.ButtonIndexA] = keyboard[buttons.Keys.ButtonA] == 1
+    mapping[nes.ButtonIndexB] = keyboard[buttons.Keys.ButtonB] == 1
+    mapping[nes.ButtonIndexSelect] = keyboard[buttons.Keys.ButtonSelect] == 1
+    mapping[nes.ButtonIndexStart] = keyboard[buttons.Keys.ButtonStart] == 1
+    mapping[nes.ButtonIndexUp] = keyboard[buttons.Keys.ButtonUp] == 1
+    mapping[nes.ButtonIndexDown] = keyboard[buttons.Keys.ButtonDown] == 1
+    mapping[nes.ButtonIndexLeft] = keyboard[buttons.Keys.ButtonLeft] == 1
+    mapping[nes.ButtonIndexRight] = keyboard[buttons.Keys.ButtonRight] == 1
 
     return mapping
 }

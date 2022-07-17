@@ -618,10 +618,14 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     go makeAudioWorker(audioDevice, audioInput, audioActionsInput, mainQuit)()
 
+    emulatorKeys := common.DefaultEmulatorKeys()
+
     startNES := func(nesFile nes.NESFile, quit context.Context){
         cpu, err := common.SetupCPU(nesFile, debug)
 
-        var input nes.HostInput = &common.SDLKeyboardButtons{}
+        var input nes.HostInput = &common.SDLKeyboardButtons{
+            Keys: emulatorKeys,
+        }
         combined := common.MakeCombineButtons(input, joystickManager)
         input = &combined
         cpu.Input = nes.MakeInput(input)
@@ -691,8 +695,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
         nesWaiter.Wait()
     }()
-
-    emulatorKeys := common.DefaultEmulatorKeys()
 
     recordQuit, recordCancel := context.WithCancel(mainQuit)
     if recordOnStart {
