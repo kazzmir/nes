@@ -1039,7 +1039,7 @@ $ nes [rom.nes]
 Options:
   -h, --help: this help
   -debug, --debug: enable debug output
-  -size, --size #: start the window at a multiple of the default size
+  -size, --size #: start the window at a multiple of the nes screen size of 320x200 (default 3)
   -record: enable recording to an mp4 when the rom loads
   -fps #: set a desired frame rate
   -cycles, --cycles #: limit the emulator to only run for some number of cycles
@@ -1055,6 +1055,9 @@ Options:
                 windowSizeMultiple, err := strconv.ParseInt(os.Args[argIndex], 10, 64)
                 if err != nil {
                     return arguments, fmt.Errorf("Error reading size argument: %v", err)
+                }
+                if windowSizeMultiple < 1 {
+                    windowSizeMultiple = 1
                 }
                 arguments.WindowSizeMultiple = int(windowSizeMultiple)
             case "-record":
