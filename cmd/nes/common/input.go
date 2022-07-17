@@ -232,8 +232,6 @@ type SDLKeyboardButtons struct {
     ButtonTurboB bool
     TurboACounter int
     TurboBCounter int
-    TurboAReleased bool
-    TurboBReleased bool
     ButtonSelect bool
     ButtonStart bool
     ButtonUp bool
