@@ -265,7 +265,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     // force a software renderer
     if !util.HasGlxinfo() {
-        sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
+        sdl.Do(func(){
+            sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
+        })
     }
 
     log.Printf("Initializing SDL")
@@ -690,17 +692,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         nesWaiter.Wait()
     }()
 
-    var turboKey sdl.Scancode = sdl.SCANCODE_GRAVE
-    var pauseKey sdl.Scancode = sdl.SCANCODE_SPACE
-    var hardResetKey sdl.Scancode = sdl.SCANCODE_R
-    var ppuDebugKey sdl.Scancode = sdl.SCANCODE_P
-    var slowDownKey sdl.Scancode = sdl.SCANCODE_MINUS
-    var speedUpKey sdl.Scancode = sdl.SCANCODE_EQUALS
-    var normalKey sdl.Scancode = sdl.SCANCODE_0
-    var stepFrameKey sdl.Scancode = sdl.SCANCODE_O
-    var recordKey sdl.Scancode = sdl.SCANCODE_M
-    var saveStateKey sdl.Scancode = sdl.SCANCODE_1
-    var loadStateKey sdl.Scancode = sdl.SCANCODE_2
+    emulatorKeys := common.DefaultEmulatorKeys()
 
     recordQuit, recordCancel := context.WithCancel(mainQuit)
     if recordOnStart {
@@ -847,17 +839,17 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
 
                     switch keyboard_event.Keysym.Scancode {
-                        case turboKey:
+                        case emulatorKeys.Turbo:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorTurbo:
                                 default:
                             }
-                        case stepFrameKey:
+                        case emulatorKeys.StepFrame:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorStepFrame:
                                 default:
                             }
-                        case saveStateKey:
+                        case emulatorKeys.SaveState:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorSaveState:
                                     select {
@@ -866,7 +858,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                     }
                                 default:
                             }
-                        case loadStateKey:
+                        case emulatorKeys.LoadState:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorLoadState:
                                     select {
@@ -875,7 +867,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                     }
                                 default:
                             }
-                        case recordKey:
+                        case emulatorKeys.Record:
                             if recordQuit.Err() == nil {
                                 recordCancel()
                                 select {
@@ -893,33 +885,33 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                     default:
                                 }
                             }
-                        case pauseKey:
+                        case emulatorKeys.Pause:
                             log.Printf("Pause/unpause")
                             select {
                                 case emulatorActionsOutput <- common.EmulatorTogglePause:
                                 default:
                             }
-                        case ppuDebugKey:
+                        case emulatorKeys.PPUDebug:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorTogglePPUDebug:
                                 default:
                             }
-                        case slowDownKey:
+                        case emulatorKeys.SlowDown:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorSlowDown:
                                 default:
                             }
-                        case speedUpKey:
+                        case emulatorKeys.SpeedUp:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorSpeedUp:
                                 default:
                             }
-                        case normalKey:
+                        case emulatorKeys.Normal:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorNormal:
                                 default:
                             }
-                        case hardResetKey:
+                        case emulatorKeys.HardReset:
                             log.Printf("Hard reset")
                             nesChannel <- &NesActionRestart{}
                             select {
@@ -930,7 +922,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 case sdl.KEYUP:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     scancode := keyboard_event.Keysym.Scancode
-                    if scancode == turboKey || scancode == pauseKey {
+                    if scancode == emulatorKeys.Turbo || scancode == emulatorKeys.Pause {
                         select {
                             case emulatorActionsOutput <- common.EmulatorNormal:
                             default:

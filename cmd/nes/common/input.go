@@ -426,3 +426,50 @@ func (combine *CombineButtons) Get() nes.ButtonMapping {
     return mapping
 }
 
+type EmulatorKeys struct {
+    Turbo sdl.Scancode
+    Pause sdl.Scancode
+    HardReset sdl.Scancode
+    PPUDebug sdl.Scancode
+    SlowDown sdl.Scancode
+    SpeedUp sdl.Scancode
+    Normal sdl.Scancode
+    StepFrame sdl.Scancode
+    Record sdl.Scancode
+    SaveState sdl.Scancode
+    LoadState sdl.Scancode
+
+    ButtonA sdl.Scancode
+    ButtonB sdl.Scancode
+    ButtonSelect sdl.Scancode
+    ButtonStart sdl.Scancode
+    ButtonUp sdl.Scancode
+    ButtonDown sdl.Scancode
+    ButtonLeft sdl.Scancode
+    ButtonRight sdl.Scancode
+}
+
+func DefaultEmulatorKeys() EmulatorKeys {
+    return EmulatorKeys {
+        Turbo: sdl.SCANCODE_GRAVE,
+        Pause: sdl.SCANCODE_SPACE,
+        HardReset: sdl.SCANCODE_R,
+        PPUDebug: sdl.SCANCODE_P,
+        SlowDown: sdl.SCANCODE_MINUS,
+        SpeedUp: sdl.SCANCODE_EQUALS,
+        Normal: sdl.SCANCODE_0,
+        StepFrame: sdl.SCANCODE_O,
+        Record: sdl.SCANCODE_M,
+        SaveState: sdl.SCANCODE_1,
+        LoadState: sdl.SCANCODE_2,
+
+        ButtonA: sdl.SCANCODE_A,
+        ButtonB: sdl.SCANCODE_S,
+        ButtonSelect: sdl.SCANCODE_Q,
+        ButtonStart: sdl.SCANCODE_RETURN,
+        ButtonUp:  sdl.SCANCODE_UP,
+        ButtonDown: sdl.SCANCODE_DOWN,
+        ButtonLeft: sdl.SCANCODE_LEFT,
+        ButtonRight: sdl.SCANCODE_RIGHT,
+    }
+}
