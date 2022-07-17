@@ -267,6 +267,24 @@ type RenderManager struct {
     Layers RenderLayerList
 }
 
+func (manager *RenderManager) Replace(index int, layer RenderLayer){
+    manager.RemoveByIndex(index)
+    manager.AddLayer(layer)
+}
+
+func (manager *RenderManager) RemoveByIndex(index int){
+    var out []RenderLayer
+
+    for _, layer := range manager.Layers {
+        if layer.ZIndex() != index {
+            out = append(out, layer)
+        }
+    }
+
+    manager.Layers = out
+
+}
+
 func (manager *RenderManager) AddLayer(layer RenderLayer){
     manager.Layers = append(manager.Layers, layer)
     sort.Sort(manager.Layers)
@@ -371,6 +389,33 @@ func (layer *EmulatorMessageLayer) Run(quit context.Context){
                 layer.emulatorMessages = layer.emulatorMessages[i:]
         }
     }
+}
+
+type OverlayMessageLayer struct {
+    Message string
+    Index int
+}
+
+func (layer *OverlayMessageLayer) ZIndex() int {
+    return layer.Index
+}
+
+func (layer *OverlayMessageLayer) Render(info RenderInfo) error {
+    width, height := info.Window.GetSize()
+
+    font := info.Font
+    renderer := info.Renderer
+
+    black := sdl.Color{R: 0, G: 0, B: 0, A: 200}
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 200}
+    messageLength := common.TextWidth(font, layer.Message)
+    x := int(width)/2 - messageLength / 2
+    y := int(height)/2
+    renderer.SetDrawColor(black.R, black.G, black.B, black.A)
+    renderer.FillRect(&sdl.Rect{X: int32(x - 10), Y: int32(y - 10), W: int32(messageLength + 10 + 5), H: int32(font.Height() + 10 + 5)})
+
+    common.WriteFont(font, renderer, x, y, layer.Message, white)
+    return nil
 }
 
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
@@ -661,11 +706,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             return nil
         }
 
-        /* render this message in between the nes frame and the menu overlay.
-         * this feels a bit hacky
-         */
-        overlayMessage := ""
-
         render := func (){
             err := renderManager.RenderAll(RenderInfo{
                 Renderer: renderer,
@@ -676,20 +716,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
             if err != nil {
                 log.Printf("Warning: could not render: %v", err)
-            }
-
-            if overlayMessage != "" {
-                width, height := window.GetSize()
-
-                black := sdl.Color{R: 0, G: 0, B: 0, A: 200}
-                white := sdl.Color{R: 255, G: 255, B: 255, A: 200}
-                messageLength := common.TextWidth(font, overlayMessage)
-                x := int(width)/2 - messageLength / 2
-                y := int(height)/2
-                renderer.SetDrawColor(black.R, black.G, black.B, black.A)
-                renderer.FillRect(&sdl.Rect{X: int32(x - 10), Y: int32(y - 10), W: int32(messageLength + 10 + 5), H: int32(font.Height() + 10 + 5)})
-
-                common.WriteFont(font, renderer, x, y, overlayMessage, white)
             }
 
             /* this is the menu overlay usually */
@@ -714,7 +740,14 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     canRender = false
                     bufferReady <- screen
                 case message := <-renderOverlayUpdate:
-                    overlayMessage = message
+                    if message == "" {
+                        renderManager.RemoveByIndex(2)
+                    } else {
+                        renderManager.Replace(2, &OverlayMessageLayer{
+                            Message: message,
+                            Index: 2,
+                        })
+                    }
                     sdl.Do(render)
                 case newFunction := <-renderFuncUpdate:
                     if newFunction == nil {
