@@ -725,10 +725,11 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
 
 func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
-        _, _, err := menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        _, y, err := menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
 
         x := 50
-        y := 150
+        /* FIXME: base this on the size of a button */
+        y += 50
         for _, line := range strings.Split(menu.ExtraInfo, "\n") {
             white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
             common.WriteFont(smallFont, renderer, x, y, line, white)
