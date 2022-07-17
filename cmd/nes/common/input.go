@@ -293,6 +293,9 @@ func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
     switch event.GetType() {
         case sdl.KEYDOWN: set = true
         case sdl.KEYUP: set = false
+        default:
+            /* what is this? */
+            return
     }
 
     switch event.Keysym.Scancode {
