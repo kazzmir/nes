@@ -3,6 +3,7 @@ package common
 import (
     "bytes"
     "sort"
+    "sync"
     "encoding/binary"
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
@@ -129,6 +130,8 @@ type RenderLayer interface {
 
 type RenderManager struct {
     Layers RenderLayerList
+    /* FIXME: maybe use the actor-style message passing loop instead of a lock */
+    Lock sync.Mutex
 }
 
 func (manager *RenderManager) Replace(index int, layer RenderLayer){
@@ -137,6 +140,9 @@ func (manager *RenderManager) Replace(index int, layer RenderLayer){
 }
 
 func (manager *RenderManager) RemoveByIndex(index int){
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
     var out []RenderLayer
 
     for _, layer := range manager.Layers {
@@ -150,11 +156,17 @@ func (manager *RenderManager) RemoveByIndex(index int){
 }
 
 func (manager *RenderManager) AddLayer(layer RenderLayer){
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
     manager.Layers = append(manager.Layers, layer)
     sort.Sort(manager.Layers)
 }
 
 func (manager *RenderManager) RemoveLayer(remove RenderLayer){
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
     var out []RenderLayer
 
     for _, layer := range manager.Layers {
@@ -166,8 +178,18 @@ func (manager *RenderManager) RemoveLayer(remove RenderLayer){
     manager.Layers = out
 }
 
+func copyArray[T any](in []T) []T {
+    x := make([]T, len(in))
+    copy(x, in)
+    return x
+}
+
 func (manager *RenderManager) RenderAll(info RenderInfo) error {
-    for _, layer := range manager.Layers {
+    manager.Lock.Lock()
+    layers := copyArray(manager.Layers)
+    manager.Lock.Unlock()
+
+    for _, layer := range layers {
         err := layer.Render(info)
         if err != nil {
             return err
