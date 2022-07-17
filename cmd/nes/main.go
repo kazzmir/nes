@@ -14,6 +14,7 @@ import (
     "os"
     "os/signal"
     "path/filepath"
+    "sort"
     "math/rand"
 
     nes "github.com/kazzmir/nes/lib"
@@ -251,6 +252,70 @@ type EmulatorMessage struct {
     DeathTime time.Time
 }
 
+type RenderLayer interface {
+    Render(*sdl.Renderer) error
+    ZIndex() int // order of the layer
+}
+
+type DefaultRenderLayer struct {
+    RenderFunc func(*sdl.Renderer) error
+    Index int
+}
+
+func (layer *DefaultRenderLayer) Render(renderer *sdl.Renderer) error {
+    return layer.RenderFunc(renderer)
+}
+
+func (layer *DefaultRenderLayer) ZIndex() int {
+    return layer.Index
+}
+
+type RenderLayerList []RenderLayer
+
+func (list RenderLayerList) Len() int {
+    return len(list)
+}
+
+func (list RenderLayerList) Swap(a int, b int){
+    list[a], list[b] = list[b], list[a]
+}
+
+func (list RenderLayerList) Less(a int, b int) bool {
+    return list[a].ZIndex() < list[b].ZIndex()
+}
+
+type RenderManager struct {
+    Layers RenderLayerList
+}
+
+func (manager *RenderManager) AddLayer(layer RenderLayer){
+    manager.Layers = append(manager.Layers, layer)
+    sort.Sort(manager.Layers)
+}
+
+func (manager *RenderManager) RemoveLayer(remove RenderLayer){
+    var out []RenderLayer
+
+    for _, layer := range manager.Layers {
+        if layer != remove {
+            out = append(out, layer)
+        }
+    }
+
+    manager.Layers = out
+}
+
+func (manager *RenderManager) RenderAll(renderer *sdl.Renderer) error {
+    for _, layer := range manager.Layers {
+        err := layer.Render(renderer)
+        if err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
     randomSeed := time.Now().UnixNano()
 
@@ -259,6 +324,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
     renderOverlayUpdate := make(chan string, 5)
+
+    var renderManager RenderManager
 
     if path != "" {
         log.Printf("Opening NES file '%v'", path)
@@ -499,6 +566,56 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
     */
 
+    emulatorMessage := make(chan string, 10)
+
+    /* these messages appear in the bottom right */
+    var emulatorMessages []EmulatorMessage
+    emulatorMessageTicker := time.NewTicker(time.Second * 1)
+    defer emulatorMessageTicker.Stop()
+    maxEmulatorMessages := 10
+
+    go func(){
+        for {
+            select {
+                case <-mainQuit.Done():
+                    return
+                case message := <-emulatorMessage:
+                    emulatorMessages = append(emulatorMessages, EmulatorMessage{
+                        Message: message,
+                        DeathTime: time.Now().Add(time.Millisecond * 1500),
+                    })
+                    if len(emulatorMessages) > maxEmulatorMessages {
+                        emulatorMessages = emulatorMessages[len(emulatorMessages) - maxEmulatorMessages:len(emulatorMessages)]
+                    }
+                /* remove deceased messages */
+                case <-emulatorMessageTicker.C:
+                    now := time.Now()
+                    i := 0
+                    for i < len(emulatorMessages) {
+                        /* find the first non-dead message */
+                        if emulatorMessages[i].DeathTime.Before(now) {
+                            i += 1
+                        } else {
+                            break
+                        }
+                    }
+                    emulatorMessages = emulatorMessages[i:]
+            }
+        }
+    }()
+
+    renderManager.AddLayer(&DefaultRenderLayer{
+        RenderFunc: func(renderer *sdl.Renderer) error {
+            if len(emulatorMessages) > 0 {
+                width, height := window.GetSize()
+                return doRenderEmulatorMessages(renderer, smallFont, emulatorMessages, int(width), int(height))
+            }
+
+            return nil
+        },
+        Index: 1,
+    })
+
     /* Show black bars on the sides or top/bottom when the window changes size */
     // renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
 
@@ -507,24 +624,18 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     renderFuncUpdate := make(chan common.RenderFunction, 5)
     renderNow := make(chan bool, 2)
 
-    emulatorMessage := make(chan string, 10)
+    /* FIXME: kind of ugly to keep this here */
+    raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
 
     waiter.Add(1)
     go func(){
         buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
         bufferReady <- buffer
         defer waiter.Done()
-        raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
         fpsCounter := 2.0
         fps := 0
         fpsTimer := time.NewTicker(time.Duration(fpsCounter) * time.Second)
         defer fpsTimer.Stop()
-
-        /* these messages appear in the bottom right */
-        var emulatorMessages []EmulatorMessage
-        emulatorMessageTicker := time.NewTicker(time.Second * 1)
-        defer emulatorMessageTicker.Stop()
-        maxEmulatorMessages := 10
 
         renderTimer := time.NewTicker(time.Second / time.Duration(desiredFps))
         defer renderTimer.Stop()
@@ -540,17 +651,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         overlayMessage := ""
 
         render := func (){
-            err := doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, renderer)
+            err := renderManager.RenderAll(renderer)
             if err != nil {
-                log.Printf("Warning: Could not render nes pixels: %v\n", err)
-            }
-
-            if len(emulatorMessages) > 0 {
-                width, height := window.GetSize()
-                err = doRenderEmulatorMessages(renderer, smallFont, emulatorMessages, int(width), int(height))
-                if err != nil {
-                    log.Printf("Warning: Could not render extra: %v", err)
-                }
+                log.Printf("Warning: could not render: %v", err)
             }
 
             if overlayMessage != "" {
@@ -599,27 +702,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
                     renderFunc = newFunction
                     sdl.Do(render)
-                case message := <-emulatorMessage:
-                    emulatorMessages = append(emulatorMessages, EmulatorMessage{
-                        Message: message,
-                        DeathTime: time.Now().Add(time.Millisecond * 1500),
-                    })
-                    if len(emulatorMessages) > maxEmulatorMessages {
-                        emulatorMessages = emulatorMessages[len(emulatorMessages) - maxEmulatorMessages:len(emulatorMessages)]
-                    }
-                /* remove deceased messages */
-                case <-emulatorMessageTicker.C:
-                    now := time.Now()
-                    i := 0
-                    for i < len(emulatorMessages) {
-                        /* find the first non-dead message */
-                        if emulatorMessages[i].DeathTime.Before(now) {
-                            i += 1
-                        } else {
-                            break
-                        }
-                    }
-                    emulatorMessages = emulatorMessages[i:]
                 case <-renderNow:
                     /* Force a rerender */
                     sdl.Do(render)
@@ -664,6 +746,18 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         input.Reset()
         combined := common.MakeCombineButtons(input, joystickManager)
         cpu.Input = nes.MakeInput(&combined)
+
+        renderNes := func(renderer *sdl.Renderer) error {
+            return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, renderer)
+        }
+
+        layer := &DefaultRenderLayer{
+            RenderFunc: renderNes,
+            Index: 0,
+        }
+
+        renderManager.AddLayer(layer)
+        defer renderManager.RemoveLayer(layer)
 
         var quitEvent sdl.QuitEvent
         quitEvent.Type = sdl.QUIT
