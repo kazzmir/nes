@@ -48,7 +48,11 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     audioSpec.Callback = nil
     audioSpec.UserData = nil
 
-    device, err := sdl.OpenAudioDevice("", false, &audioSpec, &obtainedSpec, sdl.AUDIO_ALLOW_FORMAT_CHANGE)
+    var device sdl.AudioDeviceID
+    var err error
+    sdl.Do(func(){
+        device, err = sdl.OpenAudioDevice("", false, &audioSpec, &obtainedSpec, sdl.AUDIO_ALLOW_FORMAT_CHANGE)
+    })
     return device, err
 }
 
@@ -125,7 +129,10 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                             binary.Write(&buffer, binary.LittleEndian, sample)
                         }
                         // log.Printf("Enqueue audio")
-                        err := sdl.QueueAudio(audioDevice, buffer.Bytes())
+                        var err error
+                        sdl.Do(func(){
+                            err = sdl.QueueAudio(audioDevice, buffer.Bytes())
+                        })
                         if err != nil {
                             log.Printf("Error: could not queue audio data: %v", err)
                             return
@@ -151,6 +158,7 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
     }
 }
 
+/* must be called in a sdl.Do */
 func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat, renderer *sdl.Renderer) error {
 
     pixels := C.CBytes(raw_pixels)
@@ -619,16 +627,16 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     go makeAudioWorker(audioDevice, audioInput, audioActionsInput, mainQuit)()
 
     emulatorKeys := common.DefaultEmulatorKeys()
+    input := &common.SDLKeyboardButtons{
+        Keys: emulatorKeys,
+    }
 
     startNES := func(nesFile nes.NESFile, quit context.Context){
         cpu, err := common.SetupCPU(nesFile, debug)
 
-        var input nes.HostInput = &common.SDLKeyboardButtons{
-            Keys: emulatorKeys,
-        }
+        input.Reset()
         combined := common.MakeCombineButtons(input, joystickManager)
-        input = &combined
-        cpu.Input = nes.MakeInput(input)
+        cpu.Input = nes.MakeInput(&combined)
 
         var quitEvent sdl.QuitEvent
         quitEvent.Type = sdl.QUIT
@@ -637,7 +645,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         if err != nil {
             log.Printf("Error: CPU initialization error: %v", err)
             /* The main loop below is waiting for an event so we push the quit event */
-            sdl.PushEvent(&quitEvent)
+            sdl.Do(func(){
+                sdl.PushEvent(&quitEvent)
+            })
         } else {
             log.Printf("Run NES")
             err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 1)
@@ -647,7 +657,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     log.Printf("Error running NES: %v", err)
                 }
 
-                sdl.PushEvent(&quitEvent)
+                sdl.Do(func(){
+                    sdl.PushEvent(&quitEvent)
+                })
             }
         }
     }
@@ -828,6 +840,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
+                    input.HandleEvent(keyboard_event)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
 
@@ -923,6 +936,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
                 case sdl.KEYUP:
                     keyboard_event := event.(*sdl.KeyboardEvent)
+                    input.HandleEvent(keyboard_event)
                     scancode := keyboard_event.Keysym.Scancode
                     if scancode == emulatorKeys.Turbo || scancode == emulatorKeys.Pause {
                         select {

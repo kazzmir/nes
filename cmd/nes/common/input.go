@@ -224,22 +224,60 @@ func (manager *JoystickManager) Get() nes.ButtonMapping {
 
 type SDLKeyboardButtons struct {
     Keys EmulatorKeys
+
+    ButtonA bool
+    ButtonB bool
+    ButtonSelect bool
+    ButtonStart bool
+    ButtonUp bool
+    ButtonDown bool
+    ButtonLeft bool
+    ButtonRight bool
+}
+
+func (buttons *SDLKeyboardButtons) Reset(){
+    buttons.ButtonA = false
+    buttons.ButtonB = false
+    buttons.ButtonSelect = false
+    buttons.ButtonStart = false
+    buttons.ButtonUp = false
+    buttons.ButtonDown = false
+    buttons.ButtonLeft = false
+    buttons.ButtonRight = false
 }
 
 func (buttons *SDLKeyboardButtons) Get() nes.ButtonMapping {
     mapping := make(nes.ButtonMapping)
 
-    keyboard := sdl.GetKeyboardState()
-    mapping[nes.ButtonIndexA] = keyboard[buttons.Keys.ButtonA] == 1
-    mapping[nes.ButtonIndexB] = keyboard[buttons.Keys.ButtonB] == 1
-    mapping[nes.ButtonIndexSelect] = keyboard[buttons.Keys.ButtonSelect] == 1
-    mapping[nes.ButtonIndexStart] = keyboard[buttons.Keys.ButtonStart] == 1
-    mapping[nes.ButtonIndexUp] = keyboard[buttons.Keys.ButtonUp] == 1
-    mapping[nes.ButtonIndexDown] = keyboard[buttons.Keys.ButtonDown] == 1
-    mapping[nes.ButtonIndexLeft] = keyboard[buttons.Keys.ButtonLeft] == 1
-    mapping[nes.ButtonIndexRight] = keyboard[buttons.Keys.ButtonRight] == 1
+    mapping[nes.ButtonIndexA] = buttons.ButtonA
+    mapping[nes.ButtonIndexB] = buttons.ButtonB
+    mapping[nes.ButtonIndexSelect] = buttons.ButtonSelect
+    mapping[nes.ButtonIndexStart] = buttons.ButtonStart
+    mapping[nes.ButtonIndexUp] = buttons.ButtonUp
+    mapping[nes.ButtonIndexDown] = buttons.ButtonDown
+    mapping[nes.ButtonIndexLeft] = buttons.ButtonLeft
+    mapping[nes.ButtonIndexRight] = buttons.ButtonRight
 
     return mapping
+}
+
+func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
+    set := false
+    switch event.GetType() {
+        case sdl.KEYDOWN: set = true
+        case sdl.KEYUP: set = false
+    }
+
+    switch event.Keysym.Scancode {
+        case buttons.Keys.ButtonA: buttons.ButtonA = set
+        case buttons.Keys.ButtonB: buttons.ButtonB = set
+        case buttons.Keys.ButtonSelect: buttons.ButtonSelect = set
+        case buttons.Keys.ButtonStart: buttons.ButtonStart = set
+        case buttons.Keys.ButtonUp: buttons.ButtonUp = set
+        case buttons.Keys.ButtonDown: buttons.ButtonDown = set
+        case buttons.Keys.ButtonLeft: buttons.ButtonLeft = set
+        case buttons.Keys.ButtonRight: buttons.ButtonRight = set
+    }
 }
 
 type JoystickInput interface {
