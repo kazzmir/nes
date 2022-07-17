@@ -959,7 +959,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             case <-doMenu:
                 activeMenu := menu.MakeMenu(mainQuit, font)
                 emulatorActionsOutput <- common.EmulatorSetPause
-                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, renderFuncUpdate, joystickManager)
+                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, renderFuncUpdate, joystickManager, emulatorKeys)
                 emulatorActionsOutput <- common.EmulatorUnpause
                 renderFuncUpdate <- nil
             default:
