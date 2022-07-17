@@ -223,22 +223,103 @@ func (manager *JoystickManager) Get() nes.ButtonMapping {
 }
 
 type SDLKeyboardButtons struct {
+    Keys EmulatorKeys
+
+    /* true if held down, false if not */
+    ButtonA bool
+    ButtonB bool
+    ButtonTurboA bool
+    ButtonTurboB bool
+    TurboACounter int
+    TurboBCounter int
+    ButtonSelect bool
+    ButtonStart bool
+    ButtonUp bool
+    ButtonDown bool
+    ButtonLeft bool
+    ButtonRight bool
+}
+
+func (buttons *SDLKeyboardButtons) Reset(){
+    buttons.ButtonA = false
+    buttons.ButtonB = false
+    buttons.ButtonSelect = false
+    buttons.ButtonStart = false
+    buttons.ButtonUp = false
+    buttons.ButtonDown = false
+    buttons.ButtonLeft = false
+    buttons.ButtonRight = false
+    buttons.ButtonTurboA = false
+    buttons.ButtonTurboB = false
+    buttons.TurboACounter = 0
+    buttons.TurboBCounter = 0
 }
 
 func (buttons *SDLKeyboardButtons) Get() nes.ButtonMapping {
     mapping := make(nes.ButtonMapping)
 
-    keyboard := sdl.GetKeyboardState()
-    mapping[nes.ButtonIndexA] = keyboard[sdl.SCANCODE_A] == 1
-    mapping[nes.ButtonIndexB] = keyboard[sdl.SCANCODE_S] == 1
-    mapping[nes.ButtonIndexSelect] = keyboard[sdl.SCANCODE_Q] == 1
-    mapping[nes.ButtonIndexStart] = keyboard[sdl.SCANCODE_RETURN] == 1
-    mapping[nes.ButtonIndexUp] = keyboard[sdl.SCANCODE_UP] == 1
-    mapping[nes.ButtonIndexDown] = keyboard[sdl.SCANCODE_DOWN] == 1
-    mapping[nes.ButtonIndexLeft] = keyboard[sdl.SCANCODE_LEFT] == 1
-    mapping[nes.ButtonIndexRight] = keyboard[sdl.SCANCODE_RIGHT] == 1
+    if buttons.ButtonTurboA {
+        buttons.TurboACounter += 1
+        if buttons.TurboACounter > 5 {
+            buttons.ButtonA = !buttons.ButtonA
+            buttons.TurboACounter = 0
+        }
+    }
+
+    if buttons.ButtonTurboB {
+        buttons.TurboBCounter += 1
+        if buttons.TurboBCounter > 5 {
+            buttons.ButtonB = !buttons.ButtonB
+            buttons.TurboBCounter = 0
+        }
+    }
+
+    mapping[nes.ButtonIndexA] = buttons.ButtonA
+    mapping[nes.ButtonIndexB] = buttons.ButtonB
+    mapping[nes.ButtonIndexSelect] = buttons.ButtonSelect
+    mapping[nes.ButtonIndexStart] = buttons.ButtonStart
+    mapping[nes.ButtonIndexUp] = buttons.ButtonUp
+    mapping[nes.ButtonIndexDown] = buttons.ButtonDown
+    mapping[nes.ButtonIndexLeft] = buttons.ButtonLeft
+    mapping[nes.ButtonIndexRight] = buttons.ButtonRight
 
     return mapping
+}
+
+func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
+    set := false
+    switch event.GetType() {
+        case sdl.KEYDOWN: set = true
+        case sdl.KEYUP: set = false
+        default:
+            /* what is this? */
+            return
+    }
+
+    switch event.Keysym.Scancode {
+        case buttons.Keys.ButtonA: buttons.ButtonA = set
+        case buttons.Keys.ButtonB: buttons.ButtonB = set
+        case buttons.Keys.ButtonTurboA:
+            buttons.ButtonTurboA = set
+            /* if the user releases the turbo button the A/B button might be in
+             * a pressed state even though the user is not currently pressing it,
+             * so ensure that A/B is not pressed if turbo is released
+             */
+            if !set {
+                buttons.ButtonA = false
+            }
+        case buttons.Keys.ButtonTurboB:
+            buttons.ButtonTurboB = set
+            if !set {
+                buttons.ButtonB = false
+            }
+        case buttons.Keys.ButtonSelect: buttons.ButtonSelect = set
+        case buttons.Keys.ButtonStart: buttons.ButtonStart = set
+        case buttons.Keys.ButtonUp: buttons.ButtonUp = set
+        case buttons.Keys.ButtonDown: buttons.ButtonDown = set
+        case buttons.Keys.ButtonLeft: buttons.ButtonLeft = set
+        case buttons.Keys.ButtonRight: buttons.ButtonRight = set
+    }
 }
 
 type JoystickInput interface {
@@ -426,3 +507,54 @@ func (combine *CombineButtons) Get() nes.ButtonMapping {
     return mapping
 }
 
+type EmulatorKeys struct {
+    Turbo sdl.Scancode
+    Pause sdl.Scancode
+    HardReset sdl.Scancode
+    PPUDebug sdl.Scancode
+    SlowDown sdl.Scancode
+    SpeedUp sdl.Scancode
+    Normal sdl.Scancode
+    StepFrame sdl.Scancode
+    Record sdl.Scancode
+    SaveState sdl.Scancode
+    LoadState sdl.Scancode
+
+    ButtonA sdl.Scancode
+    ButtonB sdl.Scancode
+    ButtonTurboA sdl.Scancode
+    ButtonTurboB sdl.Scancode
+    ButtonSelect sdl.Scancode
+    ButtonStart sdl.Scancode
+    ButtonUp sdl.Scancode
+    ButtonDown sdl.Scancode
+    ButtonLeft sdl.Scancode
+    ButtonRight sdl.Scancode
+}
+
+func DefaultEmulatorKeys() EmulatorKeys {
+    return EmulatorKeys {
+        Turbo: sdl.SCANCODE_GRAVE,
+        Pause: sdl.SCANCODE_SPACE,
+        HardReset: sdl.SCANCODE_R,
+        PPUDebug: sdl.SCANCODE_P,
+        SlowDown: sdl.SCANCODE_MINUS,
+        SpeedUp: sdl.SCANCODE_EQUALS,
+        Normal: sdl.SCANCODE_0,
+        StepFrame: sdl.SCANCODE_O,
+        Record: sdl.SCANCODE_M,
+        SaveState: sdl.SCANCODE_1,
+        LoadState: sdl.SCANCODE_2,
+
+        ButtonA: sdl.SCANCODE_A,
+        ButtonB: sdl.SCANCODE_S,
+        ButtonTurboA: sdl.SCANCODE_D,
+        ButtonTurboB: sdl.SCANCODE_F,
+        ButtonSelect: sdl.SCANCODE_Q,
+        ButtonStart: sdl.SCANCODE_RETURN,
+        ButtonUp:  sdl.SCANCODE_UP,
+        ButtonDown: sdl.SCANCODE_DOWN,
+        ButtonLeft: sdl.SCANCODE_LEFT,
+        ButtonRight: sdl.SCANCODE_RIGHT,
+    }
+}

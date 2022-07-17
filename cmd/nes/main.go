@@ -48,7 +48,11 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     audioSpec.Callback = nil
     audioSpec.UserData = nil
 
-    device, err := sdl.OpenAudioDevice("", false, &audioSpec, &obtainedSpec, sdl.AUDIO_ALLOW_FORMAT_CHANGE)
+    var device sdl.AudioDeviceID
+    var err error
+    sdl.Do(func(){
+        device, err = sdl.OpenAudioDevice("", false, &audioSpec, &obtainedSpec, sdl.AUDIO_ALLOW_FORMAT_CHANGE)
+    })
     return device, err
 }
 
@@ -125,7 +129,10 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                             binary.Write(&buffer, binary.LittleEndian, sample)
                         }
                         // log.Printf("Enqueue audio")
-                        err := sdl.QueueAudio(audioDevice, buffer.Bytes())
+                        var err error
+                        sdl.Do(func(){
+                            err = sdl.QueueAudio(audioDevice, buffer.Bytes())
+                        })
                         if err != nil {
                             log.Printf("Error: could not queue audio data: %v", err)
                             return
@@ -151,6 +158,7 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
     }
 }
 
+/* must be called in a sdl.Do */
 func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat, renderer *sdl.Renderer) error {
 
     pixels := C.CBytes(raw_pixels)
@@ -243,13 +251,14 @@ type EmulatorMessage struct {
     DeathTime time.Time
 }
 
-func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
+func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
     randomSeed := time.Now().UnixNano()
 
     rand.Seed(randomSeed)
 
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
+    renderOverlayUpdate := make(chan string, 5)
 
     if path != "" {
         log.Printf("Opening NES file '%v'", path)
@@ -261,11 +270,14 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     } else {
         /* if no nes file given then just load the main menu */
         doMenu <- true
+        renderOverlayUpdate <- "No ROM loaded"
     }
 
     // force a software renderer
     if !util.HasGlxinfo() {
-        sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
+        sdl.Do(func(){
+            sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
+        })
     }
 
     log.Printf("Initializing SDL")
@@ -419,7 +431,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     go func(){
         for i := 0; i < 2; i++ {
             select {
-                case <-mainQuit.Done():
+                // case <-mainQuit.Done():
                 case <-signalChannel:
                     if i == 0 {
                         log.Printf("Shutting down due to signal")
@@ -435,7 +447,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     toDraw := make(chan nes.VirtualScreen, 1)
     bufferReady := make(chan nes.VirtualScreen, 1)
 
-    desiredFps := 60.0
     pixelFormat := common.FindPixelFormat()
 
     log.Printf("Using pixel format %v\n", sdl.GetPixelFormatName(uint(pixelFormat)))
@@ -523,6 +534,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             return nil
         }
 
+        /* render this message in between the nes frame and the menu overlay.
+         * this feels a bit hacky
+         */
+        overlayMessage := ""
+
         render := func (){
             err := doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, renderer)
             if err != nil {
@@ -535,6 +551,20 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 if err != nil {
                     log.Printf("Warning: Could not render extra: %v", err)
                 }
+            }
+
+            if overlayMessage != "" {
+                width, height := window.GetSize()
+
+                black := sdl.Color{R: 0, G: 0, B: 0, A: 200}
+                white := sdl.Color{R: 255, G: 255, B: 255, A: 200}
+                messageLength := common.TextWidth(font, overlayMessage)
+                x := int(width)/2 - messageLength / 2
+                y := int(height)/2
+                renderer.SetDrawColor(black.R, black.G, black.B, black.A)
+                renderer.FillRect(&sdl.Rect{X: int32(x - 10), Y: int32(y - 10), W: int32(messageLength + 10 + 5), H: int32(font.Height() + 10 + 5)})
+
+                common.WriteFont(font, renderer, x, y, overlayMessage, white)
             }
 
             /* this is the menu overlay usually */
@@ -558,6 +588,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
                     canRender = false
                     bufferReady <- screen
+                case message := <-renderOverlayUpdate:
+                    overlayMessage = message
+                    sdl.Do(render)
                 case newFunction := <-renderFuncUpdate:
                     if newFunction == nil {
                         newFunction = func(renderer *sdl.Renderer) error {
@@ -616,13 +649,21 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     go makeAudioWorker(audioDevice, audioInput, audioActionsInput, mainQuit)()
 
+    emulatorKeys := common.DefaultEmulatorKeys()
+    input := &common.SDLKeyboardButtons{
+        Keys: emulatorKeys,
+    }
+
     startNES := func(nesFile nes.NESFile, quit context.Context){
+        select {
+            case renderOverlayUpdate <- "":
+            default:
+        }
         cpu, err := common.SetupCPU(nesFile, debug)
 
-        var input nes.HostInput = &common.SDLKeyboardButtons{}
+        input.Reset()
         combined := common.MakeCombineButtons(input, joystickManager)
-        input = &combined
-        cpu.Input = nes.MakeInput(input)
+        cpu.Input = nes.MakeInput(&combined)
 
         var quitEvent sdl.QuitEvent
         quitEvent.Type = sdl.QUIT
@@ -631,17 +672,21 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         if err != nil {
             log.Printf("Error: CPU initialization error: %v", err)
             /* The main loop below is waiting for an event so we push the quit event */
-            sdl.PushEvent(&quitEvent)
+            sdl.Do(func(){
+                sdl.PushEvent(&quitEvent)
+            })
         } else {
             log.Printf("Run NES")
-            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 1)
+            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1)
             if err != nil {
                 if err == common.MaxCyclesReached {
                 } else {
                     log.Printf("Error running NES: %v", err)
                 }
 
-                sdl.PushEvent(&quitEvent)
+                sdl.Do(func(){
+                    sdl.PushEvent(&quitEvent)
+                })
             }
         }
     }
@@ -689,18 +734,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
         nesWaiter.Wait()
     }()
-
-    var turboKey sdl.Scancode = sdl.SCANCODE_GRAVE
-    var pauseKey sdl.Scancode = sdl.SCANCODE_SPACE
-    var hardResetKey sdl.Scancode = sdl.SCANCODE_R
-    var ppuDebugKey sdl.Scancode = sdl.SCANCODE_P
-    var slowDownKey sdl.Scancode = sdl.SCANCODE_MINUS
-    var speedUpKey sdl.Scancode = sdl.SCANCODE_EQUALS
-    var normalKey sdl.Scancode = sdl.SCANCODE_0
-    var stepFrameKey sdl.Scancode = sdl.SCANCODE_O
-    var recordKey sdl.Scancode = sdl.SCANCODE_M
-    var saveStateKey sdl.Scancode = sdl.SCANCODE_1
-    var loadStateKey sdl.Scancode = sdl.SCANCODE_2
 
     recordQuit, recordCancel := context.WithCancel(mainQuit)
     if recordOnStart {
@@ -834,6 +867,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
+                    input.HandleEvent(keyboard_event)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
 
@@ -847,17 +881,17 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
 
                     switch keyboard_event.Keysym.Scancode {
-                        case turboKey:
+                        case emulatorKeys.Turbo:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorTurbo:
                                 default:
                             }
-                        case stepFrameKey:
+                        case emulatorKeys.StepFrame:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorStepFrame:
                                 default:
                             }
-                        case saveStateKey:
+                        case emulatorKeys.SaveState:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorSaveState:
                                     select {
@@ -866,7 +900,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                     }
                                 default:
                             }
-                        case loadStateKey:
+                        case emulatorKeys.LoadState:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorLoadState:
                                     select {
@@ -875,7 +909,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                     }
                                 default:
                             }
-                        case recordKey:
+                        case emulatorKeys.Record:
                             if recordQuit.Err() == nil {
                                 recordCancel()
                                 select {
@@ -893,33 +927,33 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                     default:
                                 }
                             }
-                        case pauseKey:
+                        case emulatorKeys.Pause:
                             log.Printf("Pause/unpause")
                             select {
                                 case emulatorActionsOutput <- common.EmulatorTogglePause:
                                 default:
                             }
-                        case ppuDebugKey:
+                        case emulatorKeys.PPUDebug:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorTogglePPUDebug:
                                 default:
                             }
-                        case slowDownKey:
+                        case emulatorKeys.SlowDown:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorSlowDown:
                                 default:
                             }
-                        case speedUpKey:
+                        case emulatorKeys.SpeedUp:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorSpeedUp:
                                 default:
                             }
-                        case normalKey:
+                        case emulatorKeys.Normal:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorNormal:
                                 default:
                             }
-                        case hardResetKey:
+                        case emulatorKeys.HardReset:
                             log.Printf("Hard reset")
                             nesChannel <- &NesActionRestart{}
                             select {
@@ -929,8 +963,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
                 case sdl.KEYUP:
                     keyboard_event := event.(*sdl.KeyboardEvent)
+                    input.HandleEvent(keyboard_event)
                     scancode := keyboard_event.Keysym.Scancode
-                    if scancode == turboKey || scancode == pauseKey {
+                    if scancode == emulatorKeys.Turbo || scancode == emulatorKeys.Pause {
                         select {
                             case emulatorActionsOutput <- common.EmulatorNormal:
                             default:
@@ -951,7 +986,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             case <-doMenu:
                 activeMenu := menu.MakeMenu(mainQuit, font)
                 emulatorActionsOutput <- common.EmulatorSetPause
-                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, renderFuncUpdate, joystickManager)
+                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, renderFuncUpdate, joystickManager, emulatorKeys)
                 emulatorActionsOutput <- common.EmulatorUnpause
                 renderFuncUpdate <- nil
             default:
@@ -985,6 +1020,7 @@ type Arguments struct {
     CpuProfile bool
     MemoryProfile bool
     Record bool
+    DesiredFps int
 }
 
 func parseArguments() (Arguments, error) {
@@ -992,10 +1028,22 @@ func parseArguments() (Arguments, error) {
     arguments.WindowSizeMultiple = 3
     arguments.CpuProfile = true
     arguments.MemoryProfile = true
+    arguments.DesiredFps = 60
 
     for argIndex := 1; argIndex < len(os.Args); argIndex++ {
         arg := os.Args[argIndex]
         switch arg {
+            case "-h", "--help":
+                return arguments, fmt.Errorf(`NES emulator by Jon Rafkind
+$ nes [rom.nes]
+Options:
+  -h, --help: this help
+  -debug, --debug: enable debug output
+  -size, --size #: start the window at a multiple of the nes screen size of 320x200 (default 3)
+  -record: enable recording to an mp4 when the rom loads
+  -fps #: set a desired frame rate
+  -cycles, --cycles #: limit the emulator to only run for some number of cycles
+`)
             case "-debug", "--debug":
                 arguments.Debug = true
             case "-size", "--size":
@@ -1008,9 +1056,25 @@ func parseArguments() (Arguments, error) {
                 if err != nil {
                     return arguments, fmt.Errorf("Error reading size argument: %v", err)
                 }
+                if windowSizeMultiple < 1 {
+                    windowSizeMultiple = 1
+                }
                 arguments.WindowSizeMultiple = int(windowSizeMultiple)
             case "-record":
                 arguments.Record = true
+            case "-fps":
+                argIndex += 1
+                if argIndex >= len(os.Args) {
+                    return arguments, fmt.Errorf("Expected an integer for argument -fps")
+                }
+                fps, err := strconv.ParseInt(os.Args[argIndex], 10, 64)
+                if err != nil {
+                    return arguments, fmt.Errorf("Error reading fps argument: %v", err)
+                }
+                if fps < 1 {
+                    fps = 1
+                }
+                arguments.DesiredFps = int(fps)
             case "-cycles", "--cycles":
                 var err error
                 argIndex += 1
@@ -1061,7 +1125,7 @@ func main(){
 
     if nes.IsNESFile(arguments.NESPath) {
         sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
+            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }
@@ -1076,7 +1140,7 @@ func main(){
     } else {
         /* Open up the loading menu immediately */
         sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
+            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }

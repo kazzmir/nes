@@ -361,7 +361,7 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
     const maxCycles = uint64(30 * nes.CPUSpeed)
 
     log.Printf("Start loading %v", path)
-    err = common.RunNES(path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 0)
+    err = common.RunNES(path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, make(chan string, 100), AudioSampleRate, 0)
     if err == common.MaxCyclesReached {
         log.Printf("%v complete", path)
     }
@@ -772,7 +772,7 @@ func (loader *RomLoaderState) ZoomOut() {
 func drawOverlayString(font *ttf.Font, renderer *sdl.Renderer, x int, y int, base string, startPosition int, length int, color sdl.Color) error {
     rendered := base[0:startPosition+1]
     // get the length of the text minus the last character
-    startLength := textWidth(font, rendered) - textWidth(font, string(rendered[len(rendered)-1]))
+    startLength := common.TextWidth(font, rendered) - common.TextWidth(font, string(rendered[len(rendered)-1]))
     matched := base[startPosition:startPosition+length]
     // show the matched part of the selected rom
     return common.WriteFont(font, renderer, x + startLength, y, matched, color)
@@ -783,7 +783,7 @@ func maxTextWidth(font *ttf.Font, maxWidth int) int {
         return 0
     }
 
-    size := textWidth(font, "A")
+    size := common.TextWidth(font, "A")
     return maxWidth / size
 }
 

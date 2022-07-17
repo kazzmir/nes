@@ -16,6 +16,7 @@ import (
     "log"
     "sync"
     "strings"
+    "text/template"
     "path/filepath"
 
     "crypto/md5"
@@ -166,17 +167,6 @@ func (manager *TextureManager) GetCachedTexture(id TextureId, makeTexture Textur
     manager.Textures[id] = info
 
     return info, nil
-}
-
-func textWidth(font *ttf.Font, text string) int {
-    /* FIXME: this feels a bit inefficient, maybe find a better way that doesn't require fully rendering the text */
-    surface, err := font.RenderUTF8Solid(text, sdl.Color{R: 255, G: 255, B: 255, A: 255})
-    if err != nil {
-        return 0
-    }
-
-    defer surface.Free()
-    return int(surface.W)
 }
 
 func (manager *TextureManager) RenderText(font *ttf.Font, renderer *sdl.Renderer, text string, color sdl.Color, id TextureId) (TextureInfo, error) {
@@ -639,7 +629,6 @@ func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
         menu.PlayBeep()
     case MenuSelect:
         button, ok := buttons.Items[buttons.Selected].(Button)
-        log.Printf("Button %v ok %v", buttons.Selected, ok)
         if ok {
             return button.Interact(menu)
         }
@@ -657,7 +646,7 @@ func (buttons *MenuButtons) Render(startX int, startY int, maxWidth int, maxHeig
     x := startX
     y := startY
     for i, item := range buttons.Items {
-        if x > maxWidth - textWidth(font, item.Text()) {
+        if x > maxWidth - common.TextWidth(font, item.Text()) {
             x = startX
             y += font.Height() + 20
         }
@@ -696,6 +685,7 @@ type MenuQuitFunc func(SubMenu) SubMenu
 type StaticMenu struct {
     Buttons MenuButtons
     Quit MenuQuitFunc
+    ExtraInfo string
     Beep *mix.Music
 }
 
@@ -723,7 +713,17 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
 
 func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
-        _, _, err := menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        _, y, err := menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+
+        x := 50
+        /* FIXME: base this on the size of a button */
+        y += 50
+        for _, line := range strings.Split(menu.ExtraInfo, "\n") {
+            white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+            common.WriteFont(smallFont, renderer, x, y, line, white)
+            y += smallFont.Height() + 2
+        }
+
         return err
     }
 }
@@ -1857,7 +1857,55 @@ func (loader *LoadRomInfoMenu) UpdateWindowSize(x int, y int){
     loader.RomLoader.UpdateWindowSize(x, y)
 }
 
-func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager) SubMenu {
+func keysInfo(keys common.EmulatorKeys) string {
+    // sdl.GetScancodeName(x)
+    n := sdl.GetScancodeName
+    info := template.New("keys")
+
+    info.Funcs(map[string]any{
+        "n": n,
+    })
+    _, err := info.Parse(`Keys:
+A: {{n .ButtonA}}
+B: {{n .ButtonB}}
+Start: {{n .ButtonStart}}
+TurboA: {{n .ButtonTurboA}}
+TurboB: {{n .ButtonTurboB}}
+Select: {{n .ButtonSelect}}
+Start: {{n .ButtonStart}}
+Up: {{n .ButtonUp}}
+Down: {{n .ButtonDown}}
+Left: {{n .ButtonLeft}}
+Right: {{n .ButtonRight}}
+
+Turbo: {{n .Turbo}}
+Pause: {{n .Pause}}
+Hard Reset: {{n .HardReset}}
+PPU Debug: {{n .PPUDebug}}
+Slow down: {{n .SlowDown}}
+Speed up: {{n .SpeedUp}}
+Normal: {{n .Normal}}
+Step frame: {{n .StepFrame}}
+Record: {{n .Record}}
+Save state: {{n .SaveState}}
+Load state: {{n .LoadState}}
+    `)
+
+    if err != nil {
+        log.Printf("Could not parse template: %v", err)
+        return ""
+    }
+
+    var data bytes.Buffer
+
+    err = info.Execute(&data, keys)
+    if err != nil {
+        return ""
+    }
+    return data.String()
+}
+
+func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager, keys common.EmulatorKeys) SubMenu {
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
             menu.cancel()
@@ -1906,10 +1954,12 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
 
     main.Buttons.Add(&SubMenuButton{Name: "Joystick", Func: func() SubMenu { return joystickMenu } })
 
+    main.ExtraInfo = keysInfo(keys)
+
     return main
 }
 
-func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction, joystickManager *common.JoystickManager){
+func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction, joystickManager *common.JoystickManager, emulatorKeys common.EmulatorKeys){
 
     windowSizeUpdates := make(chan common.WindowSize, 10)
 
@@ -1991,6 +2041,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                         userInput <- MenuQuit
                     }
 
+                    /* allow vi input */
                     switch keyboard_event.Keysym.Scancode {
                         case sdl.SCANCODE_LEFT, sdl.SCANCODE_H:
                             select {
@@ -2066,7 +2117,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         wind := rand.Float32() - 0.5
         snowRenderer := makeSnowRenderer(nil)
 
-        currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, textureManager)
+        currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, textureManager, emulatorKeys)
 
         /* Reset the default renderer */
         for {
