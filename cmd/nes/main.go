@@ -14,7 +14,6 @@ import (
     "os"
     "os/signal"
     "path/filepath"
-    "sort"
     "math/rand"
 
     nes "github.com/kazzmir/nes/lib"
@@ -224,93 +223,17 @@ type EmulatorMessage struct {
     DeathTime time.Time
 }
 
-type RenderInfo struct {
-    Renderer *sdl.Renderer
-    Font *ttf.Font
-    SmallFont *ttf.Font
-    Window *sdl.Window
-}
-
-type RenderLayer interface {
-    Render(RenderInfo) error
-    ZIndex() int // order of the layer
-}
-
 type DefaultRenderLayer struct {
-    RenderFunc func(RenderInfo) error
+    RenderFunc func(common.RenderInfo) error
     Index int
 }
 
-func (layer *DefaultRenderLayer) Render(info RenderInfo) error {
+func (layer *DefaultRenderLayer) Render(info common.RenderInfo) error {
     return layer.RenderFunc(info)
 }
 
 func (layer *DefaultRenderLayer) ZIndex() int {
     return layer.Index
-}
-
-type RenderLayerList []RenderLayer
-
-func (list RenderLayerList) Len() int {
-    return len(list)
-}
-
-func (list RenderLayerList) Swap(a int, b int){
-    list[a], list[b] = list[b], list[a]
-}
-
-func (list RenderLayerList) Less(a int, b int) bool {
-    return list[a].ZIndex() < list[b].ZIndex()
-}
-
-type RenderManager struct {
-    Layers RenderLayerList
-}
-
-func (manager *RenderManager) Replace(index int, layer RenderLayer){
-    manager.RemoveByIndex(index)
-    manager.AddLayer(layer)
-}
-
-func (manager *RenderManager) RemoveByIndex(index int){
-    var out []RenderLayer
-
-    for _, layer := range manager.Layers {
-        if layer.ZIndex() != index {
-            out = append(out, layer)
-        }
-    }
-
-    manager.Layers = out
-
-}
-
-func (manager *RenderManager) AddLayer(layer RenderLayer){
-    manager.Layers = append(manager.Layers, layer)
-    sort.Sort(manager.Layers)
-}
-
-func (manager *RenderManager) RemoveLayer(remove RenderLayer){
-    var out []RenderLayer
-
-    for _, layer := range manager.Layers {
-        if layer != remove {
-            out = append(out, layer)
-        }
-    }
-
-    manager.Layers = out
-}
-
-func (manager *RenderManager) RenderAll(info RenderInfo) error {
-    for _, layer := range manager.Layers {
-        err := layer.Render(info)
-        if err != nil {
-            return err
-        }
-    }
-
-    return nil
 }
 
 type EmulatorMessageLayer struct {
@@ -324,7 +247,7 @@ func (layer *EmulatorMessageLayer) ZIndex() int {
     return layer.Index
 }
 
-func (layer *EmulatorMessageLayer) Render(renderInfo RenderInfo) error {
+func (layer *EmulatorMessageLayer) Render(renderInfo common.RenderInfo) error {
     windowWidth, windowHeight := renderInfo.Window.GetSize()
 
     font := renderInfo.SmallFont
@@ -400,7 +323,7 @@ func (layer *OverlayMessageLayer) ZIndex() int {
     return layer.Index
 }
 
-func (layer *OverlayMessageLayer) Render(info RenderInfo) error {
+func (layer *OverlayMessageLayer) Render(info common.RenderInfo) error {
     width, height := info.Window.GetSize()
 
     font := info.Font
@@ -427,7 +350,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     doMenu := make(chan bool, 5)
     renderOverlayUpdate := make(chan string, 5)
 
-    var renderManager RenderManager
+    var renderManager common.RenderManager
 
     if path != "" {
         log.Printf("Opening NES file '%v'", path)
@@ -682,7 +605,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     /* create a surface from the pixels in one call, then create a texture and render it */
 
-    renderFuncUpdate := make(chan common.RenderFunction, 5)
     renderNow := make(chan bool, 2)
 
     /* FIXME: kind of ugly to keep this here */
@@ -702,12 +624,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         defer renderTimer.Stop()
         canRender := false
 
-        renderFunc := func(renderer *sdl.Renderer) error {
-            return nil
-        }
-
         render := func (){
-            err := renderManager.RenderAll(RenderInfo{
+            err := renderManager.RenderAll(common.RenderInfo{
                 Renderer: renderer,
                 Font: font,
                 SmallFont: smallFont,
@@ -716,12 +634,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
             if err != nil {
                 log.Printf("Warning: could not render: %v", err)
-            }
-
-            /* this is the menu overlay usually */
-            err = renderFunc(renderer)
-            if err != nil {
-                log.Printf("Warning: render error: %v", err)
             }
 
             renderer.Present()
@@ -748,14 +660,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             Index: 2,
                         })
                     }
-                    sdl.Do(render)
-                case newFunction := <-renderFuncUpdate:
-                    if newFunction == nil {
-                        newFunction = func(renderer *sdl.Renderer) error {
-                            return nil
-                        }
-                    }
-                    renderFunc = newFunction
                     sdl.Do(render)
                 case <-renderNow:
                     /* Force a rerender */
@@ -802,7 +706,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         combined := common.MakeCombineButtons(input, joystickManager)
         cpu.Input = nes.MakeInput(&combined)
 
-        renderNes := func(info RenderInfo) error {
+        renderNes := func(info common.RenderInfo) error {
             return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, info.Renderer)
         }
 
@@ -1135,9 +1039,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             case <-doMenu:
                 activeMenu := menu.MakeMenu(mainQuit, font)
                 emulatorActionsOutput <- common.EmulatorSetPause
-                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, renderFuncUpdate, joystickManager, emulatorKeys)
+                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, emulatorKeys)
                 emulatorActionsOutput <- common.EmulatorUnpause
-                renderFuncUpdate <- nil
             default:
                 sdl.Do(eventFunction)
         }

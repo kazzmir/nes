@@ -1953,7 +1953,24 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
     return main
 }
 
-func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderFuncUpdate chan common.RenderFunction, joystickManager *common.JoystickManager, emulatorKeys common.EmulatorKeys){
+type MenuRenderLayer struct {
+    Renderer func(renderer *sdl.Renderer) error
+    Index int
+}
+
+func (layer *MenuRenderLayer) Render(info common.RenderInfo) error {
+    return layer.Renderer(info.Renderer)
+}
+
+func (layer *MenuRenderLayer) ZIndex() int {
+    return layer.Index
+}
+
+func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *common.RenderManager, joystickManager *common.JoystickManager, emulatorKeys common.EmulatorKeys){
+
+    menuZIndex := 10
+
+    defer renderManager.RemoveByIndex(menuZIndex)
 
     windowSizeUpdates := make(chan common.WindowSize, 10)
 
@@ -2188,10 +2205,14 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
             if updateRender {
                 /* If there is a graphics update then send it to the renderer */
-                select {
-                    case renderFuncUpdate <- chainRenders(baseRenderer, snowRenderer,
+                renderManager.Replace(menuZIndex, &MenuRenderLayer{
+                    Renderer: chainRenders(baseRenderer, snowRenderer,
                                                           makeDefaultInfoRenderer(windowSize.X, windowSize.Y),
-                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font, smallFont)):
+                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font, smallFont)),
+                    Index: menuZIndex,
+                })
+                select {
+                    case renderNow <- true:
                     default:
                 }
             }

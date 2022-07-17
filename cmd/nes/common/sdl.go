@@ -2,6 +2,7 @@ package common
 
 import (
     "bytes"
+    "sort"
     "encoding/binary"
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
@@ -100,3 +101,78 @@ func CopyTexture(texture *sdl.Texture, renderer *sdl.Renderer, width int, height
     return renderer.Copy(texture, &sourceRect, &destRect)
 }
 
+type RenderLayerList []RenderLayer
+
+func (list RenderLayerList) Len() int {
+    return len(list)
+}
+
+func (list RenderLayerList) Swap(a int, b int){
+    list[a], list[b] = list[b], list[a]
+}
+
+func (list RenderLayerList) Less(a int, b int) bool {
+    return list[a].ZIndex() < list[b].ZIndex()
+}
+
+type RenderInfo struct {
+    Renderer *sdl.Renderer
+    Font *ttf.Font
+    SmallFont *ttf.Font
+    Window *sdl.Window
+}
+
+type RenderLayer interface {
+    Render(RenderInfo) error
+    ZIndex() int // order of the layer
+}
+
+type RenderManager struct {
+    Layers RenderLayerList
+}
+
+func (manager *RenderManager) Replace(index int, layer RenderLayer){
+    manager.RemoveByIndex(index)
+    manager.AddLayer(layer)
+}
+
+func (manager *RenderManager) RemoveByIndex(index int){
+    var out []RenderLayer
+
+    for _, layer := range manager.Layers {
+        if layer.ZIndex() != index {
+            out = append(out, layer)
+        }
+    }
+
+    manager.Layers = out
+
+}
+
+func (manager *RenderManager) AddLayer(layer RenderLayer){
+    manager.Layers = append(manager.Layers, layer)
+    sort.Sort(manager.Layers)
+}
+
+func (manager *RenderManager) RemoveLayer(remove RenderLayer){
+    var out []RenderLayer
+
+    for _, layer := range manager.Layers {
+        if layer != remove {
+            out = append(out, layer)
+        }
+    }
+
+    manager.Layers = out
+}
+
+func (manager *RenderManager) RenderAll(info RenderInfo) error {
+    for _, layer := range manager.Layers {
+        err := layer.Render(info)
+        if err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
