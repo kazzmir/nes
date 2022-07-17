@@ -208,34 +208,6 @@ func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat com
     return nil
 }
 
-func doRenderEmulatorMessages(renderer *sdl.Renderer, font *ttf.Font, messages []EmulatorMessage, windowWidth int, windowHeight int) error {
-    y := windowHeight - font.Height() - 1
-    now := time.Now()
-    for i := len(messages)-1; i >= 0; i-- {
-        message := messages[i]
-        if message.DeathTime.After(now){
-            x := windowWidth - 100
-            remaining := message.DeathTime.Sub(now)
-            alpha := 255
-            if remaining < time.Millisecond * 500 {
-                alpha = int(255 * float64(remaining) / (float64(time.Millisecond) * 500))
-                if alpha > 255 {
-                    alpha = 255
-                }
-                /* strangely if alpha=0 it renders without transparency so the pixels are fully white */
-                if alpha < 1 {
-                    alpha = 1
-                }
-            }
-            white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
-            // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
-            common.WriteFont(font, renderer, x, y, message.Message, white)
-            y -= font.Height() + 2
-        }
-    }
-
-    return nil
-}
 
 type NesAction interface {
 }
@@ -252,18 +224,25 @@ type EmulatorMessage struct {
     DeathTime time.Time
 }
 
+type RenderInfo struct {
+    Renderer *sdl.Renderer
+    Font *ttf.Font
+    SmallFont *ttf.Font
+    Window *sdl.Window
+}
+
 type RenderLayer interface {
-    Render(*sdl.Renderer) error
+    Render(RenderInfo) error
     ZIndex() int // order of the layer
 }
 
 type DefaultRenderLayer struct {
-    RenderFunc func(*sdl.Renderer) error
+    RenderFunc func(RenderInfo) error
     Index int
 }
 
-func (layer *DefaultRenderLayer) Render(renderer *sdl.Renderer) error {
-    return layer.RenderFunc(renderer)
+func (layer *DefaultRenderLayer) Render(info RenderInfo) error {
+    return layer.RenderFunc(info)
 }
 
 func (layer *DefaultRenderLayer) ZIndex() int {
@@ -305,15 +284,93 @@ func (manager *RenderManager) RemoveLayer(remove RenderLayer){
     manager.Layers = out
 }
 
-func (manager *RenderManager) RenderAll(renderer *sdl.Renderer) error {
+func (manager *RenderManager) RenderAll(info RenderInfo) error {
     for _, layer := range manager.Layers {
-        err := layer.Render(renderer)
+        err := layer.Render(info)
         if err != nil {
             return err
         }
     }
 
     return nil
+}
+
+type EmulatorMessageLayer struct {
+    /* these messages appear in the bottom right */
+    emulatorMessages []EmulatorMessage
+    Index int
+    ReceiveMessages chan string
+}
+
+func (layer *EmulatorMessageLayer) ZIndex() int {
+    return layer.Index
+}
+
+func (layer *EmulatorMessageLayer) Render(renderInfo RenderInfo) error {
+    windowWidth, windowHeight := renderInfo.Window.GetSize()
+
+    font := renderInfo.SmallFont
+
+    y := int(windowHeight) - font.Height() - 1
+    now := time.Now()
+    for i := len(layer.emulatorMessages)-1; i >= 0; i-- {
+        message := layer.emulatorMessages[i]
+        if message.DeathTime.After(now){
+            x := int(windowWidth) - 100
+            remaining := message.DeathTime.Sub(now)
+            alpha := 255
+            if remaining < time.Millisecond * 500 {
+                alpha = int(255 * float64(remaining) / (float64(time.Millisecond) * 500))
+                if alpha > 255 {
+                    alpha = 255
+                }
+                /* strangely if alpha=0 it renders without transparency so the pixels are fully white */
+                if alpha < 1 {
+                    alpha = 1
+                }
+            }
+            white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
+            // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
+            common.WriteFont(font, renderInfo.Renderer, x, y, message.Message, white)
+            y -= font.Height() + 2
+        }
+    }
+
+    return nil
+}
+
+func (layer *EmulatorMessageLayer) Run(quit context.Context){
+    emulatorMessageTicker := time.NewTicker(time.Second * 1)
+    defer emulatorMessageTicker.Stop()
+    maxEmulatorMessages := 10
+
+    for {
+        select {
+            case <-quit.Done():
+                return
+            case message := <-layer.ReceiveMessages:
+                layer.emulatorMessages = append(layer.emulatorMessages, EmulatorMessage{
+                    Message: message,
+                    DeathTime: time.Now().Add(time.Millisecond * 1500),
+                })
+                if len(layer.emulatorMessages) > maxEmulatorMessages {
+                    layer.emulatorMessages = layer.emulatorMessages[len(layer.emulatorMessages) - maxEmulatorMessages:len(layer.emulatorMessages)]
+                }
+                /* remove deceased messages */
+            case <-emulatorMessageTicker.C:
+                now := time.Now()
+                i := 0
+                for i < len(layer.emulatorMessages) {
+                    /* find the first non-dead message */
+                    if layer.emulatorMessages[i].DeathTime.Before(now) {
+                        i += 1
+                    } else {
+                        break
+                    }
+                }
+                layer.emulatorMessages = layer.emulatorMessages[i:]
+        }
+    }
 }
 
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
@@ -566,55 +623,14 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
     */
 
-    emulatorMessage := make(chan string, 10)
-
-    /* these messages appear in the bottom right */
-    var emulatorMessages []EmulatorMessage
-    emulatorMessageTicker := time.NewTicker(time.Second * 1)
-    defer emulatorMessageTicker.Stop()
-    maxEmulatorMessages := 10
-
-    go func(){
-        for {
-            select {
-                case <-mainQuit.Done():
-                    return
-                case message := <-emulatorMessage:
-                    emulatorMessages = append(emulatorMessages, EmulatorMessage{
-                        Message: message,
-                        DeathTime: time.Now().Add(time.Millisecond * 1500),
-                    })
-                    if len(emulatorMessages) > maxEmulatorMessages {
-                        emulatorMessages = emulatorMessages[len(emulatorMessages) - maxEmulatorMessages:len(emulatorMessages)]
-                    }
-                /* remove deceased messages */
-                case <-emulatorMessageTicker.C:
-                    now := time.Now()
-                    i := 0
-                    for i < len(emulatorMessages) {
-                        /* find the first non-dead message */
-                        if emulatorMessages[i].DeathTime.Before(now) {
-                            i += 1
-                        } else {
-                            break
-                        }
-                    }
-                    emulatorMessages = emulatorMessages[i:]
-            }
-        }
-    }()
-
-    renderManager.AddLayer(&DefaultRenderLayer{
-        RenderFunc: func(renderer *sdl.Renderer) error {
-            if len(emulatorMessages) > 0 {
-                width, height := window.GetSize()
-                return doRenderEmulatorMessages(renderer, smallFont, emulatorMessages, int(width), int(height))
-            }
-
-            return nil
-        },
+    emulatorMessages := EmulatorMessageLayer{
+        ReceiveMessages: make(chan string, 10),
         Index: 1,
-    })
+    }
+
+    go emulatorMessages.Run(mainQuit)
+
+    renderManager.AddLayer(&emulatorMessages)
 
     /* Show black bars on the sides or top/bottom when the window changes size */
     // renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
@@ -651,7 +667,13 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         overlayMessage := ""
 
         render := func (){
-            err := renderManager.RenderAll(renderer)
+            err := renderManager.RenderAll(RenderInfo{
+                Renderer: renderer,
+                Font: font,
+                SmallFont: smallFont,
+                Window: window,
+            })
+
             if err != nil {
                 log.Printf("Warning: could not render: %v", err)
             }
@@ -747,8 +769,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         combined := common.MakeCombineButtons(input, joystickManager)
         cpu.Input = nes.MakeInput(&combined)
 
-        renderNes := func(renderer *sdl.Renderer) error {
-            return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, renderer)
+        renderNes := func(info RenderInfo) error {
+            return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, info.Renderer)
         }
 
         layer := &DefaultRenderLayer{
@@ -903,7 +925,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             log.Printf("Loaded rom '%v'", loadRom.Path)
                             nesChannel <- &NesActionLoad{File: nesFile}
                             select {
-                                case emulatorMessage <- "Loaded rom":
+                                case emulatorMessages.ReceiveMessages <- "Loaded rom":
                                 default:
                             }
                         }
@@ -989,7 +1011,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             select {
                                 case emulatorActionsOutput <- common.EmulatorSaveState:
                                     select {
-                                        case emulatorMessage <- "Saved state":
+                                        case emulatorMessages.ReceiveMessages <- "Saved state":
                                         default:
                                     }
                                 default:
@@ -998,7 +1020,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             select {
                                 case emulatorActionsOutput <- common.EmulatorLoadState:
                                     select {
-                                        case emulatorMessage <- "Loaded state":
+                                        case emulatorMessages.ReceiveMessages <- "Loaded state":
                                         default:
                                     }
                                 default:
@@ -1007,7 +1029,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             if recordQuit.Err() == nil {
                                 recordCancel()
                                 select {
-                                    case emulatorMessage <- "Stopped recording":
+                                    case emulatorMessages.ReceiveMessages <- "Stopped recording":
                                     default:
                                 }
                             } else {
@@ -1017,7 +1039,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                     log.Printf("Could not record video: %v", err)
                                 }
                                 select {
-                                    case emulatorMessage <- "Started recording":
+                                    case emulatorMessages.ReceiveMessages <- "Started recording":
                                     default:
                                 }
                             }
@@ -1051,7 +1073,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             log.Printf("Hard reset")
                             nesChannel <- &NesActionRestart{}
                             select {
-                                case emulatorMessage <- "Hard reset":
+                                case emulatorMessages.ReceiveMessages <- "Hard reset":
                                 default:
                             }
                     }
