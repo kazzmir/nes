@@ -717,10 +717,16 @@ func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager 
 
         x := 50
         /* FIXME: base this on the size of a button */
-        y += 50
+        y += 80
+
+        aLength := common.TextWidth(smallFont, "A")
+        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
         for _, line := range strings.Split(menu.ExtraInfo, "\n") {
-            white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-            common.WriteFont(smallFont, renderer, x, y, line, white)
+            parts := strings.Split(line, "\t")
+            for i, part := range parts {
+                common.WriteFont(smallFont, renderer, x + i * aLength * 20, y, part, white)
+            }
             y += smallFont.Height() + 2
         }
 
@@ -1866,30 +1872,18 @@ func keysInfo(keys common.EmulatorKeys) string {
         "n": n,
     })
     _, err := info.Parse(`Keys:
-A: {{n .ButtonA}}
-B: {{n .ButtonB}}
-Start: {{n .ButtonStart}}
-TurboA: {{n .ButtonTurboA}}
-TurboB: {{n .ButtonTurboB}}
-Select: {{n .ButtonSelect}}
-Start: {{n .ButtonStart}}
-Up: {{n .ButtonUp}}
-Down: {{n .ButtonDown}}
-Left: {{n .ButtonLeft}}
-Right: {{n .ButtonRight}}
-
-Turbo: {{n .Turbo}}
-Pause: {{n .Pause}}
-Hard Reset: {{n .HardReset}}
-PPU Debug: {{n .PPUDebug}}
-Slow down: {{n .SlowDown}}
-Speed up: {{n .SpeedUp}}
-Normal: {{n .Normal}}
-Step frame: {{n .StepFrame}}
-Record: {{n .Record}}
-Save state: {{n .SaveState}}
-Load state: {{n .LoadState}}
-    `)
+A: {{n .ButtonA}}{{"\t"}}Turbo: {{n .Turbo}}
+B: {{n .ButtonB}}{{"\t"}}Pause: {{n .Pause}}
+Start: {{n .ButtonStart}}{{"\t"}}Hard Reset: {{n .HardReset}}
+TurboA: {{n .ButtonTurboA}}{{"\t"}}PPU Debug: {{n .PPUDebug}}
+TurboB: {{n .ButtonTurboB}}{{"\t"}}Slow down: {{n .SlowDown}}
+Select: {{n .ButtonSelect}}{{"\t"}}Speed up: {{n .SpeedUp}}
+Start: {{n .ButtonStart}}{{"\t"}}Normal: {{n .Normal}}
+Up: {{n .ButtonUp}}{{"\t"}}Step frame: {{n .StepFrame}}
+Down: {{n .ButtonDown}}{{"\t"}}Record: {{n .Record}}
+Left: {{n .ButtonLeft}}{{"\t"}}Save state: {{n .SaveState}}
+Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
+`)
 
     if err != nil {
         log.Printf("Could not parse template: %v", err)
