@@ -61,6 +61,17 @@ func FindPixelFormat() PixelFormat {
     return sdl.PIXELFORMAT_RGBA8888
 }
 
+func TextWidth(font *ttf.Font, text string) int {
+    /* FIXME: this feels a bit inefficient, maybe find a better way that doesn't require fully rendering the text */
+    surface, err := font.RenderUTF8Solid(text, sdl.Color{R: 255, G: 255, B: 255, A: 255})
+    if err != nil {
+        return 0
+    }
+
+    defer surface.Free()
+    return int(surface.W)
+}
+
 func WriteFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) error {
     surface, err := font.RenderUTF8Blended(message, color)
     if err != nil {

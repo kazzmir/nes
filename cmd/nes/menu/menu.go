@@ -169,17 +169,6 @@ func (manager *TextureManager) GetCachedTexture(id TextureId, makeTexture Textur
     return info, nil
 }
 
-func textWidth(font *ttf.Font, text string) int {
-    /* FIXME: this feels a bit inefficient, maybe find a better way that doesn't require fully rendering the text */
-    surface, err := font.RenderUTF8Solid(text, sdl.Color{R: 255, G: 255, B: 255, A: 255})
-    if err != nil {
-        return 0
-    }
-
-    defer surface.Free()
-    return int(surface.W)
-}
-
 func (manager *TextureManager) RenderText(font *ttf.Font, renderer *sdl.Renderer, text string, color sdl.Color, id TextureId) (TextureInfo, error) {
     return manager.GetCachedTexture(id, func() (TextureInfo, error){
         surface, err := font.RenderUTF8Blended(text, color)
@@ -658,7 +647,7 @@ func (buttons *MenuButtons) Render(startX int, startY int, maxWidth int, maxHeig
     x := startX
     y := startY
     for i, item := range buttons.Items {
-        if x > maxWidth - textWidth(font, item.Text()) {
+        if x > maxWidth - common.TextWidth(font, item.Text()) {
             x = startX
             y += font.Height() + 20
         }

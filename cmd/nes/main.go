@@ -258,6 +258,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
+    renderOverlayUpdate := make(chan string, 5)
 
     if path != "" {
         log.Printf("Opening NES file '%v'", path)
@@ -269,6 +270,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     } else {
         /* if no nes file given then just load the main menu */
         doMenu <- true
+        renderOverlayUpdate <- "No ROM loaded"
     }
 
     // force a software renderer
@@ -429,7 +431,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     go func(){
         for i := 0; i < 2; i++ {
             select {
-                case <-mainQuit.Done():
+                // case <-mainQuit.Done():
                 case <-signalChannel:
                     if i == 0 {
                         log.Printf("Shutting down due to signal")
@@ -533,6 +535,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             return nil
         }
 
+        /* render this message in between the nes frame and the menu overlay.
+         * this feels a bit hacky
+         */
+        overlayMessage := ""
+
         render := func (){
             err := doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, renderer)
             if err != nil {
@@ -545,6 +552,20 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 if err != nil {
                     log.Printf("Warning: Could not render extra: %v", err)
                 }
+            }
+
+            if overlayMessage != "" {
+                width, height := window.GetSize()
+
+                black := sdl.Color{R: 0, G: 0, B: 0, A: 200}
+                white := sdl.Color{R: 255, G: 255, B: 255, A: 200}
+                messageLength := common.TextWidth(font, overlayMessage)
+                x := int(width)/2 - messageLength / 2
+                y := int(height)/2
+                renderer.SetDrawColor(black.R, black.G, black.B, black.A)
+                renderer.FillRect(&sdl.Rect{X: int32(x - 10), Y: int32(y - 10), W: int32(messageLength + 10 + 5), H: int32(font.Height() + 10 + 5)})
+
+                common.WriteFont(font, renderer, x, y, overlayMessage, white)
             }
 
             /* this is the menu overlay usually */
@@ -568,6 +589,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
                     canRender = false
                     bufferReady <- screen
+                case message := <-renderOverlayUpdate:
+                    overlayMessage = message
+                    sdl.Do(render)
                 case newFunction := <-renderFuncUpdate:
                     if newFunction == nil {
                         newFunction = func(renderer *sdl.Renderer) error {
@@ -632,6 +656,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
 
     startNES := func(nesFile nes.NESFile, quit context.Context){
+        select {
+            case renderOverlayUpdate <- "":
+            default:
+        }
         cpu, err := common.SetupCPU(nesFile, debug)
 
         input.Reset()
@@ -650,7 +678,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             })
         } else {
             log.Printf("Run NES")
-            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, AudioSampleRate, 1)
+            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1)
             if err != nil {
                 if err == common.MaxCyclesReached {
                 } else {

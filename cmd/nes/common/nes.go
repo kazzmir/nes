@@ -247,6 +247,7 @@ var MaxCyclesReached error = errors.New("maximum cycles reached")
 func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen,
             bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32,
             emulatorActions <-chan EmulatorAction, screenListeners *ScreenListeners,
+            renderOverlayUpdate chan<- string,
             sampleRate float32, verbose int) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
@@ -390,10 +391,28 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                             }
                         case EmulatorTogglePause:
                             paused = !paused
+
+                            message := "Paused"
+                            if !paused {
+                                message = ""
+                            }
+                            select {
+                                case renderOverlayUpdate <- message:
+                                default:
+                            }
+
                         case EmulatorSetPause:
                             paused = true
+                            select {
+                                case renderOverlayUpdate <- "Paused":
+                                default:
+                            }
                         case EmulatorUnpause:
                             paused = false
+                            select {
+                                case renderOverlayUpdate <- "":
+                                default:
+                            }
                         case EmulatorTogglePPUDebug:
                             cpu.PPU.ToggleDebug()
                     }
