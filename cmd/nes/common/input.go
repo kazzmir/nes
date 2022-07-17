@@ -255,8 +255,6 @@ func (buttons *SDLKeyboardButtons) Reset(){
     buttons.ButtonTurboB = false
     buttons.TurboACounter = 0
     buttons.TurboBCounter = 0
-    buttons.TurboAReleased = false
-    buttons.TurboBReleased = false
 }
 
 func (buttons *SDLKeyboardButtons) Get() nes.ButtonMapping {
@@ -276,16 +274,6 @@ func (buttons *SDLKeyboardButtons) Get() nes.ButtonMapping {
             buttons.ButtonB = !buttons.ButtonB
             buttons.TurboBCounter = 0
         }
-    }
-
-    if buttons.TurboAReleased {
-        buttons.TurboAReleased = false
-        buttons.ButtonA = false
-    }
-
-    if buttons.TurboBReleased {
-        buttons.TurboBReleased = false
-        buttons.ButtonB = false
     }
 
     mapping[nes.ButtonIndexA] = buttons.ButtonA
@@ -312,10 +300,18 @@ func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
         case buttons.Keys.ButtonB: buttons.ButtonB = set
         case buttons.Keys.ButtonTurboA:
             buttons.ButtonTurboA = set
-            buttons.TurboAReleased = (event.GetType() == sdl.KEYUP)
+            /* if the user releases the turbo button the A/B button might be in
+             * a pressed state even though the user is not currently pressing it,
+             * so ensure that A/B is not pressed if turbo is released
+             */
+            if !set {
+                buttons.ButtonA = false
+            }
         case buttons.Keys.ButtonTurboB:
             buttons.ButtonTurboB = set
-            buttons.TurboBReleased = (event.GetType() == sdl.KEYUP)
+            if !set {
+                buttons.ButtonB = false
+            }
         case buttons.Keys.ButtonSelect: buttons.ButtonSelect = set
         case buttons.Keys.ButtonStart: buttons.ButtonStart = set
         case buttons.Keys.ButtonUp: buttons.ButtonUp = set
