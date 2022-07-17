@@ -251,7 +251,7 @@ type EmulatorMessage struct {
     DeathTime time.Time
 }
 
-func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool) error {
+func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
     randomSeed := time.Now().UnixNano()
 
     rand.Seed(randomSeed)
@@ -447,7 +447,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     toDraw := make(chan nes.VirtualScreen, 1)
     bufferReady := make(chan nes.VirtualScreen, 1)
 
-    desiredFps := 60.0
     pixelFormat := common.FindPixelFormat()
 
     log.Printf("Using pixel format %v\n", sdl.GetPixelFormatName(uint(pixelFormat)))
@@ -1021,6 +1020,7 @@ type Arguments struct {
     CpuProfile bool
     MemoryProfile bool
     Record bool
+    DesiredFps int
 }
 
 func parseArguments() (Arguments, error) {
@@ -1028,10 +1028,22 @@ func parseArguments() (Arguments, error) {
     arguments.WindowSizeMultiple = 3
     arguments.CpuProfile = true
     arguments.MemoryProfile = true
+    arguments.DesiredFps = 60
 
     for argIndex := 1; argIndex < len(os.Args); argIndex++ {
         arg := os.Args[argIndex]
         switch arg {
+            case "-h", "--help":
+                return arguments, fmt.Errorf(`NES emulator by Jon Rafkind
+$ nes [rom.nes]
+Options:
+  -h, --help: this help
+  -debug, --debug: enable debug output
+  -size, --size #: start the window at a multiple of the default size
+  -record: enable recording to an mp4 when the rom loads
+  -fps #: set a desired frame rate
+  -cycles, --cycles #: limit the emulator to only run for some number of cycles
+`)
             case "-debug", "--debug":
                 arguments.Debug = true
             case "-size", "--size":
@@ -1047,6 +1059,19 @@ func parseArguments() (Arguments, error) {
                 arguments.WindowSizeMultiple = int(windowSizeMultiple)
             case "-record":
                 arguments.Record = true
+            case "-fps":
+                argIndex += 1
+                if argIndex >= len(os.Args) {
+                    return arguments, fmt.Errorf("Expected an integer for argument -fps")
+                }
+                fps, err := strconv.ParseInt(os.Args[argIndex], 10, 64)
+                if err != nil {
+                    return arguments, fmt.Errorf("Error reading fps argument: %v", err)
+                }
+                if fps < 1 {
+                    fps = 1
+                }
+                arguments.DesiredFps = int(fps)
             case "-cycles", "--cycles":
                 var err error
                 argIndex += 1
@@ -1097,7 +1122,7 @@ func main(){
 
     if nes.IsNESFile(arguments.NESPath) {
         sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
+            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }
@@ -1112,7 +1137,7 @@ func main(){
     } else {
         /* Open up the loading menu immediately */
         sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record)
+            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }

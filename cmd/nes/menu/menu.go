@@ -629,7 +629,6 @@ func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
         menu.PlayBeep()
     case MenuSelect:
         button, ok := buttons.Items[buttons.Selected].(Button)
-        log.Printf("Button %v ok %v", buttons.Selected, ok)
         if ok {
             return button.Interact(menu)
         }
