@@ -228,6 +228,12 @@ type SDLKeyboardButtons struct {
     /* true if held down, false if not */
     ButtonA bool
     ButtonB bool
+    ButtonTurboA bool
+    ButtonTurboB bool
+    TurboACounter int
+    TurboBCounter int
+    TurboAReleased bool
+    TurboBReleased bool
     ButtonSelect bool
     ButtonStart bool
     ButtonUp bool
@@ -245,10 +251,42 @@ func (buttons *SDLKeyboardButtons) Reset(){
     buttons.ButtonDown = false
     buttons.ButtonLeft = false
     buttons.ButtonRight = false
+    buttons.ButtonTurboA = false
+    buttons.ButtonTurboB = false
+    buttons.TurboACounter = 0
+    buttons.TurboBCounter = 0
+    buttons.TurboAReleased = false
+    buttons.TurboBReleased = false
 }
 
 func (buttons *SDLKeyboardButtons) Get() nes.ButtonMapping {
     mapping := make(nes.ButtonMapping)
+
+    if buttons.ButtonTurboA {
+        buttons.TurboACounter += 1
+        if buttons.TurboACounter > 5 {
+            buttons.ButtonA = !buttons.ButtonA
+            buttons.TurboACounter = 0
+        }
+    }
+
+    if buttons.ButtonTurboB {
+        buttons.TurboBCounter += 1
+        if buttons.TurboBCounter > 5 {
+            buttons.ButtonB = !buttons.ButtonB
+            buttons.TurboBCounter = 0
+        }
+    }
+
+    if buttons.TurboAReleased {
+        buttons.TurboAReleased = false
+        buttons.ButtonA = false
+    }
+
+    if buttons.TurboBReleased {
+        buttons.TurboBReleased = false
+        buttons.ButtonB = false
+    }
 
     mapping[nes.ButtonIndexA] = buttons.ButtonA
     mapping[nes.ButtonIndexB] = buttons.ButtonB
@@ -272,6 +310,12 @@ func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
     switch event.Keysym.Scancode {
         case buttons.Keys.ButtonA: buttons.ButtonA = set
         case buttons.Keys.ButtonB: buttons.ButtonB = set
+        case buttons.Keys.ButtonTurboA:
+            buttons.ButtonTurboA = set
+            buttons.TurboAReleased = (event.GetType() == sdl.KEYUP)
+        case buttons.Keys.ButtonTurboB:
+            buttons.ButtonTurboB = set
+            buttons.TurboBReleased = (event.GetType() == sdl.KEYUP)
         case buttons.Keys.ButtonSelect: buttons.ButtonSelect = set
         case buttons.Keys.ButtonStart: buttons.ButtonStart = set
         case buttons.Keys.ButtonUp: buttons.ButtonUp = set
@@ -481,6 +525,8 @@ type EmulatorKeys struct {
 
     ButtonA sdl.Scancode
     ButtonB sdl.Scancode
+    ButtonTurboA sdl.Scancode
+    ButtonTurboB sdl.Scancode
     ButtonSelect sdl.Scancode
     ButtonStart sdl.Scancode
     ButtonUp sdl.Scancode
@@ -505,6 +551,8 @@ func DefaultEmulatorKeys() EmulatorKeys {
 
         ButtonA: sdl.SCANCODE_A,
         ButtonB: sdl.SCANCODE_S,
+        ButtonTurboA: sdl.SCANCODE_D,
+        ButtonTurboB: sdl.SCANCODE_F,
         ButtonSelect: sdl.SCANCODE_Q,
         ButtonStart: sdl.SCANCODE_RETURN,
         ButtonUp:  sdl.SCANCODE_UP,
