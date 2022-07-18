@@ -193,8 +193,6 @@ func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat com
     // texture_format, access, width, height, err := texture.Query()
     // log.Printf("Texture format=%v access=%v width=%v height=%v err=%v\n", get_pixel_format(texture_format), access, width, height, err)
 
-    renderer.SetDrawColor(0, 0, 0, 0)
-    renderer.Clear()
 
     renderer.SetLogicalSize(int32(width), int32(height))
     err = renderer.Copy(texture, nil, nil)
@@ -625,6 +623,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         canRender := false
 
         render := func (){
+            renderer.SetDrawColor(0, 0, 0, 0)
+            renderer.Clear()
+
             err := renderManager.RenderAll(common.RenderInfo{
                 Renderer: renderer,
                 Font: font,
@@ -1042,6 +1043,10 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 emulatorActionsOutput <- common.EmulatorSetPause
                 activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, emulatorKeys)
                 emulatorActionsOutput <- common.EmulatorUnpause
+                select {
+                    case renderNow<-true:
+                    default:
+                }
             default:
                 sdl.Do(eventFunction)
         }

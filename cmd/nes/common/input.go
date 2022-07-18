@@ -519,6 +519,7 @@ type EmulatorKeys struct {
     Record sdl.Scancode
     SaveState sdl.Scancode
     LoadState sdl.Scancode
+    Console sdl.Scancode
 
     ButtonA sdl.Scancode
     ButtonB sdl.Scancode
@@ -545,6 +546,7 @@ func DefaultEmulatorKeys() EmulatorKeys {
         Record: sdl.SCANCODE_M,
         SaveState: sdl.SCANCODE_1,
         LoadState: sdl.SCANCODE_2,
+        Console: sdl.SCANCODE_TAB,
 
         ButtonA: sdl.SCANCODE_A,
         ButtonB: sdl.SCANCODE_S,
