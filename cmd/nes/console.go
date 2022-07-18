@@ -3,6 +3,9 @@ package main
 import (
     "time"
     "context"
+    "log"
+    "fmt"
+    "sync"
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/veandco/go-sdl2/sdl"
 )
@@ -23,6 +26,20 @@ type ToggleMessage struct {
 }
 
 func (toggle ToggleMessage) ConsoleMessage() {
+}
+
+type IsActiveMessage struct {
+    Response chan bool
+}
+
+func (active IsActiveMessage) ConsoleMessage() {
+}
+
+type TextInputMessage struct {
+    Text string
+}
+
+func (input TextInputMessage) ConsoleMessage() {
 }
 
 type Console struct {
@@ -48,10 +65,25 @@ func MakeConsole(zindex int, manager *common.RenderManager, quit context.Context
 type RenderConsoleLayer struct {
     Index int
     Size int
+    Text string
+    Lock sync.Mutex
 }
 
 func (layer *RenderConsoleLayer) ZIndex() int {
     return layer.Index
+}
+
+func (layer *RenderConsoleLayer) GetText() string {
+    layer.Lock.Lock()
+    defer layer.Lock.Unlock()
+
+    return layer.Text
+}
+
+func (layer *RenderConsoleLayer) SetText(text string){
+    layer.Lock.Lock()
+    defer layer.Lock.Unlock()
+    layer.Text = text
 }
 
 func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
@@ -70,7 +102,7 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
 
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
-    common.WriteFont(info.SmallFont, renderer, 1, y - info.SmallFont.Height() - 1, "> ", white)
+    common.WriteFont(info.SmallFont, renderer, 1, y - info.SmallFont.Height() - 1, fmt.Sprintf("> %s", layer.GetText()), white)
 
     return nil
 }
@@ -83,6 +115,7 @@ func (console *Console) Run(mainQuit context.Context, renderNow chan bool){
     layer := RenderConsoleLayer{
         Index: console.ZIndex,
         Size: 0,
+        Text: "",
     }
 
     defer console.RenderManager.RemoveLayer(&layer)
@@ -95,14 +128,11 @@ func (console *Console) Run(mainQuit context.Context, renderNow chan bool){
                 _, ok := message.(ToggleMessage)
                 if ok {
                     switch console.State {
-                        case StateOpen:
+                        case StateOpen, StateOpening:
                             console.State = StateClosing
-                        case StateOpening:
-                            console.State = StateClosing
-                        case StateClosing:
-                            console.State = StateOpening
-                            console.RenderManager.Replace(console.ZIndex, &layer)
-                        case StateClosed:
+                            sdl.Do(sdl.StopTextInput)
+                        case StateClosing, StateClosed:
+                            sdl.Do(sdl.StartTextInput)
                             console.State = StateOpening
                             console.RenderManager.Replace(console.ZIndex, &layer)
                     }
@@ -110,6 +140,20 @@ func (console *Console) Run(mainQuit context.Context, renderNow chan bool){
                         case renderNow <-true:
                         default:
                     }
+                }
+
+                text, ok := message.(TextInputMessage)
+                if ok {
+                    layer.SetText(layer.GetText() + text.Text)
+                    select {
+                        case renderNow <-true:
+                        default:
+                    }
+                }
+
+                isActive, ok := message.(IsActiveMessage)
+                if ok {
+                    isActive.Response <- console.State == StateOpen || console.State == StateOpening
                 }
             case <-ticker.C:
                 switch console.State {
@@ -139,9 +183,34 @@ func (console *Console) Run(mainQuit context.Context, renderNow chan bool){
     }
 }
 
+func (console *Console) HandleText(event sdl.Event){
+    switch event.GetType() {
+        case sdl.TEXTINPUT:
+            input := event.(*sdl.TextInputEvent)
+            message := TextInputMessage{
+                Text: input.GetText(),
+            }
+
+            select {
+                case console.Messages<- message:
+                default:
+            }
+        case sdl.TEXTEDITING:
+            log.Printf("Text editing")
+    }
+}
+
 func (console *Console) Toggle(){
     select {
         case console.Messages <- ToggleMessage{}:
         default:
     }
+}
+
+func (console *Console) IsActive() bool {
+    check := IsActiveMessage{
+        Response: make(chan bool),
+    }
+    console.Messages <- check
+    return <-check.Response
 }

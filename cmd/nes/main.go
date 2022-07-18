@@ -908,6 +908,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             log.Printf("Warning: dropping a window event")
                     }
                     */
+                case sdl.TEXTINPUT, sdl.TEXTEDITING:
+                    console.HandleText(event)
                 case sdl.DROPFILE:
                     drop_event := event.(*sdl.DropEvent)
                     switch drop_event.Type {
@@ -924,7 +926,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
-                    input.HandleEvent(keyboard_event)
+                    if !console.IsActive() {
+                        input.HandleEvent(keyboard_event)
+                    }
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
 
@@ -935,6 +939,13 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         }
 
                         // theMenu.Input <- menu.MenuToggle
+                    }
+
+                    if console.IsActive() {
+                        if keyboard_event.Keysym.Scancode == emulatorKeys.Console {
+                            console.Toggle()
+                        }
+                        return
                     }
 
                     switch keyboard_event.Keysym.Scancode {
