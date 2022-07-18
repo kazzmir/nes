@@ -1883,6 +1883,7 @@ Up: {{n .ButtonUp}}{{"\t"}}Step frame: {{n .StepFrame}}
 Down: {{n .ButtonDown}}{{"\t"}}Record: {{n .Record}}
 Left: {{n .ButtonLeft}}{{"\t"}}Save state: {{n .SaveState}}
 Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
+{{"\t"}}Console: {{n .Console}}
 `)
 
     if err != nil {
@@ -2093,7 +2094,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         baseRenderer := func(renderer *sdl.Renderer) error {
             err := renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
             _ = err
-            renderer.SetDrawColor(32, 0, 0, 192)
+            renderer.SetDrawColor(32, 0, 0, 210)
             renderer.FillRect(nil)
             return nil
         }
