@@ -32,7 +32,7 @@ type Console struct {
     ZIndex int
 }
 
-func MakeConsole(zindex int, manager *common.RenderManager, quit context.Context) *Console {
+func MakeConsole(zindex int, manager *common.RenderManager, quit context.Context, renderNow chan bool) *Console {
     console := Console{
         RenderManager: manager,
         State: StateClosed,
@@ -40,7 +40,7 @@ func MakeConsole(zindex int, manager *common.RenderManager, quit context.Context
         ZIndex: zindex,
     }
 
-    go console.Run(quit)
+    go console.Run(quit, renderNow)
 
     return &console
 }
@@ -70,7 +70,7 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
     return nil
 }
 
-func (console *Console) Run(mainQuit context.Context){
+func (console *Console) Run(mainQuit context.Context, renderNow chan bool){
     ticker := time.NewTicker(time.Millisecond * 30)
     defer ticker.Stop()
     maxSize := 7
@@ -101,18 +101,30 @@ func (console *Console) Run(mainQuit context.Context){
                             console.State = StateOpening
                             console.RenderManager.Replace(console.ZIndex, &layer)
                     }
+                    select {
+                        case renderNow <-true:
+                        default:
+                    }
                 }
             case <-ticker.C:
                 switch console.State {
                     case StateOpening:
                         if layer.Size < maxSize {
                             layer.Size += 1
+                            select {
+                                case renderNow <-true:
+                                default:
+                            }
                         } else {
                             console.State = StateOpen
                         }
                     case StateClosing:
                         if layer.Size > 0 {
                             layer.Size -= 1
+                            select {
+                                case renderNow <-true:
+                                default:
+                            }
                         } else {
                             console.RenderManager.RemoveByIndex(console.ZIndex)
                             console.State = StateClosed
