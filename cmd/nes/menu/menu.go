@@ -1884,6 +1884,7 @@ Down: {{n .ButtonDown}}{{"\t"}}Record: {{n .Record}}
 Left: {{n .ButtonLeft}}{{"\t"}}Save state: {{n .SaveState}}
 Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
 {{"\t"}}Console: {{n .Console}}
+{{"\t"}}Menu: ESC
 `)
 
     if err != nil {
