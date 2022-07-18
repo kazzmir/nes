@@ -56,7 +56,8 @@ func (layer *RenderConsoleLayer) ZIndex() int {
 
 func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
     renderer := info.Renderer
-    renderer.SetDrawColor(255, 0, 0, 200)
+    var alpha uint8 = 200
+    renderer.SetDrawColor(255, 0, 0, alpha)
 
     windowWidth, windowHeight := info.Window.GetSize()
     _ = windowHeight
@@ -64,8 +65,12 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
     y := layer.Size * 30
 
     renderer.FillRect(&sdl.Rect{X: int32(0), Y: int32(0), W: int32(windowWidth), H: int32(y)})
-    renderer.SetDrawColor(255, 255, 255, 200)
+    renderer.SetDrawColor(255, 255, 255, alpha)
     renderer.DrawLine(0, int32(y), int32(windowWidth), int32(y))
+
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+    common.WriteFont(info.SmallFont, renderer, 1, y - info.SmallFont.Height() - 1, "> ", white)
 
     return nil
 }
