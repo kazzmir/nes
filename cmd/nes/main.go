@@ -878,6 +878,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         sdl.EventState(sdl.DROPFILE, sdl.ENABLE)
     })
 
+    console := MakeConsole(6, &renderManager, mainQuit)
+
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
         if event != nil {
@@ -936,6 +938,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
 
                     switch keyboard_event.Keysym.Scancode {
+                        case emulatorKeys.Console:
+                            console.Toggle()
                         case emulatorKeys.Turbo:
                             select {
                                 case emulatorActionsOutput <- common.EmulatorTurbo:
