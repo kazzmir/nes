@@ -757,6 +757,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         for {
             select {
                 case <-mainQuit.Done():
+                    nesCancel()
                     return
                 case action := <-nesChannel:
                     doRestart := false
