@@ -926,9 +926,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
-                    if !console.IsActive() {
-                        input.HandleEvent(keyboard_event)
-                    }
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
 
@@ -947,6 +944,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         }
                         return
                     }
+
+                    input.HandleEvent(keyboard_event)
 
                     switch keyboard_event.Keysym.Scancode {
                         case emulatorKeys.Console:
