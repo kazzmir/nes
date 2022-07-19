@@ -127,6 +127,7 @@ func (layer *RenderConsoleLayer) SetText(text string){
 func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
     renderer := info.Renderer
     var alpha uint8 = 200
+    renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
     renderer.SetDrawColor(255, 0, 0, alpha)
 
     windowWidth, windowHeight := info.Window.GetSize()
@@ -169,6 +170,7 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
 const helpText string = `
 help, ?: this help text
 exit, quit: quit the program
+clear: clear console text
 info: show emulator info
 `
 
