@@ -878,7 +878,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         sdl.EventState(sdl.DROPFILE, sdl.ENABLE)
     })
 
-    console := MakeConsole(6, &renderManager, mainQuit, renderNow)
+    console := MakeConsole(6, &renderManager, mainCancel, mainQuit, renderNow)
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)

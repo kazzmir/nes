@@ -74,7 +74,7 @@ type Console struct {
     ZIndex int
 }
 
-func MakeConsole(zindex int, manager *common.RenderManager, quit context.Context, renderNow chan bool) *Console {
+func MakeConsole(zindex int, manager *common.RenderManager, cancel context.CancelFunc, quit context.Context, renderNow chan bool) *Console {
     console := Console{
         RenderManager: manager,
         State: StateClosed,
@@ -82,7 +82,7 @@ func MakeConsole(zindex int, manager *common.RenderManager, quit context.Context
         ZIndex: zindex,
     }
 
-    go console.Run(quit, renderNow)
+    go console.Run(cancel, quit, renderNow)
 
     return &console
 }
@@ -110,6 +110,12 @@ func (layer *RenderConsoleLayer) AddLine(line string){
     layer.Lock.Lock()
     defer layer.Lock.Unlock()
     layer.Lines = append(layer.Lines, line)
+}
+
+func (layer *RenderConsoleLayer) ClearLines(){
+    layer.Lock.Lock()
+    defer layer.Lock.Unlock()
+    layer.Lines = nil
 }
 
 func (layer *RenderConsoleLayer) SetText(text string){
@@ -160,7 +166,7 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
     return nil
 }
 
-func (console *Console) Run(mainQuit context.Context, renderNow chan bool){
+func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Context, renderNow chan bool){
     ticker := time.NewTicker(time.Millisecond * 30)
     defer ticker.Stop()
     maxSize := 7
@@ -250,7 +256,16 @@ func (console *Console) Run(mainQuit context.Context, renderNow chan bool){
                 _, ok = message.(EnterMessage)
                 if ok {
                     text := layer.GetText()
-                    layer.AddLine(text)
+
+                    switch strings.ToLower(strings.TrimSpace(text)) {
+                        case "exit", "quit":
+                            mainCancel()
+                        case "clear":
+                            layer.ClearLines()
+                        default:
+                            layer.AddLine(text)
+                    }
+
                     layer.SetText("")
                     select {
                         case renderNow <-true:
