@@ -5,6 +5,7 @@ import (
     "context"
     "log"
     "fmt"
+    "strings"
     "sync"
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/veandco/go-sdl2/sdl"
@@ -40,6 +41,24 @@ type TextInputMessage struct {
 }
 
 func (input TextInputMessage) ConsoleMessage() {
+}
+
+type BackspaceMessage struct {
+}
+
+func (backspace BackspaceMessage) ConsoleMessage() {
+}
+
+type RemoveWordMessage struct {
+}
+
+func (remove RemoveWordMessage) ConsoleMessage() {
+}
+
+type ClearLineMessage struct {
+}
+
+func (clear ClearLineMessage) ConsoleMessage() {
 }
 
 type Console struct {
@@ -102,7 +121,7 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
 
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
-    common.WriteFont(info.SmallFont, renderer, 1, y - info.SmallFont.Height() - 1, fmt.Sprintf("> %s", layer.GetText()), white)
+    common.WriteFont(info.SmallFont, renderer, 1, y - info.SmallFont.Height() - 1, fmt.Sprintf("> %s|", layer.GetText()), white)
 
     return nil
 }
@@ -145,6 +164,45 @@ func (console *Console) Run(mainQuit context.Context, renderNow chan bool){
                 text, ok := message.(TextInputMessage)
                 if ok {
                     layer.SetText(layer.GetText() + text.Text)
+                    select {
+                        case renderNow <-true:
+                        default:
+                    }
+                }
+
+                _, ok = message.(RemoveWordMessage)
+                if ok {
+                    text := strings.TrimRight(layer.GetText(), " ")
+                    last := strings.LastIndex(text, " ")
+                    if last == -1 {
+                        last = 0
+                    } else {
+                        last += 1
+                    }
+                    text = text[0:last]
+                    layer.SetText(text)
+                    select {
+                        case renderNow <-true:
+                        default:
+                    }
+                }
+
+                _, ok = message.(ClearLineMessage)
+                if ok {
+                    layer.SetText("")
+                    select {
+                        case renderNow <-true:
+                        default:
+                    }
+                }
+
+                _, ok = message.(BackspaceMessage)
+                if ok {
+                    text := layer.GetText()
+                    if len(text) > 0 {
+                        text = text[0:len(text)-1]
+                    }
+                    layer.SetText(text)
                     select {
                         case renderNow <-true:
                         default:
@@ -197,6 +255,32 @@ func (console *Console) HandleText(event sdl.Event){
             }
         case sdl.TEXTEDITING:
             log.Printf("Text editing")
+    }
+}
+
+func (console *Console) HandleKey(event *sdl.KeyboardEvent, emulatorKeys common.EmulatorKeys){
+    switch event.Keysym.Scancode {
+        case emulatorKeys.Console:
+            console.Toggle()
+        case sdl.SCANCODE_BACKSPACE:
+            select {
+                case console.Messages <- BackspaceMessage{}:
+                default:
+            }
+        case sdl.SCANCODE_W:
+            if (event.Keysym.Mod & sdl.KMOD_LCTRL) == sdl.KMOD_LCTRL {
+                select {
+                    case console.Messages <- RemoveWordMessage{}:
+                    default:
+                }
+            }
+        case sdl.SCANCODE_U:
+            if (event.Keysym.Mod & sdl.KMOD_LCTRL) == sdl.KMOD_LCTRL {
+                select {
+                    case console.Messages <- ClearLineMessage{}:
+                    default:
+                }
+            }
     }
 }
 

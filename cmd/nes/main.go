@@ -939,9 +939,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     }
 
                     if console.IsActive() {
-                        if keyboard_event.Keysym.Scancode == emulatorKeys.Console {
-                            console.Toggle()
-                        }
+                        console.HandleKey(keyboard_event, emulatorKeys)
                         return
                     }
 
