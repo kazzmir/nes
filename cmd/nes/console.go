@@ -166,6 +166,12 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
     return nil
 }
 
+const helpText string = `
+help, ?: this help text
+exit, quit: quit the program
+info: show emulator info
+`
+
 func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Context, emulatorActions chan<- common.EmulatorAction, renderNow chan bool){
     ticker := time.NewTicker(time.Millisecond * 30)
     defer ticker.Stop()
@@ -262,6 +268,15 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                             mainCancel()
                         case "clear":
                             layer.ClearLines()
+                        case "sup":
+                            layer.AddLine("nm, u?")
+                        case "help", "?":
+                            help := strings.Split(helpText, "\n")
+                            for _, line := range help {
+                                if line != "" {
+                                    layer.AddLine(line)
+                                }
+                            }
                         case "info":
                             layer.AddLine("info")
                             data := make(chan common.EmulatorInfo)
@@ -270,10 +285,15 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                             }
                             select {
                                 case emulatorActions<-response:
+                                    ok := false
                                     for info := range data {
+                                        ok = true
                                         layer.AddLine("Emulator Info")
                                         layer.AddLine(fmt.Sprintf("Cycles: %v", info.Cycles))
                                         break
+                                    }
+                                    if !ok {
+                                        layer.AddLine("No ROM loaded")
                                     }
                                 default:
                             }
