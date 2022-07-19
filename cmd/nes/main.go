@@ -569,6 +569,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     joystickManager := common.NewJoystickManager()
     defer joystickManager.Close()
 
+    sdl.Do(sdl.StopTextInput)
+
     // var joystickInput nes.HostInput
     /*
     var joystickInput *common.SDLJoystickButtons
@@ -697,10 +699,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
 
     startNES := func(nesFile nes.NESFile, quit context.Context){
-        select {
-            case renderOverlayUpdate <- "":
-            default:
-        }
         cpu, err := common.SetupCPU(nesFile, debug)
 
         input.Reset()
@@ -719,16 +717,14 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         renderManager.AddLayer(layer)
         defer renderManager.RemoveLayer(layer)
 
-        var quitEvent sdl.QuitEvent
-        quitEvent.Type = sdl.QUIT
-        /* FIXME: does quitEvent.Timestamp need to be set? */
-
         if err != nil {
             log.Printf("Error: CPU initialization error: %v", err)
             /* The main loop below is waiting for an event so we push the quit event */
-            sdl.Do(func(){
-                sdl.PushEvent(&quitEvent)
-            })
+            select {
+                case renderOverlayUpdate <- "Unable to load":
+                default:
+            }
+            common.RunDummyNES(quit, emulatorActionsInput)
         } else {
             log.Printf("Run NES")
             err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1)
@@ -738,9 +734,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     log.Printf("Error running NES: %v", err)
                 }
 
-                sdl.Do(func(){
-                    sdl.PushEvent(&quitEvent)
-                })
+                mainCancel()
             }
         }
     }
