@@ -753,6 +753,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         var nesWaiter sync.WaitGroup
         nesQuit, nesCancel := context.WithCancel(mainQuit)
 
+        go common.RunDummyNES(nesQuit, emulatorActionsInput)
+
         var currentFile nes.NESFile
 
         for {
@@ -842,7 +844,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     _, ok = action.(*common.ProgramPauseEmulator)
                     if ok {
                         select {
-                            case emulatorActionsOutput <- common.EmulatorSetPause:
+                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause):
                             default:
                         }
                     }
@@ -850,7 +852,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     _, ok = action.(*common.ProgramUnpauseEmulator)
                     if ok {
                         select {
-                            case emulatorActionsOutput <- common.EmulatorUnpause:
+                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause):
                             default:
                         }
                     }
@@ -878,7 +880,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         sdl.EventState(sdl.DROPFILE, sdl.ENABLE)
     })
 
-    console := MakeConsole(6, &renderManager, mainCancel, mainQuit, renderNow)
+    console := MakeConsole(6, &renderManager, mainCancel, mainQuit, emulatorActionsOutput, renderNow)
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
@@ -950,17 +952,17 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             console.Toggle()
                         case emulatorKeys.Turbo:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorTurbo:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
                                 default:
                             }
                         case emulatorKeys.StepFrame:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorStepFrame:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorStepFrame):
                                 default:
                             }
                         case emulatorKeys.SaveState:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorSaveState:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSaveState):
                                     select {
                                         case emulatorMessages.ReceiveMessages <- "Saved state":
                                         default:
@@ -969,7 +971,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             }
                         case emulatorKeys.LoadState:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorLoadState:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorLoadState):
                                     select {
                                         case emulatorMessages.ReceiveMessages <- "Loaded state":
                                         default:
@@ -997,27 +999,27 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         case emulatorKeys.Pause:
                             log.Printf("Pause/unpause")
                             select {
-                                case emulatorActionsOutput <- common.EmulatorTogglePause:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePause):
                                 default:
                             }
                         case emulatorKeys.PPUDebug:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorTogglePPUDebug:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePPUDebug):
                                 default:
                             }
                         case emulatorKeys.SlowDown:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorSlowDown:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSlowDown):
                                 default:
                             }
                         case emulatorKeys.SpeedUp:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorSpeedUp:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSpeedUp):
                                 default:
                             }
                         case emulatorKeys.Normal:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorNormal:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
                                 default:
                             }
                         case emulatorKeys.HardReset:
@@ -1034,7 +1036,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     scancode := keyboard_event.Keysym.Scancode
                     if scancode == emulatorKeys.Turbo || scancode == emulatorKeys.Pause {
                         select {
-                            case emulatorActionsOutput <- common.EmulatorNormal:
+                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
                             default:
                         }
                     }
@@ -1052,9 +1054,9 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         select {
             case <-doMenu:
                 activeMenu := menu.MakeMenu(mainQuit, font)
-                emulatorActionsOutput <- common.EmulatorSetPause
+                emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
                 activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, emulatorKeys)
-                emulatorActionsOutput <- common.EmulatorUnpause
+                emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
                 select {
                     case renderNow<-true:
                     default:

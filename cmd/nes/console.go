@@ -74,7 +74,7 @@ type Console struct {
     ZIndex int
 }
 
-func MakeConsole(zindex int, manager *common.RenderManager, cancel context.CancelFunc, quit context.Context, renderNow chan bool) *Console {
+func MakeConsole(zindex int, manager *common.RenderManager, cancel context.CancelFunc, quit context.Context, emulatorActions chan<- common.EmulatorAction, renderNow chan bool) *Console {
     console := Console{
         RenderManager: manager,
         State: StateClosed,
@@ -82,7 +82,7 @@ func MakeConsole(zindex int, manager *common.RenderManager, cancel context.Cance
         ZIndex: zindex,
     }
 
-    go console.Run(cancel, quit, renderNow)
+    go console.Run(cancel, quit, emulatorActions, renderNow)
 
     return &console
 }
@@ -150,7 +150,7 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
     if max > 30 {
         max = 30
     }
-    lines := common.CopyArray(layer.Lines[0:max])
+    lines := common.CopyArray(layer.Lines[len(layer.Lines)-max:len(layer.Lines)])
     layer.Lock.Unlock()
     common.Reverse(lines)
 
@@ -166,7 +166,7 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
     return nil
 }
 
-func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Context, renderNow chan bool){
+func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Context, emulatorActions chan<- common.EmulatorAction, renderNow chan bool){
     ticker := time.NewTicker(time.Millisecond * 30)
     defer ticker.Stop()
     maxSize := 7
@@ -262,6 +262,21 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                             mainCancel()
                         case "clear":
                             layer.ClearLines()
+                        case "info":
+                            layer.AddLine("info")
+                            data := make(chan common.EmulatorInfo)
+                            response := common.EmulatorActionGetInfo{
+                                Response: data,
+                            }
+                            select {
+                                case emulatorActions<-response:
+                                    for info := range data {
+                                        layer.AddLine("Emulator Info")
+                                        layer.AddLine(fmt.Sprintf("Cycles: %v", info.Cycles))
+                                        break
+                                    }
+                                default:
+                            }
                         default:
                             layer.AddLine(text)
                     }

@@ -295,7 +295,7 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
 
     audioOutput := make(chan []float32, 1)
     emulatorActionsInput := make(chan common.EmulatorAction, 5)
-    emulatorActionsInput <- common.EmulatorInfinite
+    emulatorActionsInput <- common.MakeEmulatorAction(common.EmulatorInfinite)
     var screenListeners common.ScreenListeners
     const AudioSampleRate float32 = 44100.0
 
