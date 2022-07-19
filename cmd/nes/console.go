@@ -61,6 +61,12 @@ type ClearLineMessage struct {
 func (clear ClearLineMessage) ConsoleMessage() {
 }
 
+type EnterMessage struct {
+}
+
+func (enter EnterMessage) ConsoleMessage() {
+}
+
 type Console struct {
     RenderManager *common.RenderManager
     State ConsoleState
@@ -84,6 +90,7 @@ func MakeConsole(zindex int, manager *common.RenderManager, quit context.Context
 type RenderConsoleLayer struct {
     Index int
     Size int
+    Lines []string
     Text string
     Lock sync.Mutex
 }
@@ -97,6 +104,12 @@ func (layer *RenderConsoleLayer) GetText() string {
     defer layer.Lock.Unlock()
 
     return layer.Text
+}
+
+func (layer *RenderConsoleLayer) AddLine(line string){
+    layer.Lock.Lock()
+    defer layer.Lock.Unlock()
+    layer.Lines = append(layer.Lines, line)
 }
 
 func (layer *RenderConsoleLayer) SetText(text string){
@@ -120,8 +133,29 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
     renderer.DrawLine(0, int32(y), int32(windowWidth), int32(y))
 
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+    grey := sdl.Color{R: 200, G: 200, B: 200, A: 255}
 
-    common.WriteFont(info.SmallFont, renderer, 1, y - info.SmallFont.Height() - 1, fmt.Sprintf("> %s|", layer.GetText()), white)
+    yPos := y - info.SmallFont.Height() - 1
+
+    common.WriteFont(info.SmallFont, renderer, 1, yPos, fmt.Sprintf("> %s|", layer.GetText()), white)
+
+    layer.Lock.Lock()
+    max := len(layer.Lines)
+    if max > 30 {
+        max = 30
+    }
+    lines := common.CopyArray(layer.Lines[0:max])
+    layer.Lock.Unlock()
+    common.Reverse(lines)
+
+    /* show all previous lines */
+    for _, line := range lines {
+        yPos -= info.SmallFont.Height() - 1
+        if yPos < -info.SmallFont.Height() {
+            break
+        }
+        common.WriteFont(info.SmallFont, renderer, 1, yPos, line, grey)
+    }
 
     return nil
 }
@@ -163,7 +197,11 @@ func (console *Console) Run(mainQuit context.Context, renderNow chan bool){
 
                 text, ok := message.(TextInputMessage)
                 if ok {
-                    layer.SetText(layer.GetText() + text.Text)
+                    newText := layer.GetText() + text.Text
+                    if len(newText) > 1024 {
+                        newText = newText[0:1024]
+                    }
+                    layer.SetText(newText)
                     select {
                         case renderNow <-true:
                         default:
@@ -203,6 +241,17 @@ func (console *Console) Run(mainQuit context.Context, renderNow chan bool){
                         text = text[0:len(text)-1]
                     }
                     layer.SetText(text)
+                    select {
+                        case renderNow <-true:
+                        default:
+                    }
+                }
+
+                _, ok = message.(EnterMessage)
+                if ok {
+                    text := layer.GetText()
+                    layer.AddLine(text)
+                    layer.SetText("")
                     select {
                         case renderNow <-true:
                         default:
@@ -280,6 +329,11 @@ func (console *Console) HandleKey(event *sdl.KeyboardEvent, emulatorKeys common.
                     case console.Messages <- ClearLineMessage{}:
                     default:
                 }
+            }
+        case sdl.SCANCODE_RETURN:
+            select {
+                case console.Messages <- EnterMessage{}:
+                default:
             }
     }
 }

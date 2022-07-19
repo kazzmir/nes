@@ -178,7 +178,15 @@ func (manager *RenderManager) RemoveLayer(remove RenderLayer){
     manager.Layers = out
 }
 
-func copyArray[T any](in []T) []T {
+func Reverse[T any](in []T){
+    max := len(in)
+    for i := 0; i < max/2; i++ {
+        j := max-i-1
+        in[i], in[j] = in[j], in[i]
+    }
+}
+
+func CopyArray[T any](in []T) []T {
     x := make([]T, len(in))
     copy(x, in)
     return x
@@ -186,7 +194,7 @@ func copyArray[T any](in []T) []T {
 
 func (manager *RenderManager) RenderAll(info RenderInfo) error {
     manager.Lock.Lock()
-    layers := copyArray(manager.Layers)
+    layers := CopyArray(manager.Layers)
     manager.Lock.Unlock()
 
     for _, layer := range layers {
