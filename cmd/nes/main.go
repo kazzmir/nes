@@ -769,7 +769,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         doRestart = true
                     }
 
-                    if doRestart {
+                    if doRestart && currentFile.Path != "" {
                         nesCancel()
                         nesWaiter.Wait()
                         nesQuit, nesCancel = context.WithCancel(mainQuit)
