@@ -74,7 +74,7 @@ type Console struct {
     ZIndex int
 }
 
-func MakeConsole(zindex int, manager *common.RenderManager, cancel context.CancelFunc, quit context.Context, emulatorActions chan<- common.EmulatorAction, renderNow chan bool) *Console {
+func MakeConsole(zindex int, manager *common.RenderManager, cancel context.CancelFunc, quit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool) *Console {
     console := Console{
         RenderManager: manager,
         State: StateClosed,
@@ -82,7 +82,7 @@ func MakeConsole(zindex int, manager *common.RenderManager, cancel context.Cance
         ZIndex: zindex,
     }
 
-    go console.Run(cancel, quit, emulatorActions, renderNow)
+    go console.Run(cancel, quit, emulatorActions, nesActions, renderNow)
 
     return &console
 }
@@ -172,9 +172,10 @@ help, ?: this help text
 exit, quit: quit the program
 clear: clear console text
 info: show emulator info
+reload, restart: reload the current rom
 `
 
-func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Context, emulatorActions chan<- common.EmulatorAction, renderNow chan bool){
+func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool){
     ticker := time.NewTicker(time.Millisecond * 30)
     defer ticker.Stop()
     maxSize := 7
@@ -278,6 +279,14 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                                 if line != "" {
                                     layer.AddLine(line)
                                 }
+                            }
+                        case "reload", "restart":
+                            layer.AddLine("reload")
+                            select {
+                                case nesActions <- &NesActionRestart{}:
+                                    layer.AddLine("Reloading..")
+                                default:
+                                    layer.AddLine("Error: input dropped. Try again")
                             }
                         case "info":
                             layer.AddLine("info")
