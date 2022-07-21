@@ -180,10 +180,10 @@ func (manager *JoystickManager) HandleEvent(event sdl.Event) EmulatorAction {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
-    var out EmulatorAction = EmulatorNothing
+    var out EmulatorAction = MakeEmulatorAction(EmulatorNothing)
     for _, joystick := range manager.Joysticks {
         value := joystick.HandleEvent(event)
-        if value != EmulatorNothing {
+        if value.Value() != EmulatorNothing {
             out = value
         }
     }
@@ -347,7 +347,7 @@ func (axis *JoystickAxis) Serialize() string {
 type SDLJoystickButtons struct {
     joystick *sdl.Joystick
     Inputs map[nes.Button]JoystickInput // normal nes buttons
-    ExtraInputs map[EmulatorAction]JoystickInput // extra emulator-only buttons
+    ExtraInputs map[EmulatorActionValue]JoystickInput // extra emulator-only buttons
     Pressed nes.ButtonMapping
     Lock sync.Mutex
     Name string
@@ -393,7 +393,7 @@ func OpenJoystick(index int) (SDLJoystickButtons, error){
     return SDLJoystickButtons{
         joystick: joystick,
         Inputs: make(map[nes.Button]JoystickInput),
-        ExtraInputs: make(map[EmulatorAction]JoystickInput),
+        ExtraInputs: make(map[EmulatorActionValue]JoystickInput),
         Pressed: make(nes.ButtonMapping),
         Name: strings.TrimSpace(joystick.Name()),
     }, nil
@@ -403,7 +403,7 @@ func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event) EmulatorAction 
     joystick.Lock.Lock()
     defer joystick.Lock.Unlock()
 
-    var emulatorOut EmulatorAction = EmulatorNothing
+    var emulatorOut EmulatorAction = MakeEmulatorAction(EmulatorNothing)
 
     rawButton, ok := event.(*sdl.JoyButtonEvent)
     if ok && rawButton.Which == joystick.joystick.InstanceID() {
@@ -422,9 +422,9 @@ func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event) EmulatorAction 
                 if int(rawButton.Button) == realButton.Button {
                     _ = extraInput
                     if rawButton.State == sdl.PRESSED {
-                        emulatorOut = EmulatorTurbo
+                        emulatorOut = MakeEmulatorAction(EmulatorTurbo)
                     } else {
-                        emulatorOut = EmulatorNormal
+                        emulatorOut = MakeEmulatorAction(EmulatorNormal)
                     }
                 }
             }
@@ -454,7 +454,7 @@ func (joystick *SDLJoystickButtons) SetButton(button nes.Button, input JoystickI
     joystick.Inputs[button] = input
 }
 
-func (joystick *SDLJoystickButtons) SetExtraButton(button EmulatorAction, input JoystickInput){
+func (joystick *SDLJoystickButtons) SetExtraButton(button EmulatorActionValue, input JoystickInput){
     joystick.ExtraInputs[button] = input
 }
 
@@ -519,6 +519,7 @@ type EmulatorKeys struct {
     Record sdl.Scancode
     SaveState sdl.Scancode
     LoadState sdl.Scancode
+    Console sdl.Scancode
 
     ButtonA sdl.Scancode
     ButtonB sdl.Scancode
@@ -545,6 +546,7 @@ func DefaultEmulatorKeys() EmulatorKeys {
         Record: sdl.SCANCODE_M,
         SaveState: sdl.SCANCODE_1,
         LoadState: sdl.SCANCODE_2,
+        Console: sdl.SCANCODE_TAB,
 
         ButtonA: sdl.SCANCODE_A,
         ButtonB: sdl.SCANCODE_S,

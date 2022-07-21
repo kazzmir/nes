@@ -2,6 +2,8 @@ package common
 
 import (
     "bytes"
+    "sort"
+    "sync"
     "encoding/binary"
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
@@ -100,3 +102,107 @@ func CopyTexture(texture *sdl.Texture, renderer *sdl.Renderer, width int, height
     return renderer.Copy(texture, &sourceRect, &destRect)
 }
 
+type RenderLayerList []RenderLayer
+
+func (list RenderLayerList) Len() int {
+    return len(list)
+}
+
+func (list RenderLayerList) Swap(a int, b int){
+    list[a], list[b] = list[b], list[a]
+}
+
+func (list RenderLayerList) Less(a int, b int) bool {
+    return list[a].ZIndex() < list[b].ZIndex()
+}
+
+type RenderInfo struct {
+    Renderer *sdl.Renderer
+    Font *ttf.Font
+    SmallFont *ttf.Font
+    Window *sdl.Window
+}
+
+type RenderLayer interface {
+    Render(RenderInfo) error
+    ZIndex() int // order of the layer
+}
+
+type RenderManager struct {
+    Layers RenderLayerList
+    /* FIXME: maybe use the actor-style message passing loop instead of a lock */
+    Lock sync.Mutex
+}
+
+func (manager *RenderManager) Replace(index int, layer RenderLayer){
+    manager.RemoveByIndex(index)
+    manager.AddLayer(layer)
+}
+
+func (manager *RenderManager) RemoveByIndex(index int){
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
+    var out []RenderLayer
+
+    for _, layer := range manager.Layers {
+        if layer.ZIndex() != index {
+            out = append(out, layer)
+        }
+    }
+
+    manager.Layers = out
+
+}
+
+func (manager *RenderManager) AddLayer(layer RenderLayer){
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
+    manager.Layers = append(manager.Layers, layer)
+    sort.Sort(manager.Layers)
+}
+
+func (manager *RenderManager) RemoveLayer(remove RenderLayer){
+    manager.Lock.Lock()
+    defer manager.Lock.Unlock()
+
+    var out []RenderLayer
+
+    for _, layer := range manager.Layers {
+        if layer != remove {
+            out = append(out, layer)
+        }
+    }
+
+    manager.Layers = out
+}
+
+func Reverse[T any](in []T){
+    max := len(in)
+    for i := 0; i < max/2; i++ {
+        j := max-i-1
+        in[i], in[j] = in[j], in[i]
+    }
+}
+
+func CopyArray[T any](in []T) []T {
+    x := make([]T, len(in))
+    copy(x, in)
+    return x
+}
+
+func (manager *RenderManager) RenderAll(info RenderInfo) error {
+    manager.Lock.Lock()
+    layers := CopyArray(manager.Layers)
+    manager.Lock.Unlock()
+
+    for _, layer := range layers {
+        err := layer.Render(info)
+        if err != nil {
+            return err
+        }
+    }
+
+    return nil
+}

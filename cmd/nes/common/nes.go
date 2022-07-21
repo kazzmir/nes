@@ -103,10 +103,9 @@ func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
     listeners.AudioListeners = out
 }
 
-
-type EmulatorAction int
+type EmulatorActionValue int
 const (
-    EmulatorNothing = iota // just a default value that has no behavior
+    EmulatorNothing EmulatorActionValue = iota // just a default value that has no behavior
     EmulatorNormal
     EmulatorTurbo
     EmulatorInfinite
@@ -119,7 +118,38 @@ const (
     EmulatorUnpause
     EmulatorSaveState
     EmulatorLoadState
+    EmulatorGetInfo
 )
+
+type EmulatorAction interface {
+    Value() EmulatorActionValue
+}
+
+type DefaultEmulatorAction struct {
+    value EmulatorActionValue
+}
+
+func (action DefaultEmulatorAction) Value() EmulatorActionValue {
+    return action.value
+}
+
+func MakeEmulatorAction(value EmulatorActionValue) EmulatorAction {
+    return DefaultEmulatorAction{
+        value: value,
+    }
+}
+
+type EmulatorInfo struct {
+    Cycles uint64
+}
+
+type EmulatorActionGetInfo struct {
+    Response chan<- EmulatorInfo
+}
+
+func (action EmulatorActionGetInfo) Value() EmulatorActionValue {
+    return EmulatorGetInfo
+}
 
 func SetupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     cpu := nes.StartupState()
@@ -346,7 +376,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                 case <-quit.Done():
                     return nil
                 case action := <-emulatorActions:
-                    switch action {
+                    switch action.Value() {
                         case EmulatorSaveState:
                             value := cpu.Copy()
                             go serializeState(quit, &value, getSha256())
@@ -360,6 +390,16 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                                 lastCpuCycle = cpu.Cycle
                                 log.Printf("State loaded")
                             }
+                        case EmulatorGetInfo:
+                            info := action.(EmulatorActionGetInfo)
+                            data := EmulatorInfo{
+                                Cycles: cpu.Cycle,
+                            }
+                            select {
+                                case info.Response<-data:
+                                default:
+                            }
+                            close(info.Response)
                         case EmulatorNothing:
                             /* nothing */
                         case EmulatorTurbo:
@@ -480,6 +520,21 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
     // log.Printf("CPU cycles %v waited %v nanoseconds out of %v", cpu.Cycle, totalWait, time.Now().Sub(realStart).Nanoseconds())
 
     return nil
+}
+
+func RunDummyNES(quit context.Context, actions <-chan EmulatorAction){
+    for {
+        select {
+            case <-quit.Done():
+                return
+            case action := <-actions:
+                switch action.Value() {
+                    case EmulatorGetInfo:
+                        info := action.(EmulatorActionGetInfo)
+                        close(info.Response)
+                }
+        }
+    }
 }
 
 func RenderPixelsRGBA(screen nes.VirtualScreen, raw_pixels []byte, overscanPixels int){

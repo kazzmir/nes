@@ -193,8 +193,6 @@ func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat com
     // texture_format, access, width, height, err := texture.Query()
     // log.Printf("Texture format=%v access=%v width=%v height=%v err=%v\n", get_pixel_format(texture_format), access, width, height, err)
 
-    renderer.SetDrawColor(0, 0, 0, 0)
-    renderer.Clear()
 
     renderer.SetLogicalSize(int32(width), int32(height))
     err = renderer.Copy(texture, nil, nil)
@@ -207,34 +205,6 @@ func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat com
     return nil
 }
 
-func doRenderEmulatorMessages(renderer *sdl.Renderer, font *ttf.Font, messages []EmulatorMessage, windowWidth int, windowHeight int) error {
-    y := windowHeight - font.Height() - 1
-    now := time.Now()
-    for i := len(messages)-1; i >= 0; i-- {
-        message := messages[i]
-        if message.DeathTime.After(now){
-            x := windowWidth - 100
-            remaining := message.DeathTime.Sub(now)
-            alpha := 255
-            if remaining < time.Millisecond * 500 {
-                alpha = int(255 * float64(remaining) / (float64(time.Millisecond) * 500))
-                if alpha > 255 {
-                    alpha = 255
-                }
-                /* strangely if alpha=0 it renders without transparency so the pixels are fully white */
-                if alpha < 1 {
-                    alpha = 1
-                }
-            }
-            white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
-            // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
-            common.WriteFont(font, renderer, x, y, message.Message, white)
-            y -= font.Height() + 2
-        }
-    }
-
-    return nil
-}
 
 type NesAction interface {
 }
@@ -251,6 +221,124 @@ type EmulatorMessage struct {
     DeathTime time.Time
 }
 
+type DefaultRenderLayer struct {
+    RenderFunc func(common.RenderInfo) error
+    Index int
+}
+
+func (layer *DefaultRenderLayer) Render(info common.RenderInfo) error {
+    return layer.RenderFunc(info)
+}
+
+func (layer *DefaultRenderLayer) ZIndex() int {
+    return layer.Index
+}
+
+type EmulatorMessageLayer struct {
+    /* these messages appear in the bottom right */
+    emulatorMessages []EmulatorMessage
+    Index int
+    ReceiveMessages chan string
+}
+
+func (layer *EmulatorMessageLayer) ZIndex() int {
+    return layer.Index
+}
+
+func (layer *EmulatorMessageLayer) Render(renderInfo common.RenderInfo) error {
+    windowWidth, windowHeight := renderInfo.Window.GetSize()
+
+    font := renderInfo.SmallFont
+
+    y := int(windowHeight) - font.Height() - 1
+    now := time.Now()
+    for i := len(layer.emulatorMessages)-1; i >= 0; i-- {
+        message := layer.emulatorMessages[i]
+        if message.DeathTime.After(now){
+            x := int(windowWidth) - 100
+            remaining := message.DeathTime.Sub(now)
+            alpha := 255
+            if remaining < time.Millisecond * 500 {
+                alpha = int(255 * float64(remaining) / (float64(time.Millisecond) * 500))
+                if alpha > 255 {
+                    alpha = 255
+                }
+                /* strangely if alpha=0 it renders without transparency so the pixels are fully white */
+                if alpha < 1 {
+                    alpha = 1
+                }
+            }
+            white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
+            // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
+            common.WriteFont(font, renderInfo.Renderer, x, y, message.Message, white)
+            y -= font.Height() + 2
+        }
+    }
+
+    return nil
+}
+
+func (layer *EmulatorMessageLayer) Run(quit context.Context){
+    emulatorMessageTicker := time.NewTicker(time.Second * 1)
+    defer emulatorMessageTicker.Stop()
+    maxEmulatorMessages := 10
+
+    for {
+        select {
+            case <-quit.Done():
+                return
+            case message := <-layer.ReceiveMessages:
+                layer.emulatorMessages = append(layer.emulatorMessages, EmulatorMessage{
+                    Message: message,
+                    DeathTime: time.Now().Add(time.Millisecond * 1500),
+                })
+                if len(layer.emulatorMessages) > maxEmulatorMessages {
+                    layer.emulatorMessages = layer.emulatorMessages[len(layer.emulatorMessages) - maxEmulatorMessages:len(layer.emulatorMessages)]
+                }
+                /* remove deceased messages */
+            case <-emulatorMessageTicker.C:
+                now := time.Now()
+                i := 0
+                for i < len(layer.emulatorMessages) {
+                    /* find the first non-dead message */
+                    if layer.emulatorMessages[i].DeathTime.Before(now) {
+                        i += 1
+                    } else {
+                        break
+                    }
+                }
+                layer.emulatorMessages = layer.emulatorMessages[i:]
+        }
+    }
+}
+
+type OverlayMessageLayer struct {
+    Message string
+    Index int
+}
+
+func (layer *OverlayMessageLayer) ZIndex() int {
+    return layer.Index
+}
+
+func (layer *OverlayMessageLayer) Render(info common.RenderInfo) error {
+    width, height := info.Window.GetSize()
+
+    font := info.Font
+    renderer := info.Renderer
+
+    black := sdl.Color{R: 0, G: 0, B: 0, A: 200}
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 200}
+    messageLength := common.TextWidth(font, layer.Message)
+    x := int(width)/2 - messageLength / 2
+    y := int(height)/2
+    renderer.SetDrawColor(black.R, black.G, black.B, black.A)
+    renderer.FillRect(&sdl.Rect{X: int32(x - 10), Y: int32(y - 10), W: int32(messageLength + 10 + 5), H: int32(font.Height() + 10 + 5)})
+
+    common.WriteFont(font, renderer, x, y, layer.Message, white)
+    return nil
+}
+
 func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
     randomSeed := time.Now().UnixNano()
 
@@ -259,6 +347,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
     renderOverlayUpdate := make(chan string, 5)
+
+    var renderManager common.RenderManager
 
     if path != "" {
         log.Printf("Opening NES file '%v'", path)
@@ -479,6 +569,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     joystickManager := common.NewJoystickManager()
     defer joystickManager.Close()
 
+    sdl.Do(sdl.StopTextInput)
+
     // var joystickInput nes.HostInput
     /*
     var joystickInput *common.SDLJoystickButtons
@@ -499,78 +591,52 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
     */
 
+    emulatorMessages := EmulatorMessageLayer{
+        ReceiveMessages: make(chan string, 10),
+        Index: 1,
+    }
+
+    go emulatorMessages.Run(mainQuit)
+
+    renderManager.AddLayer(&emulatorMessages)
+
     /* Show black bars on the sides or top/bottom when the window changes size */
     // renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
 
     /* create a surface from the pixels in one call, then create a texture and render it */
 
-    renderFuncUpdate := make(chan common.RenderFunction, 5)
     renderNow := make(chan bool, 2)
 
-    emulatorMessage := make(chan string, 10)
+    /* FIXME: kind of ugly to keep this here */
+    raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
 
     waiter.Add(1)
     go func(){
         buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
         bufferReady <- buffer
         defer waiter.Done()
-        raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
         fpsCounter := 2.0
         fps := 0
         fpsTimer := time.NewTicker(time.Duration(fpsCounter) * time.Second)
         defer fpsTimer.Stop()
 
-        /* these messages appear in the bottom right */
-        var emulatorMessages []EmulatorMessage
-        emulatorMessageTicker := time.NewTicker(time.Second * 1)
-        defer emulatorMessageTicker.Stop()
-        maxEmulatorMessages := 10
-
         renderTimer := time.NewTicker(time.Second / time.Duration(desiredFps))
         defer renderTimer.Stop()
         canRender := false
 
-        renderFunc := func(renderer *sdl.Renderer) error {
-            return nil
-        }
-
-        /* render this message in between the nes frame and the menu overlay.
-         * this feels a bit hacky
-         */
-        overlayMessage := ""
-
         render := func (){
-            err := doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, renderer)
+            renderer.SetDrawColor(0, 0, 0, 0)
+            renderer.Clear()
+
+            err := renderManager.RenderAll(common.RenderInfo{
+                Renderer: renderer,
+                Font: font,
+                SmallFont: smallFont,
+                Window: window,
+            })
+
             if err != nil {
-                log.Printf("Warning: Could not render nes pixels: %v\n", err)
-            }
-
-            if len(emulatorMessages) > 0 {
-                width, height := window.GetSize()
-                err = doRenderEmulatorMessages(renderer, smallFont, emulatorMessages, int(width), int(height))
-                if err != nil {
-                    log.Printf("Warning: Could not render extra: %v", err)
-                }
-            }
-
-            if overlayMessage != "" {
-                width, height := window.GetSize()
-
-                black := sdl.Color{R: 0, G: 0, B: 0, A: 200}
-                white := sdl.Color{R: 255, G: 255, B: 255, A: 200}
-                messageLength := common.TextWidth(font, overlayMessage)
-                x := int(width)/2 - messageLength / 2
-                y := int(height)/2
-                renderer.SetDrawColor(black.R, black.G, black.B, black.A)
-                renderer.FillRect(&sdl.Rect{X: int32(x - 10), Y: int32(y - 10), W: int32(messageLength + 10 + 5), H: int32(font.Height() + 10 + 5)})
-
-                common.WriteFont(font, renderer, x, y, overlayMessage, white)
-            }
-
-            /* this is the menu overlay usually */
-            err = renderFunc(renderer)
-            if err != nil {
-                log.Printf("Warning: render error: %v", err)
+                log.Printf("Warning: could not render: %v", err)
             }
 
             renderer.Present()
@@ -589,37 +655,15 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     canRender = false
                     bufferReady <- screen
                 case message := <-renderOverlayUpdate:
-                    overlayMessage = message
+                    if message == "" {
+                        renderManager.RemoveByIndex(2)
+                    } else {
+                        renderManager.Replace(2, &OverlayMessageLayer{
+                            Message: message,
+                            Index: 2,
+                        })
+                    }
                     sdl.Do(render)
-                case newFunction := <-renderFuncUpdate:
-                    if newFunction == nil {
-                        newFunction = func(renderer *sdl.Renderer) error {
-                            return nil
-                        }
-                    }
-                    renderFunc = newFunction
-                    sdl.Do(render)
-                case message := <-emulatorMessage:
-                    emulatorMessages = append(emulatorMessages, EmulatorMessage{
-                        Message: message,
-                        DeathTime: time.Now().Add(time.Millisecond * 1500),
-                    })
-                    if len(emulatorMessages) > maxEmulatorMessages {
-                        emulatorMessages = emulatorMessages[len(emulatorMessages) - maxEmulatorMessages:len(emulatorMessages)]
-                    }
-                /* remove deceased messages */
-                case <-emulatorMessageTicker.C:
-                    now := time.Now()
-                    i := 0
-                    for i < len(emulatorMessages) {
-                        /* find the first non-dead message */
-                        if emulatorMessages[i].DeathTime.Before(now) {
-                            i += 1
-                        } else {
-                            break
-                        }
-                    }
-                    emulatorMessages = emulatorMessages[i:]
                 case <-renderNow:
                     /* Force a rerender */
                     sdl.Do(render)
@@ -655,26 +699,32 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
 
     startNES := func(nesFile nes.NESFile, quit context.Context){
-        select {
-            case renderOverlayUpdate <- "":
-            default:
-        }
         cpu, err := common.SetupCPU(nesFile, debug)
 
         input.Reset()
         combined := common.MakeCombineButtons(input, joystickManager)
         cpu.Input = nes.MakeInput(&combined)
 
-        var quitEvent sdl.QuitEvent
-        quitEvent.Type = sdl.QUIT
-        /* FIXME: does quitEvent.Timestamp need to be set? */
+        renderNes := func(info common.RenderInfo) error {
+            return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, info.Renderer)
+        }
+
+        layer := &DefaultRenderLayer{
+            RenderFunc: renderNes,
+            Index: 0,
+        }
+
+        renderManager.AddLayer(layer)
+        defer renderManager.RemoveLayer(layer)
 
         if err != nil {
             log.Printf("Error: CPU initialization error: %v", err)
             /* The main loop below is waiting for an event so we push the quit event */
-            sdl.Do(func(){
-                sdl.PushEvent(&quitEvent)
-            })
+            select {
+                case renderOverlayUpdate <- "Unable to load":
+                default:
+            }
+            common.RunDummyNES(quit, emulatorActionsInput)
         } else {
             log.Printf("Run NES")
             err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1)
@@ -684,9 +734,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     log.Printf("Error running NES: %v", err)
                 }
 
-                sdl.Do(func(){
-                    sdl.PushEvent(&quitEvent)
-                })
+                mainCancel()
             }
         }
     }
@@ -699,11 +747,14 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         var nesWaiter sync.WaitGroup
         nesQuit, nesCancel := context.WithCancel(mainQuit)
 
+        go common.RunDummyNES(nesQuit, emulatorActionsInput)
+
         var currentFile nes.NESFile
 
         for {
             select {
                 case <-mainQuit.Done():
+                    nesCancel()
                     return
                 case action := <-nesChannel:
                     doRestart := false
@@ -787,7 +838,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     _, ok = action.(*common.ProgramPauseEmulator)
                     if ok {
                         select {
-                            case emulatorActionsOutput <- common.EmulatorSetPause:
+                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause):
                             default:
                         }
                     }
@@ -795,7 +846,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     _, ok = action.(*common.ProgramUnpauseEmulator)
                     if ok {
                         select {
-                            case emulatorActionsOutput <- common.EmulatorUnpause:
+                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause):
                             default:
                         }
                     }
@@ -809,7 +860,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             log.Printf("Loaded rom '%v'", loadRom.Path)
                             nesChannel <- &NesActionLoad{File: nesFile}
                             select {
-                                case emulatorMessage <- "Loaded rom":
+                                case emulatorMessages.ReceiveMessages <- "Loaded rom":
                                 default:
                             }
                         }
@@ -822,6 +873,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     sdl.Do(func(){
         sdl.EventState(sdl.DROPFILE, sdl.ENABLE)
     })
+
+    console := MakeConsole(6, &renderManager, mainCancel, mainQuit, emulatorActionsOutput, nesChannel, renderNow)
 
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
@@ -851,6 +904,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             log.Printf("Warning: dropping a window event")
                     }
                     */
+                case sdl.TEXTINPUT, sdl.TEXTEDITING:
+                    console.HandleText(event)
                 case sdl.DROPFILE:
                     drop_event := event.(*sdl.DropEvent)
                     switch drop_event.Type {
@@ -867,7 +922,6 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
                 case sdl.KEYDOWN:
                     keyboard_event := event.(*sdl.KeyboardEvent)
-                    input.HandleEvent(keyboard_event)
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
 
@@ -880,31 +934,40 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                         // theMenu.Input <- menu.MenuToggle
                     }
 
+                    if console.IsActive() {
+                        console.HandleKey(keyboard_event, emulatorKeys)
+                        return
+                    }
+
+                    input.HandleEvent(keyboard_event)
+
                     switch keyboard_event.Keysym.Scancode {
+                        case emulatorKeys.Console:
+                            console.Toggle()
                         case emulatorKeys.Turbo:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorTurbo:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
                                 default:
                             }
                         case emulatorKeys.StepFrame:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorStepFrame:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorStepFrame):
                                 default:
                             }
                         case emulatorKeys.SaveState:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorSaveState:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSaveState):
                                     select {
-                                        case emulatorMessage <- "Saved state":
+                                        case emulatorMessages.ReceiveMessages <- "Saved state":
                                         default:
                                     }
                                 default:
                             }
                         case emulatorKeys.LoadState:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorLoadState:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorLoadState):
                                     select {
-                                        case emulatorMessage <- "Loaded state":
+                                        case emulatorMessages.ReceiveMessages <- "Loaded state":
                                         default:
                                     }
                                 default:
@@ -913,7 +976,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                             if recordQuit.Err() == nil {
                                 recordCancel()
                                 select {
-                                    case emulatorMessage <- "Stopped recording":
+                                    case emulatorMessages.ReceiveMessages <- "Stopped recording":
                                     default:
                                 }
                             } else {
@@ -923,41 +986,41 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                                     log.Printf("Could not record video: %v", err)
                                 }
                                 select {
-                                    case emulatorMessage <- "Started recording":
+                                    case emulatorMessages.ReceiveMessages <- "Started recording":
                                     default:
                                 }
                             }
                         case emulatorKeys.Pause:
                             log.Printf("Pause/unpause")
                             select {
-                                case emulatorActionsOutput <- common.EmulatorTogglePause:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePause):
                                 default:
                             }
                         case emulatorKeys.PPUDebug:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorTogglePPUDebug:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePPUDebug):
                                 default:
                             }
                         case emulatorKeys.SlowDown:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorSlowDown:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSlowDown):
                                 default:
                             }
                         case emulatorKeys.SpeedUp:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorSpeedUp:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSpeedUp):
                                 default:
                             }
                         case emulatorKeys.Normal:
                             select {
-                                case emulatorActionsOutput <- common.EmulatorNormal:
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
                                 default:
                             }
                         case emulatorKeys.HardReset:
                             log.Printf("Hard reset")
                             nesChannel <- &NesActionRestart{}
                             select {
-                                case emulatorMessage <- "Hard reset":
+                                case emulatorMessages.ReceiveMessages <- "Hard reset":
                                 default:
                             }
                     }
@@ -967,7 +1030,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                     scancode := keyboard_event.Keysym.Scancode
                     if scancode == emulatorKeys.Turbo || scancode == emulatorKeys.Pause {
                         select {
-                            case emulatorActionsOutput <- common.EmulatorNormal:
+                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
                             default:
                         }
                     }
@@ -985,10 +1048,13 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
         select {
             case <-doMenu:
                 activeMenu := menu.MakeMenu(mainQuit, font)
-                emulatorActionsOutput <- common.EmulatorSetPause
-                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, renderFuncUpdate, joystickManager, emulatorKeys)
-                emulatorActionsOutput <- common.EmulatorUnpause
-                renderFuncUpdate <- nil
+                emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
+                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, emulatorKeys)
+                emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
+                select {
+                    case renderNow<-true:
+                    default:
+                }
             default:
                 sdl.Do(eventFunction)
         }
