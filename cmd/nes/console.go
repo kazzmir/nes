@@ -133,7 +133,7 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
     windowWidth, windowHeight := info.Window.GetSize()
     _ = windowHeight
 
-    y := layer.Size * 30
+    y := layer.Size * 22
 
     renderer.FillRect(&sdl.Rect{X: int32(0), Y: int32(0), W: int32(windowWidth), H: int32(y)})
     renderer.SetDrawColor(255, 255, 255, alpha)
@@ -176,9 +176,11 @@ reload, restart: reload the current rom
 `
 
 func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool){
-    ticker := time.NewTicker(time.Millisecond * 30)
+    normalTime := time.Millisecond * 13
+    slowTime := time.Hour * 100
+    ticker := time.NewTicker(slowTime)
     defer ticker.Stop()
-    maxSize := 7
+    maxSize := 10
 
     layer := RenderConsoleLayer{
         Index: console.ZIndex,
@@ -198,9 +200,11 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                     switch console.State {
                         case StateOpen, StateOpening:
                             console.State = StateClosing
+                            ticker.Reset(normalTime)
                             sdl.Do(sdl.StopTextInput)
                         case StateClosing, StateClosed:
                             sdl.Do(sdl.StartTextInput)
+                            ticker.Reset(normalTime)
                             console.State = StateOpening
                             console.RenderManager.Replace(console.ZIndex, &layer)
                     }
@@ -334,6 +338,7 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                             }
                         } else {
                             console.State = StateOpen
+                            ticker.Reset(slowTime)
                         }
                     case StateClosing:
                         if layer.Size > 0 {
@@ -345,6 +350,7 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                         } else {
                             console.RenderManager.RemoveByIndex(console.ZIndex)
                             console.State = StateClosed
+                            ticker.Reset(slowTime)
                         }
                 }
         }
