@@ -91,13 +91,6 @@ func MakeSnow(screenWidth int) Snow {
     }
 }
 
-/* FIXME: good use-case for generics */
-func copySnow(snow []Snow) []Snow {
-    out := make([]Snow, len(snow))
-    copy(out, snow)
-    return out
-}
-
 /* We could juse use sdl.Texture.Query() to get the width/height. The downsides
  * of doing that are that it involves an extra cgo call.
  */
@@ -2101,7 +2094,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         }
 
         makeSnowRenderer := func(snowflakes []Snow) common.RenderFunction {
-            snowCopy := copySnow(snowflakes)
+            snowCopy := common.CopyArray(snowflakes)
             return func(renderer *sdl.Renderer) error {
                 for _, snow := range snowCopy {
                     c := snow.color
@@ -2121,8 +2114,8 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) common.RenderFunction {
             white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
             return func(renderer *sdl.Renderer) error {
-                err := writeFontCached(font, renderer, textureManager, nesEmulatorTextureId, maxWidth - 200, maxHeight - font.Height() * 3, "NES Emulator", white)
-                err = writeFontCached(font, renderer, textureManager, myNameTextureId, maxWidth - 200, maxHeight - font.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
+                err := writeFontCached(smallFont, renderer, textureManager, nesEmulatorTextureId, maxWidth - 130, maxHeight - smallFont.Height() * 3, "NES Emulator", white)
+                err = writeFontCached(smallFont, renderer, textureManager, myNameTextureId, maxWidth - 130, maxHeight - smallFont.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
                 return err
             }
         }
