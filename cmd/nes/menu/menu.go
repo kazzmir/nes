@@ -1261,8 +1261,6 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
 
         x = 50
         y = 100
-        /* FIXME: animate with a goroutine/ticker */
-        var clock uint64 = 0
         _, y, err = menu.Buttons.Render(x, y, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
         if err != nil {
             return err
