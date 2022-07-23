@@ -523,136 +523,14 @@ type SubMenuButton struct {
     Func SubMenuFunc
 }
 
-/* page 303 of computer graphics and geometric modeling: implementation & algorithms (vol 1)
- * https://isidore.co/calibre#book_id=5588&panel=book_details
- */
-func rgb2hsv(color sdl.Color) (float32, float32, float32) {
-    r := float64(color.R)
-    g := float64(color.G)
-    b := float64(color.B)
-
-    epsilon := 0.001
-
-    max := math.Max(math.Max(r, g), b)
-    min := math.Min(math.Min(r, g), b)
-
-    v := max
-    s := float64(0)
-    h := float64(0)
-    if max > epsilon {
-        s = (max - min) / max
-    }
-
-    if s > epsilon {
-        d := max - min
-        if math.Abs(r - max) < epsilon {
-            h = (g - b) / d
-        } else if math.Abs(g - max) < epsilon {
-            h = 2 + (b - r) / d
-        } else {
-            h = 4 + (r - g) / d
-        }
-
-        h = 60 * h
-        if h < 0 {
-            h += 360
-        }
-    }
-
-    return float32(h), float32(s), float32(v)
-}
-
-/* input: h: 0-360, s: 0-1, v: 0-1
- * output: r: 0-1, b: 0-1, g: 0-1
- */
-func hsv2rgb(h float32, s float32, v float32) (float32, float32, float32) {
-
-    epsilon := 0.001
-
-    h = float32(math.Abs(float64(h)))
-
-    if math.Abs(float64(h) - 360) < epsilon {
-        h = 0
-    } else {
-        h /= 60
-    }
-
-    fract := h - float32(math.Floor(float64(h)))
-
-    p := v * (1.0 - s)
-    q := v * (1.0 - s * fract)
-    t := v * (1.0 - s * (1.0 - fract))
-
-    if (0.0 <= h && h < 1.0){
-        return v, t, p
-    } else if 1.0 <= h && h < 2.0 {
-        return q, v, p
-    } else if 2.0 <= h && h < 3.0 {
-        return p, v, t
-    } else if 3.0 <= h && h < 4.0 {
-        return p, q, v
-    } else if 4.0 <= h && h < 5.0 {
-        return t, p, v
-    } else if 5.0 <= h && h < 6.0 {
-        return v, p, q
-    } else {
-        return 0, 0, 0
-    }
-}
-
-func interpolate(v1 float32, v2 float32, period float32, clock uint64) float32 {
-    if v1 > v2 {
-        v1, v2 = v2, v1
-    }
-    
-    distance := v2 - v1
-    
-    p := math.Sin(float64((clock % uint64(period))) * (180.0 / float64(period)) * math.Pi / 180) * float64(distance)
-
-    return v1 + float32(p)
-}
-
-func clamp(v float32, low float32, high float32) float32 {
-    if v < low {
-        v = low
-    }
-    if v > high {
-        v = high
-    }
-    return v
-}
-
-func Glow(start sdl.Color, end sdl.Color, speed float32, clock uint64) sdl.Color {
-    startH, startS, startV := rgb2hsv(start)
-    endH, endS, endV := rgb2hsv(end)
-    
-    h := interpolate(startH, endH, speed, clock)
-    s := interpolate(startS, endS, speed, clock)
-    v := interpolate(startV, endV, speed, clock)
-
-    r, g, b := hsv2rgb(h, s, v)
-    return sdl.Color{R: uint8(clamp(r, 0, 255)), G: uint8(clamp(g, 0, 255)), B: uint8(clamp(b, 0, 255)), A: 255}
-}
-
 func _doRenderButton(button Button, font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
     yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+    red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
     color := white
     if selected {
-        color = yellow
-        
-        /*
-        c := 192 + math.Sin(float64(clock % 360) * 12 * math.Pi / 180.0) * 64
-        if c > 255 {
-            c = 255
-        }
-        if c < 0 {
-            c = 0
-        }
-        color.G = uint8(c)
-        */
-        color = Glow(sdl.Color{R: 255, G: 0, B: 0, A: 255}, yellow, 15, clock)
+        color = common.Glow(red, yellow, 15, clock)
     }
 
     textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
