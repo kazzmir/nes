@@ -726,6 +726,11 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             }
             common.RunDummyNES(quit, emulatorActionsInput)
         } else {
+            /* make sure no message appears on the screen in front of the nes output */
+            select {
+                case renderOverlayUpdate <- "":
+                default:
+            }
             log.Printf("Run NES")
             err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1)
             if err != nil {
