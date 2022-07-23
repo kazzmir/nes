@@ -603,7 +603,7 @@ func isAudioEnabled(quit context.Context, programActions chan<- common.ProgramAc
 type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
     Input(input MenuInput) SubMenu
-    MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction
+    MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, quit context.Context) common.RenderFunction
     UpdateWindowSize(int, int)
     RawInput(sdl.Event)
     PlayBeep()
@@ -704,7 +704,7 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
     }
 }
 
-func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
+func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, quit context.Context) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
         _, y, err := menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
 
@@ -1221,7 +1221,7 @@ func (menu *JoystickMenu) GetTexture(textureManager *TextureManager, text string
     return next
 }
 
-func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
+func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, quit context.Context) common.RenderFunction {
     menu.Lock.Lock()
     defer menu.Lock.Unlock()
 
@@ -1668,7 +1668,7 @@ func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
     }
 }
 
-func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
+func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, quit context.Context) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
         return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, smallFont, renderer, textureManager)
     }
@@ -1756,8 +1756,8 @@ func niceSize(size int64) string {
     return fmt.Sprintf("%v%v", size, last)
 }
 
-func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
-    old := loader.RomLoader.MakeRenderer(maxWidth, maxHeight, buttonManager, textureManager, font, smallFont)
+func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, quit context.Context) common.RenderFunction {
+    old := loader.RomLoader.MakeRenderer(maxWidth, maxHeight, buttonManager, textureManager, font, smallFont, quit)
 
     return func(renderer *sdl.Renderer) error {
         // render the rom loader in the background
@@ -2125,6 +2125,9 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
         currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, textureManager, emulatorKeys)
 
+        renderQuit, renderCancel := context.WithCancel(context.Background())
+        defer renderCancel()
+
         /* Reset the default renderer */
         for {
             updateRender := false
@@ -2199,11 +2202,15 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
             }
 
             if updateRender {
+                renderCancel()
+
+                renderQuit, renderCancel = context.WithCancel(context.Background())
+
                 /* If there is a graphics update then send it to the renderer */
                 renderManager.Replace(menuZIndex, &MenuRenderLayer{
                     Renderer: chainRenders(baseRenderer, snowRenderer,
                                                           makeDefaultInfoRenderer(windowSize.X, windowSize.Y),
-                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font, smallFont)),
+                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font, smallFont, renderQuit)),
                     Index: menuZIndex,
                 })
                 select {
