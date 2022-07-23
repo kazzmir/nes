@@ -307,6 +307,12 @@ func clamp(v float32, low float32, high float32) float32 {
     return v
 }
 
+/* smoothly interpolate between two colors. clock should be a monotonically increasing value.
+ * speed governs how fast the change will take place where speed=2 will quickly bounce back and
+ * forth between the two colors and speed>2 will interpolate at a slower pace.
+ * speed is a period such that after 'speed' clocks the color will return to the start color.
+ * thus, at half a period the color will be the end color.
+ */
 func Glow(start sdl.Color, end sdl.Color, speed float32, clock uint64) sdl.Color {
     startH, startS, startV := rgb2hsv(start)
     endH, endS, endV := rgb2hsv(end)
