@@ -1911,6 +1911,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu) SubMenu {
 func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager, keys common.EmulatorKeys) SubMenu {
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
+            /* quit the entire menu system if the user presses escape at the top level */
             menu.cancel()
             return current
         },
