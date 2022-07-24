@@ -430,7 +430,7 @@ func MakeMenu(mainQuit context.Context, font *ttf.Font) Menu {
 
 type MenuItem interface {
     Text() string
-    Render(*ttf.Font, *sdl.Renderer, *ButtonManager, *TextureManager, int, int, bool) (int, int, error)
+    Render(*ttf.Font, *sdl.Renderer, *ButtonManager, *TextureManager, int, int, bool, uint64) (int, int, error)
 }
 
 type MenuNextLine struct {
@@ -440,7 +440,7 @@ func (line *MenuNextLine) Text() string {
     return "\n"
 }
 
-func (line *MenuNextLine) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
+func (line *MenuNextLine) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
     /* Force the renderer to go to the next line */
     return 999999999, 0, nil
 }
@@ -453,7 +453,7 @@ func (label *MenuLabel) Text() string {
     return label.Label
 }
 
-func (label *MenuLabel) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
+func (label *MenuLabel) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
     color := sdl.Color{R: 255, G: 0, B: 0, A: 255}
     textureId := buttonManager.GetButtonTextureId(textureManager, label.Text(), color)
     width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, label.Text(), color)
@@ -485,8 +485,8 @@ func (button *StaticButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
-func (button *StaticButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
-    return _doRenderButton(button, font, renderer, buttonManager, textureManager, x, y, selected)
+func (button *StaticButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
+    return _doRenderButton(button, font, renderer, buttonManager, textureManager, x, y, selected, clock)
 }
 
 type ToggleButtonFunc func(bool)
@@ -512,8 +512,8 @@ func (toggle *ToggleButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
-func (button *ToggleButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
-    return _doRenderButton(button, font, renderer, buttonManager, textureManager, x, y, selected)
+func (button *ToggleButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
+    return _doRenderButton(button, font, renderer, buttonManager, textureManager, x, y, selected, clock)
 }
 
 type SubMenuFunc func() SubMenu
@@ -523,13 +523,14 @@ type SubMenuButton struct {
     Func SubMenuFunc
 }
 
-func _doRenderButton(button Button, font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
+func _doRenderButton(button Button, font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
     yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+    red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
     color := white
-    if selected  {
-        color = yellow
+    if selected {
+        color = common.Glow(red, yellow, 15, clock)
     }
 
     textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
@@ -538,8 +539,8 @@ func _doRenderButton(button Button, font *ttf.Font, renderer *sdl.Renderer, butt
     return width, height, err
 }
 
-func (button *SubMenuButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool) (int, int, error) {
-    return _doRenderButton(button, font, renderer, buttonManager, textureManager, x, y, selected)
+func (button *SubMenuButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
+    return _doRenderButton(button, font, renderer, buttonManager, textureManager, x, y, selected, clock)
 }
 
 func (button *SubMenuButton) Text() string {
@@ -603,7 +604,7 @@ func isAudioEnabled(quit context.Context, programActions chan<- common.ProgramAc
 type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
     Input(input MenuInput) SubMenu
-    MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction
+    MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction
     UpdateWindowSize(int, int)
     RawInput(sdl.Event)
     PlayBeep()
@@ -630,7 +631,7 @@ func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
     return menu
 }
 
-func (buttons *MenuButtons) Render(startX int, startY int, maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, renderer *sdl.Renderer) (int, int, error) {
+func (buttons *MenuButtons) Render(startX int, startY int, maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, renderer *sdl.Renderer, clock uint64) (int, int, error) {
     buttons.Lock.Lock()
     defer buttons.Lock.Unlock()
 
@@ -644,7 +645,7 @@ func (buttons *MenuButtons) Render(startX int, startY int, maxWidth int, maxHeig
             y += font.Height() + 20
         }
 
-        width, height, err := item.Render(font, renderer, buttonManager, textureManager, x, y, i == buttons.Selected)
+        width, height, err := item.Render(font, renderer, buttonManager, textureManager, x, y, i == buttons.Selected, clock)
 
         // textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
         // width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
@@ -704,9 +705,10 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
     }
 }
 
-func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
+func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
+    
     return func(renderer *sdl.Renderer) error {
-        _, y, err := menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        _, y, err := menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
 
         x := 50
         /* FIXME: base this on the size of a button */
@@ -1221,7 +1223,7 @@ func (menu *JoystickMenu) GetTexture(textureManager *TextureManager, text string
     return next
 }
 
-func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
+func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
     menu.Lock.Lock()
     defer menu.Lock.Unlock()
 
@@ -1251,7 +1253,7 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
 
         x = 50
         y = 100
-        _, y, err = menu.Buttons.Render(x, y, maxWidth, maxHeight, buttonManager, textureManager, font, renderer)
+        _, y, err = menu.Buttons.Render(x, y, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
         if err != nil {
             return err
         }
@@ -1668,7 +1670,7 @@ func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
     }
 }
 
-func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
+func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
     return func(renderer *sdl.Renderer) error {
         return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, smallFont, renderer, textureManager)
     }
@@ -1756,8 +1758,8 @@ func niceSize(size int64) string {
     return fmt.Sprintf("%v%v", size, last)
 }
 
-func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font) common.RenderFunction {
-    old := loader.RomLoader.MakeRenderer(maxWidth, maxHeight, buttonManager, textureManager, font, smallFont)
+func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
+    old := loader.RomLoader.MakeRenderer(maxWidth, maxHeight, buttonManager, textureManager, font, smallFont, clock)
 
     return func(renderer *sdl.Renderer) error {
         // render the rom loader in the background
@@ -2125,6 +2127,8 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
         currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, textureManager, emulatorKeys)
 
+        var clock uint64 = 0
+
         /* Reset the default renderer */
         for {
             updateRender := false
@@ -2149,6 +2153,8 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                     currentMenu.RawInput(event)
 
                 case <-snowTicker.C:
+                    clock += 1
+
                     /* FIXME: move this code somewhere else to keep the main Run() method small */
                     if len(snow) < 300 {
                         snow = append(snow, MakeSnow(windowSize.X))
@@ -2203,7 +2209,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                 renderManager.Replace(menuZIndex, &MenuRenderLayer{
                     Renderer: chainRenders(baseRenderer, snowRenderer,
                                                           makeDefaultInfoRenderer(windowSize.X, windowSize.Y),
-                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font, smallFont)),
+                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font, smallFont, clock)),
                     Index: menuZIndex,
                 })
                 select {
