@@ -1896,6 +1896,18 @@ Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
     return data.String()
 }
 
+func MakeKeysMenu(menu *Menu, parentMenu SubMenu) SubMenu {
+    keys := &StaticMenu{
+        Quit: func(current SubMenu) SubMenu {
+            return parentMenu
+        },
+        Beep: menu.Beep,
+    }
+
+    keys.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu { return parentMenu } })
+    return keys
+}
+
 func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager, keys common.EmulatorKeys) SubMenu {
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
@@ -1942,6 +1954,11 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
                                   programActions <- &common.ProgramToggleSound{}
                               },
                 })
+
+    keysMenu := MakeKeysMenu(menu, main)
+    main.Buttons.Add(&SubMenuButton{Name: "Keys", Func: func() SubMenu {
+        return keysMenu
+    }})
 
     main.Buttons.Add(&SubMenuButton{Name: "Joystick", Func: func() SubMenu { return joystickMenu } })
 
