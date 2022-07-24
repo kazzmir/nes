@@ -7,7 +7,7 @@ nsf:
 	go build ./cmd/nsf
 
 test:
-	go test ./lib/...
+	go test ./lib/... ./cmd/...
 	go build ./test/all-test
 	./all-test
 
