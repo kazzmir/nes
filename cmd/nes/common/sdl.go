@@ -212,9 +212,9 @@ func (manager *RenderManager) RenderAll(info RenderInfo) error {
  * https://isidore.co/calibre#book_id=5588&panel=book_details
  */
 func rgb2hsv(color sdl.Color) (float32, float32, float32) {
-    r := float64(color.R)
-    g := float64(color.G)
-    b := float64(color.B)
+    r := float64(color.R) / 255.0
+    g := float64(color.G) / 255.0
+    b := float64(color.B) / 255.0
 
     epsilon := 0.001
 
@@ -248,7 +248,7 @@ func rgb2hsv(color sdl.Color) (float32, float32, float32) {
 }
 
 /* input: h: 0-360, s: 0-1, v: 0-1
- * output: r: 0-255, b: 0-255, g: 0-255
+ * output: r: 0-1, b: 0-1, g: 0-1
  */
 func hsv2rgb(h float32, s float32, v float32) (float32, float32, float32) {
 
@@ -322,5 +322,5 @@ func Glow(start sdl.Color, end sdl.Color, speed float32, clock uint64) sdl.Color
     v := interpolate(startV, endV, speed, clock)
 
     r, g, b := hsv2rgb(h, s, v)
-    return sdl.Color{R: uint8(clamp(r, 0, 255)), G: uint8(clamp(g, 0, 255)), B: uint8(clamp(b, 0, 255)), A: 255}
+    return sdl.Color{R: uint8(clamp(r*255, 0, 255)), G: uint8(clamp(g*255, 0, 255)), B: uint8(clamp(b*255, 0, 255)), A: 255}
 }
