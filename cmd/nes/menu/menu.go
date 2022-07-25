@@ -730,26 +730,31 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
     }
 }
 
+func renderLines(renderer *sdl.Renderer, x int, y int, font *ttf.Font, info string) (int, int, error) {
+    aLength := common.TextWidth(font, "A")
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+    for _, line := range strings.Split(info, "\n") {
+        parts := strings.Split(line, "\t")
+        for i, part := range parts {
+            common.WriteFont(font, renderer, x + i * aLength * 20, y, part, white)
+        }
+        y += font.Height() + 2
+    }
+
+    return x, y, nil
+}
+
 func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
     
     return func(renderer *sdl.Renderer) error {
-        _, y, err := menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
+        startX := 50
+        _, y, err := menu.Buttons.Render(startX, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
 
-        x := 50
-        /* FIXME: base this on the size of a button */
-        y += 80
+        x := startX
+        y += font.Height() * 3
 
-        aLength := common.TextWidth(smallFont, "A")
-        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-
-        for _, line := range strings.Split(menu.ExtraInfo, "\n") {
-            parts := strings.Split(line, "\t")
-            for i, part := range parts {
-                common.WriteFont(smallFont, renderer, x + i * aLength * 20, y, part, white)
-            }
-            y += smallFont.Height() + 2
-        }
-
+        _, _, err = renderLines(renderer, x, y, smallFont, menu.ExtraInfo)
         return err
     }
 }
@@ -1923,10 +1928,16 @@ Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
 
 type ChangeKeyMenu struct {
     Quit MenuQuitFunc
-    Parent SubMenu
+    Buttons MenuButtons
+    ExtraInfo string
+    Beep *mix.Music
+    Chooser *ChooseButton
 }
 
 func (menu *ChangeKeyMenu) PlayBeep() {
+    if menu.Beep != nil {
+        menu.Beep.Play(0)
+    }
 }
 
 func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
@@ -1939,17 +1950,42 @@ func (menu *ChangeKeyMenu) UpdateWindowSize(x int, y int){
 func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuQuit:
+            if menu.Chooser.IsEnabled() {
+                menu.Chooser.Disable()
+                menu.Buttons.Next()
+                return menu
+            }
             return menu.Quit(menu)
         default:
-            return menu
-            // return menu.Buttons.Interact(input, menu)
+            if menu.Chooser.IsEnabled() {
+                switch input {
+                    case MenuNext:
+                        menu.Chooser.Next()
+                    case MenuPrevious:
+                        menu.Chooser.Previous()
+                    case MenuSelect:
+                        break
+                }
+
+                return menu
+            } else {
+                return menu.Buttons.Interact(input, menu)
+            }
     }
 }
 
 func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
-    old := menu.Parent.MakeRenderer(maxWidth, maxHeight, buttonManager, textureManager, font, smallFont, clock)
     return func(renderer *sdl.Renderer) error {
-        old(renderer)
+        startX := 50
+        _, y, err := menu.Buttons.Render(startX, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
+
+        _ = err
+
+        x := startX
+        y += font.Height() * 3
+
+        _, _, err = renderLines(renderer, x, y, smallFont, menu.ExtraInfo)
+
         return nil
     }
 }
@@ -1965,6 +2001,21 @@ func (choose *ChooseButton) Text() string {
     choose.Lock.Lock()
     defer choose.Lock.Unlock()
     return fmt.Sprintf("Key: %v", choose.Items[choose.Choice])
+}
+
+func (choose *ChooseButton) Next() {
+    choose.Lock.Lock()
+    defer choose.Lock.Unlock()
+    choose.Choice = (choose.Choice + 1) % len(choose.Items)
+}
+
+func (choose *ChooseButton) Previous() {
+    choose.Lock.Lock()
+    defer choose.Lock.Unlock()
+    choose.Choice -= 1
+    if choose.Choice < 0 {
+        choose.Choice += len(choose.Items)
+    }
 }
 
 func (choose *ChooseButton) Interact(menu SubMenu) SubMenu {
@@ -2030,17 +2081,18 @@ func (choose *ChooseButton) Enable() {
 }
 
 func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubMenu {
-    keyMenu := &StaticMenu{
+    chooseButton := &ChooseButton{Items: []string{"A", "B", "C", "D"}}
+
+    keyMenu := &ChangeKeyMenu{
         Quit: func(current SubMenu) SubMenu {
             return parentMenu
         },
         Beep: menu.Beep,
+        Chooser: chooseButton,
     }
 
     back := &SubMenuButton{Name: "Back", Func: func() SubMenu { return parentMenu } }
     keyMenu.Buttons.Add(back)
-
-    chooseButton := &ChooseButton{Items: []string{"A", "B", "C", "D"}}
 
     keyMenu.Buttons.Add(&StaticButton{Name: "Change key", Func: func(){
         if chooseButton.Toggle() {
