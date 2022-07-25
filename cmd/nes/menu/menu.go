@@ -430,6 +430,7 @@ func MakeMenu(mainQuit context.Context, font *ttf.Font) Menu {
 
 type MenuItem interface {
     Text() string
+    /* returns next x,y coordinate where rendering can occur, and a possible error */
     Render(*ttf.Font, *sdl.Renderer, *ButtonManager, *TextureManager, int, int, bool, uint64) (int, int, error)
 }
 
@@ -462,6 +463,7 @@ func (label *MenuLabel) Render(font *ttf.Font, renderer *sdl.Renderer, buttonMan
 
 type Button interface {
     MenuItem
+    /* invoked when the user presses enter while selecting this button */
     Interact(SubMenu) SubMenu
 }
 
@@ -1896,6 +1898,88 @@ Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
     return data.String()
 }
 
+type ChangeKeyMenu struct {
+    Quit MenuQuitFunc
+    Parent SubMenu
+}
+
+func (menu *ChangeKeyMenu) PlayBeep() {
+}
+
+func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
+}
+
+func (menu *ChangeKeyMenu) UpdateWindowSize(x int, y int){
+    // nothing
+}
+
+func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
+    switch input {
+        case MenuQuit:
+            return menu.Quit(menu)
+        default:
+            return menu
+            // return menu.Buttons.Interact(input, menu)
+    }
+}
+
+func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
+    old := menu.Parent.MakeRenderer(maxWidth, maxHeight, buttonManager, textureManager, font, smallFont, clock)
+    return func(renderer *sdl.Renderer) error {
+        old(renderer)
+        return nil
+    }
+}
+
+type ChooseButton struct {
+    Enabled bool
+    Lock sync.Mutex
+    Items []string
+    Choice int
+}
+
+func (choose *ChooseButton) Text() string {
+    choose.Lock.Lock()
+    defer choose.Lock.Unlock()
+    return fmt.Sprintf("Key: %v", choose.Items[choose.Choice])
+}
+
+func (choose *ChooseButton) Interact(menu SubMenu) SubMenu {
+    return menu
+}
+
+func (choose *ChooseButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
+    if choose.IsEnabled() {
+        return _doRenderButton(choose, font, renderer, buttonManager, textureManager, x, y, selected, clock)
+    } else {
+        return x, y, nil
+    }
+}
+
+func (choose *ChooseButton) IsEnabled() bool {
+    choose.Lock.Lock()
+    defer choose.Lock.Unlock()
+    return choose.Enabled
+}
+
+func (choose *ChooseButton) SetEnabled(v bool){
+    choose.Lock.Lock()
+    defer choose.Lock.Unlock()
+    choose.Enabled = v
+}
+
+func (choose *ChooseButton) Toggle() {
+    choose.SetEnabled(!choose.IsEnabled())
+}
+
+func (choose *ChooseButton) Disable() {
+    choose.SetEnabled(false)
+}
+
+func (choose *ChooseButton) Enable() {
+    choose.SetEnabled(true)
+}
+
 func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubMenu {
     keyMenu := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
@@ -1905,6 +1989,16 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
     }
 
     keyMenu.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu { return parentMenu } })
+
+    chooseButton := &ChooseButton{Items: []string{"A", "B", "C", "D"}}
+
+    keyMenu.Buttons.Add(&StaticButton{Name: "Change key", Func: func(){
+        chooseButton.Toggle()
+    }})
+
+    keyMenu.Buttons.Add(&MenuNextLine{})
+
+    keyMenu.Buttons.Add(chooseButton)
 
     keyMenu.ExtraInfo = keysInfo(keys)
 
