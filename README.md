@@ -40,9 +40,9 @@ Build instructions:
 
 Needs go 1.18 or higher
 
-Install libSDL2 and libSDL2-ttf
+Install libSDL2, libSDL2-ttf, and libSDL2-mixer, libSDL2-gfx
 ```
-$ sudo apt install libsdl2-dev libsdl2-ttf-dev libsdl2-mixer-dev
+$ sudo apt install libsdl2-dev libsdl2-ttf-dev libsdl2-mixer-dev libsdl2-gfx-dev
 ```
 
 Using make

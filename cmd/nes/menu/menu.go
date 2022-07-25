@@ -18,6 +18,7 @@ import (
     "strings"
     "text/template"
     "path/filepath"
+    "errors"
 
     "crypto/md5"
 
@@ -31,6 +32,7 @@ import (
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
     "github.com/veandco/go-sdl2/mix"
+    "github.com/veandco/go-sdl2/gfx"
 )
 
 type MenuInput int
@@ -434,6 +436,18 @@ type MenuItem interface {
     Render(*ttf.Font, *sdl.Renderer, *ButtonManager, *TextureManager, int, int, bool, uint64) (int, int, error)
 }
 
+type MenuSpace struct {
+    Space int
+}
+
+func (space *MenuSpace) Text() string {
+    return ""
+}
+
+func (space *MenuSpace) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
+    return x + space.Space, y, nil
+}
+
 type MenuNextLine struct {
 }
 
@@ -584,6 +598,15 @@ func (buttons *MenuButtons) Next(){
         _, ok := buttons.Items[buttons.Selected].(Button)
         if ok {
             break
+        }
+    }
+}
+
+func (buttons *MenuButtons) Select(item MenuItem){
+    for i := 0; i < len(buttons.Items); i++ {
+        if buttons.Items[i] == item {
+            buttons.Selected = i
+            return
         }
     }
 }
@@ -1948,9 +1971,34 @@ func (choose *ChooseButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
+func drawEquilateralTriange(renderer *sdl.Renderer, x int, y int, size float64, angle float64, color sdl.Color) error {
+    x1 := float64(x) + math.Cos(angle * math.Pi / 180) * size
+    y1 := float64(y) - math.Sin(angle * math.Pi / 180) * size
+
+    x2 := float64(x) + math.Cos((angle - 90) * math.Pi / 180) * size
+    y2 := float64(y) - math.Sin((angle - 90) * math.Pi / 180) * size
+
+    x3 := float64(x) + math.Cos((angle + 90) * math.Pi / 180) * size
+    y3 := float64(y) - math.Sin((angle + 90) * math.Pi / 180) * size
+
+    if !gfx.FilledTrigonColor(renderer, int32(x1), int32(y1), int32(x2), int32(y2), int32(x3), int32(y3), color) {
+        return errors.New("Unable to render triangle")
+    } else {
+        return nil
+    }
+}
+
 func (choose *ChooseButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
     if choose.IsEnabled() {
-        return _doRenderButton(choose, font, renderer, buttonManager, textureManager, x, y, selected, clock)
+
+        size := 10
+        drawEquilateralTriange(renderer, x-size*2, y + size + font.Height() / 4, float64(size), 180.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
+        width, height, err := _doRenderButton(choose, font, renderer, buttonManager, textureManager, x, y, selected, clock)
+        x += width
+        _ = height
+        drawEquilateralTriange(renderer, x+size*2, y + size + font.Height() / 4, float64(size), 0.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
+
+        return x + size*2 + size*2, font.Height(), err
     } else {
         return x, y, nil
     }
@@ -1968,8 +2016,9 @@ func (choose *ChooseButton) SetEnabled(v bool){
     choose.Enabled = v
 }
 
-func (choose *ChooseButton) Toggle() {
+func (choose *ChooseButton) Toggle() bool {
     choose.SetEnabled(!choose.IsEnabled())
+    return choose.IsEnabled()
 }
 
 func (choose *ChooseButton) Disable() {
@@ -1988,16 +2037,22 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
         Beep: menu.Beep,
     }
 
-    keyMenu.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu { return parentMenu } })
+    back := &SubMenuButton{Name: "Back", Func: func() SubMenu { return parentMenu } }
+    keyMenu.Buttons.Add(back)
 
     chooseButton := &ChooseButton{Items: []string{"A", "B", "C", "D"}}
 
     keyMenu.Buttons.Add(&StaticButton{Name: "Change key", Func: func(){
-        chooseButton.Toggle()
+        if chooseButton.Toggle() {
+            keyMenu.Buttons.Select(chooseButton)
+        } else {
+            keyMenu.Buttons.Select(back)
+        }
     }})
 
     keyMenu.Buttons.Add(&MenuNextLine{})
 
+    keyMenu.Buttons.Add(&MenuSpace{Space: 60})
     keyMenu.Buttons.Add(chooseButton)
 
     keyMenu.ExtraInfo = keysInfo(keys)
