@@ -1930,6 +1930,8 @@ type ChangeKeyMenu struct {
     ExtraInfo string
     Beep *mix.Music
     Chooser *ChooseButton
+    Choosing bool
+    Keys common.EmulatorKeys
 }
 
 func (menu *ChangeKeyMenu) PlayBeep() {
@@ -1939,6 +1941,16 @@ func (menu *ChangeKeyMenu) PlayBeep() {
 }
 
 func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
+    if menu.Choosing {
+        key, ok := event.(*sdl.KeyboardEvent)
+        if ok {
+            if key.GetType() == sdl.KEYDOWN {
+                code := key.Keysym.Scancode
+                log.Printf("Change key %v", code)
+                menu.Choosing = false
+            }
+        }
+    }
 }
 
 func (menu *ChangeKeyMenu) UpdateWindowSize(x int, y int){
@@ -1951,10 +1963,15 @@ func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
             if menu.Chooser.IsEnabled() {
                 menu.Chooser.Disable()
                 menu.Buttons.Next()
+                menu.Choosing = false
                 return menu
             }
             return menu.Quit(menu)
         default:
+            if menu.Choosing {
+                return menu
+            }
+
             if menu.Chooser.IsEnabled() {
                 switch input {
                     case MenuNext:
@@ -1962,7 +1979,7 @@ func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
                     case MenuPrevious:
                         menu.Chooser.Previous()
                     case MenuSelect:
-                        break
+                        menu.Choosing = true
                 }
 
                 return menu
@@ -1998,7 +2015,7 @@ type ChooseButton struct {
 func (choose *ChooseButton) Text() string {
     choose.Lock.Lock()
     defer choose.Lock.Unlock()
-    return fmt.Sprintf("Key: %v", choose.Items[choose.Choice])
+    return choose.Items[choose.Choice]
 }
 
 func (choose *ChooseButton) Next() {
@@ -2063,14 +2080,24 @@ func (choose *ChooseButton) Enable() {
 }
 
 func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubMenu {
-    chooseButton := &ChooseButton{Items: []string{"A", "B", "C", "D"}}
+
+    var items []string
+
+    for _, key := range keys.AllKeys() {
+        items = append(items, fmt.Sprintf("%v: %v", key.Name, sdl.GetScancodeName(key.Code)))
+    }
+
+    chooseButton := &ChooseButton{Items: items}
 
     keyMenu := &ChangeKeyMenu{
         Quit: func(current SubMenu) SubMenu {
             return parentMenu
         },
+        ExtraInfo: keysInfo(keys),
         Beep: menu.Beep,
         Chooser: chooseButton,
+        Choosing: false,
+        Keys: keys,
     }
 
     back := &SubMenuButton{Name: "Back", Func: func() SubMenu { return parentMenu } }
@@ -2088,8 +2115,6 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
 
     keyMenu.Buttons.Add(&MenuSpace{Space: 60})
     keyMenu.Buttons.Add(chooseButton)
-
-    keyMenu.ExtraInfo = keysInfo(keys)
 
     return keyMenu
 }

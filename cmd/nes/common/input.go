@@ -533,6 +533,38 @@ type EmulatorKeys struct {
     ButtonRight sdl.Scancode
 }
 
+type EmulatorKey struct {
+    Name string
+    Code sdl.Scancode
+}
+
+func (keys EmulatorKeys) AllKeys() []EmulatorKey {
+    return []EmulatorKey{
+        EmulatorKey{Name: "Turbo", Code: keys.Turbo},
+        EmulatorKey{Name: "Pause", Code: keys.Pause},
+        EmulatorKey{Name: "HardReset", Code: keys.HardReset},
+        EmulatorKey{Name: "PPUDebug", Code: keys.PPUDebug},
+        EmulatorKey{Name: "SlowDown", Code: keys.SlowDown},
+        EmulatorKey{Name: "SpeedUp", Code: keys.SpeedUp},
+        EmulatorKey{Name: "Normal", Code: keys.Normal},
+        EmulatorKey{Name: "StepFrame", Code: keys.StepFrame},
+        EmulatorKey{Name: "Record", Code: keys.Record},
+        EmulatorKey{Name: "SaveState", Code: keys.SaveState},
+        EmulatorKey{Name: "LoadState", Code: keys.LoadState},
+        EmulatorKey{Name: "Console", Code: keys.Console},
+        EmulatorKey{Name: "A", Code: keys.ButtonA},
+        EmulatorKey{Name: "B", Code: keys.ButtonB},
+        EmulatorKey{Name: "TurboA", Code: keys.ButtonTurboA},
+        EmulatorKey{Name: "TurboB", Code: keys.ButtonTurboB},
+        EmulatorKey{Name: "Select", Code: keys.ButtonSelect},
+        EmulatorKey{Name: "Start", Code: keys.ButtonStart},
+        EmulatorKey{Name: "Up", Code: keys.ButtonUp},
+        EmulatorKey{Name: "Down", Code: keys.ButtonDown},
+        EmulatorKey{Name: "Left", Code: keys.ButtonLeft},
+        EmulatorKey{Name: "Right", Code: keys.ButtonRight},
+    }
+}
+
 func DefaultEmulatorKeys() EmulatorKeys {
     return EmulatorKeys {
         Turbo: sdl.SCANCODE_GRAVE,
