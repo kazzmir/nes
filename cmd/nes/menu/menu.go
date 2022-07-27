@@ -460,6 +460,7 @@ func (line *MenuNextLine) Render(font *ttf.Font, renderer *sdl.Renderer, buttonM
 
 type MenuLabel struct {
     Label string
+    Color sdl.Color
 }
 
 func (label *MenuLabel) Text() string {
@@ -467,9 +468,9 @@ func (label *MenuLabel) Text() string {
 }
 
 func (label *MenuLabel) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
-    color := sdl.Color{R: 255, G: 0, B: 0, A: 255}
-    textureId := buttonManager.GetButtonTextureId(textureManager, label.Text(), color)
-    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, label.Text(), color)
+    // color := sdl.Color{R: 255, G: 0, B: 0, A: 255}
+    textureId := buttonManager.GetButtonTextureId(textureManager, label.Text(), label.Color)
+    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, label.Text(), label.Color)
     return width, height, err
 }
 
@@ -638,10 +639,10 @@ func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
     defer buttons.Lock.Unlock()
 
     switch input {
-    case MenuPrevious:
+    case MenuPrevious, MenuUp:
         buttons.Previous()
         menu.PlayBeep()
-    case MenuNext:
+    case MenuNext, MenuDown:
         buttons.Next()
         menu.PlayBeep()
     case MenuSelect:
@@ -1564,7 +1565,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
     menu.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu{ return parent } })
 
     menu.Buttons.Add(&MenuNextLine{})
-    menu.Buttons.Add(&MenuLabel{Label: "Configure"})
+    menu.Buttons.Add(&MenuLabel{Label: "Configure", Color: sdl.Color{R: 255, G: 0, B: 0, A: 255}})
     menu.Buttons.Add(&MenuNextLine{})
 
     menu.Buttons.Add(&SubMenuButton{Name: "All Buttons", Func: func() SubMenu {
@@ -1974,9 +1975,9 @@ func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
 
             if menu.Chooser.IsEnabled() {
                 switch input {
-                    case MenuNext:
+                    case MenuNext, MenuDown:
                         menu.Chooser.Next()
-                    case MenuPrevious:
+                    case MenuPrevious, MenuUp:
                         menu.Chooser.Previous()
                     case MenuSelect:
                         menu.Choosing = true
@@ -2093,7 +2094,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
         Quit: func(current SubMenu) SubMenu {
             return parentMenu
         },
-        ExtraInfo: keysInfo(keys),
+        // ExtraInfo: keysInfo(keys),
         Beep: menu.Beep,
         Chooser: chooseButton,
         Choosing: false,
@@ -2103,6 +2104,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
     back := &SubMenuButton{Name: "Back", Func: func() SubMenu { return parentMenu } }
     keyMenu.Buttons.Add(back)
 
+    /*
     keyMenu.Buttons.Add(&StaticButton{Name: "Change key", Func: func(){
         if chooseButton.Toggle() {
             keyMenu.Buttons.Select(chooseButton)
@@ -2110,11 +2112,27 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
             keyMenu.Buttons.Select(back)
         }
     }})
+    */
 
     keyMenu.Buttons.Add(&MenuNextLine{})
+    keyMenu.Buttons.Add(&MenuLabel{Label: "Select a key to change", Color: sdl.Color{R: 255, G: 255, B: 0, A: 255}})
+    keyMenu.Buttons.Add(&MenuNextLine{})
 
-    keyMenu.Buttons.Add(&MenuSpace{Space: 60})
-    keyMenu.Buttons.Add(chooseButton)
+    // keyMenu.Buttons.Add(&MenuSpace{Space: 60})
+    // keyMenu.Buttons.Add(chooseButton)
+
+    count := 0
+    for _, key := range keys.AllKeys() {
+        keyMenu.Buttons.Add(&StaticButton{
+            Name: fmt.Sprintf("%v: %v", key.Name, sdl.GetScancodeName(key.Code)),
+            Func: func(){
+            },
+        })
+        count += 1
+        if count % 3 == 0 {
+            keyMenu.Buttons.Add(&MenuNextLine{})
+        }
+    }
 
     return keyMenu
 }
