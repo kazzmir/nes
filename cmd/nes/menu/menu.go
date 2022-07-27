@@ -480,7 +480,7 @@ type Button interface {
     Interact(SubMenu) SubMenu
 }
 
-type StaticButtonFunc func()
+type StaticButtonFunc func(button *StaticButton)
 
 /* A button that does not change state */
 type StaticButton struct {
@@ -494,7 +494,7 @@ func (button *StaticButton) Text() string {
 
 func (button *StaticButton) Interact(menu SubMenu) SubMenu {
     if button.Func != nil {
-        button.Func()
+        button.Func(button)
     }
 
     return menu
@@ -1933,6 +1933,7 @@ type ChangeKeyMenu struct {
     Chooser *ChooseButton
     Choosing bool
     ChoosingKey string
+    ChoosingButton *StaticButton
     Keys common.EmulatorKeys
     Lock sync.Mutex
 }
@@ -1950,7 +1951,10 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
             if key.GetType() == sdl.KEYDOWN {
                 code := key.Keysym.Scancode
                 log.Printf("Change key %v", code)
-                menu.SetChoosing(false, "")
+
+                menu.Keys.Update(menu.ChoosingKey, code)
+                menu.ChoosingButton.Name = fmt.Sprintf("%v: %v", menu.ChoosingKey, sdl.GetScancodeName(code))
+                menu.SetChoosing(false, "", nil)
             }
         }
     }
@@ -1960,11 +1964,12 @@ func (menu *ChangeKeyMenu) UpdateWindowSize(x int, y int){
     // nothing
 }
 
-func (menu *ChangeKeyMenu) SetChoosing(v bool, key string){
+func (menu *ChangeKeyMenu) SetChoosing(v bool, key string, button *StaticButton){
     menu.Lock.Lock()
     defer menu.Lock.Unlock()
     menu.Choosing = v
     menu.ChoosingKey = key
+    menu.ChoosingButton = button
 }
 
 func (menu *ChangeKeyMenu) IsChoosing() bool {
@@ -1977,7 +1982,7 @@ func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuQuit:
             if menu.IsChoosing() {
-                menu.SetChoosing(false, "")
+                menu.SetChoosing(false, "", nil)
                 return menu
             }
             return menu.Quit(menu)
@@ -2145,10 +2150,12 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
 
     count := 0
     for _, key := range keys.AllKeys() {
+        name := key.Name
+        code := key.Code
         keyMenu.Buttons.Add(&StaticButton{
-            Name: fmt.Sprintf("%v: %v", key.Name, sdl.GetScancodeName(key.Code)),
-            Func: func(){
-                keyMenu.SetChoosing(true, key.Name)
+            Name: fmt.Sprintf("%v: %v", name, sdl.GetScancodeName(code)),
+            Func: func(self *StaticButton){
+                keyMenu.SetChoosing(true, name, self)
             },
         })
         count += 1
@@ -2172,7 +2179,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
 
     joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickManager)
 
-    main.Buttons.Add(&StaticButton{Name: "Quit", Func: func(){
+    main.Buttons.Add(&StaticButton{Name: "Quit", Func: func(button *StaticButton){
         mainCancel()
     }})
 

@@ -538,6 +538,10 @@ type EmulatorKey struct {
     Code sdl.Scancode
 }
 
+func (keys *EmulatorKeys) Update(key string, value sdl.Scancode) {
+    /* FIXME */
+}
+
 func (keys EmulatorKeys) AllKeys() []EmulatorKey {
     return []EmulatorKey{
         EmulatorKey{Name: "Turbo", Code: keys.Turbo},
