@@ -1932,7 +1932,9 @@ type ChangeKeyMenu struct {
     Beep *mix.Music
     Chooser *ChooseButton
     Choosing bool
+    ChoosingKey string
     Keys common.EmulatorKeys
+    Lock sync.Mutex
 }
 
 func (menu *ChangeKeyMenu) PlayBeep() {
@@ -1942,13 +1944,13 @@ func (menu *ChangeKeyMenu) PlayBeep() {
 }
 
 func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
-    if menu.Choosing {
+    if menu.IsChoosing() {
         key, ok := event.(*sdl.KeyboardEvent)
         if ok {
             if key.GetType() == sdl.KEYDOWN {
                 code := key.Keysym.Scancode
                 log.Printf("Change key %v", code)
-                menu.Choosing = false
+                menu.SetChoosing(false, "")
             }
         }
     }
@@ -1958,35 +1960,32 @@ func (menu *ChangeKeyMenu) UpdateWindowSize(x int, y int){
     // nothing
 }
 
+func (menu *ChangeKeyMenu) SetChoosing(v bool, key string){
+    menu.Lock.Lock()
+    defer menu.Lock.Unlock()
+    menu.Choosing = v
+    menu.ChoosingKey = key
+}
+
+func (menu *ChangeKeyMenu) IsChoosing() bool {
+    menu.Lock.Lock()
+    defer menu.Lock.Unlock()
+    return menu.Choosing
+}
+
 func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuQuit:
-            if menu.Chooser.IsEnabled() {
-                menu.Chooser.Disable()
-                menu.Buttons.Next()
-                menu.Choosing = false
+            if menu.IsChoosing() {
+                menu.SetChoosing(false, "")
                 return menu
             }
             return menu.Quit(menu)
         default:
-            if menu.Choosing {
+            if menu.IsChoosing() {
                 return menu
             }
-
-            if menu.Chooser.IsEnabled() {
-                switch input {
-                    case MenuNext, MenuDown:
-                        menu.Chooser.Next()
-                    case MenuPrevious, MenuUp:
-                        menu.Chooser.Previous()
-                    case MenuSelect:
-                        menu.Choosing = true
-                }
-
-                return menu
-            } else {
-                return menu.Buttons.Interact(input, menu)
-            }
+            return menu.Buttons.Interact(input, menu)
     }
 }
 
@@ -2001,6 +2000,29 @@ func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManag
         y += font.Height() * 3
 
         _, _, err = renderLines(renderer, x, y, smallFont, menu.ExtraInfo)
+
+        if menu.IsChoosing() {
+            white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+            renderer.SetDrawColor(5, 5, 5, 230)
+
+            line := "Press a key"
+            width := common.TextWidth(font, line)
+            height := font.Height()
+
+            midX := maxWidth / 2
+            midY := maxHeight / 2
+
+            margin := 60
+            x1 := midX - width / 2 - margin
+            y1 := midY - height / 2 - margin
+            x2 := midX + width / 2 + margin
+            y2 := midY + height / 2 + margin
+
+            renderer.FillRect(&sdl.Rect{X: int32(x1), Y: int32(y1), W: int32(x2 - x1), H: int32(y2 - y1)})
+            renderer.SetDrawColor(255, 255, 255, 250)
+            renderer.DrawRect(&sdl.Rect{X: int32(x1), Y: int32(y1), W: int32(x2 - x1), H: int32(y2 - y1)})
+            common.WriteFont(font, renderer, midX - width / 2, midY - height / 2, line, white)
+        }
 
         return nil
     }
@@ -2126,6 +2148,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
         keyMenu.Buttons.Add(&StaticButton{
             Name: fmt.Sprintf("%v: %v", key.Name, sdl.GetScancodeName(key.Code)),
             Func: func(){
+                keyMenu.SetChoosing(true, key.Name)
             },
         })
         count += 1
