@@ -223,7 +223,7 @@ func (manager *JoystickManager) Get() nes.ButtonMapping {
 }
 
 type SDLKeyboardButtons struct {
-    Keys EmulatorKeys
+    Keys *EmulatorKeys
 
     /* true if held down, false if not */
     ButtonA bool

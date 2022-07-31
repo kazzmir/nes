@@ -704,7 +704,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     emulatorKeys := common.DefaultEmulatorKeys()
     input := &common.SDLKeyboardButtons{
-        Keys: emulatorKeys,
+        Keys: &emulatorKeys,
     }
 
     startNES := func(nesFile nes.NESFile, quit context.Context){
