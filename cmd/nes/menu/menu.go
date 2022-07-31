@@ -1926,6 +1926,7 @@ Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
 }
 
 type ChangeKeyMenu struct {
+    MenuQuit context.Context
     Quit MenuQuitFunc
     Buttons MenuButtons
     ExtraInfo string
@@ -1934,6 +1935,13 @@ type ChangeKeyMenu struct {
     Choosing bool
     ChoosingKey string
     ChoosingButton *StaticButton
+    Current uint64
+
+    ChooseDone context.Context
+    ChooseCancel context.CancelFunc
+
+    TempChoice sdl.Scancode
+
     Keys common.EmulatorKeys
     Lock sync.Mutex
 }
@@ -1948,13 +1956,46 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
     if menu.IsChoosing() {
         key, ok := event.(*sdl.KeyboardEvent)
         if ok {
-            if key.GetType() == sdl.KEYDOWN {
-                code := key.Keysym.Scancode
-                log.Printf("Change key %v", code)
+            switch key.GetType() {
+                case sdl.KEYDOWN:
+                    code := key.Keysym.Scancode
 
-                menu.Keys.Update(menu.ChoosingKey, code)
-                menu.ChoosingButton.Name = fmt.Sprintf("%v: %v", menu.ChoosingKey, sdl.GetScancodeName(code))
-                menu.SetChoosing(false, "", nil)
+                    if code != menu.TempChoice {
+
+                        menu.ChooseCancel()
+                        menu.ChooseDone, menu.ChooseCancel = context.WithCancel(menu.MenuQuit)
+
+                        log.Printf("Change key %v", code)
+                        choosingKey := menu.ChoosingKey
+                        menu.TempChoice = code
+                        menu.Current = 0
+
+                        go func(done context.Context){
+                            xtime := time.NewTicker(time.Second / 10)
+                            defer xtime.Stop()
+                            after := time.After(500 * time.Millisecond)
+                            for {
+                                select {
+                                    case <-xtime.C:
+                                        menu.Current += 1
+                                    case <-done.Done():
+                                        return
+                                    case <-after:
+                                        menu.TempChoice = 0
+                                        menu.Current = 0
+                                        menu.ChooseCancel()
+                                        menu.Keys.Update(choosingKey, code)
+                                        name := sdl.GetScancodeName(code)
+                                        menu.ChoosingButton.Name = fmt.Sprintf("%v: %v", choosingKey, name)
+                                        menu.SetChoosing(false, "", nil)
+                                        return
+                                }
+                            }
+                        }(menu.ChooseDone)
+                    }
+                case sdl.KEYUP:
+                    menu.ChooseCancel()
+                    menu.TempChoice = 0
             }
         }
     }
@@ -1982,6 +2023,7 @@ func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuQuit:
             if menu.IsChoosing() {
+                menu.ChooseCancel()
                 menu.SetChoosing(false, "", nil)
                 return menu
             }
@@ -2007,6 +2049,8 @@ func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManag
         _, _, err = renderLines(renderer, x, y, smallFont, menu.ExtraInfo)
 
         if menu.IsChoosing() {
+            yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+            red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
             white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
             renderer.SetDrawColor(5, 5, 5, 230)
 
@@ -2026,7 +2070,14 @@ func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManag
             renderer.FillRect(&sdl.Rect{X: int32(x1), Y: int32(y1), W: int32(x2 - x1), H: int32(y2 - y1)})
             renderer.SetDrawColor(255, 255, 255, 250)
             renderer.DrawRect(&sdl.Rect{X: int32(x1), Y: int32(y1), W: int32(x2 - x1), H: int32(y2 - y1)})
+
+            textX := midX - width / 2
+            textY := midY - height / 2
             common.WriteFont(font, renderer, midX - width / 2, midY - height / 2, line, white)
+
+            textY += font.Height() + 2
+
+            common.WriteFont(font, renderer, textX, textY, sdl.GetScancodeName(menu.TempChoice), common.Glow(red, yellow, 15, menu.Current))
         }
 
         return nil
@@ -2117,12 +2168,17 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
 
     chooseButton := &ChooseButton{Items: items}
 
+    chooseDone, chooseCancel := context.WithCancel(menu.quit)
+
     keyMenu := &ChangeKeyMenu{
+        MenuQuit: menu.quit,
         Quit: func(current SubMenu) SubMenu {
             return parentMenu
         },
         // ExtraInfo: keysInfo(keys),
         Beep: menu.Beep,
+        ChooseDone: chooseDone,
+        ChooseCancel: chooseCancel,
         Chooser: chooseButton,
         Choosing: false,
         Keys: keys,
