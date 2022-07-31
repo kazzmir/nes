@@ -539,7 +539,35 @@ type EmulatorKey struct {
 }
 
 func (keys *EmulatorKeys) Update(key string, value sdl.Keycode) {
-    /* FIXME */
+    switch key {
+        case "A": keys.ButtonA = value
+        case "B": keys.ButtonB = value
+        case "TurboA": keys.ButtonTurboA = value
+        case "TurboB": keys.ButtonTurboB = value
+        case "Select": keys.ButtonSelect = value
+        case "Start": keys.ButtonStart = value
+        case "Up": keys.ButtonUp = value
+        case "Down": keys.ButtonDown = value
+        case "Left": keys.ButtonLeft = value
+        case "Right": keys.ButtonRight = value
+        case "Turbo": keys.Turbo = value
+        case "Pause": keys.Pause = value
+        case "HardReset": keys.HardReset = value
+        case "PPUDebug": keys.PPUDebug = value
+        case "SlowDown": keys.SlowDown = value
+        case "SpeedUp": keys.SpeedUp = value
+        case "Normal": keys.Normal = value
+        case "StepFrame": keys.StepFrame = value
+        case "Record": keys.Record = value
+        case "SaveState": keys.SaveState = value
+        case "LoadState": keys.LoadState = value
+        case "Console": keys.Console = value
+
+    }
+}
+
+func (keys *EmulatorKeys) UpdateAll(other EmulatorKeys){
+    *keys = other
 }
 
 func (keys EmulatorKeys) AllKeys() []EmulatorKey {

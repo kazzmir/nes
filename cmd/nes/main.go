@@ -1063,7 +1063,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
             case <-doMenu:
                 activeMenu := menu.MakeMenu(mainQuit, font)
                 emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
-                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, emulatorKeys)
+                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, &emulatorKeys)
                 emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
                 select {
                     case renderNow<-true:

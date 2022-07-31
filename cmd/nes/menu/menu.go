@@ -2002,7 +2002,7 @@ func (loader *LoadRomInfoMenu) UpdateWindowSize(x int, y int){
     loader.RomLoader.UpdateWindowSize(x, y)
 }
 
-func keysInfo(keys common.EmulatorKeys) string {
+func keysInfo(keys *common.EmulatorKeys) string {
     n := sdl.GetKeyName
     info := template.New("keys")
 
@@ -2056,7 +2056,7 @@ type ChangeKeyMenu struct {
 
     TempChoice sdl.Keycode
 
-    Keys common.EmulatorKeys
+    Keys *common.EmulatorKeys
     Lock sync.Mutex
 }
 
@@ -2286,7 +2286,7 @@ func (choose *ChooseButton) Enable() {
     choose.SetEnabled(true)
 }
 
-func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubMenu {
+func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys *common.EmulatorKeys) SubMenu {
 
     var items []string
 
@@ -2335,7 +2335,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
     defaults := &StaticButton{
         Name: "Reset to defaults",
         Func: func(self *StaticButton){
-            keyMenu.Keys = common.DefaultEmulatorKeys()
+            keyMenu.Keys.UpdateAll(common.DefaultEmulatorKeys())
 
             for _, key := range keyMenu.Keys.AllKeys() {
                 button := changeButtons[key.Name]
@@ -2377,7 +2377,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
     return keyMenu
 }
 
-func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager, keys common.EmulatorKeys) SubMenu {
+func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager, keys *common.EmulatorKeys) SubMenu {
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
             /* quit the entire menu system if the user presses escape at the top level */
@@ -2450,7 +2450,7 @@ func (layer *MenuRenderLayer) ZIndex() int {
     return layer.Index
 }
 
-func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *common.RenderManager, joystickManager *common.JoystickManager, emulatorKeys common.EmulatorKeys){
+func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *common.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys){
 
     menuZIndex := 10
 
