@@ -2003,7 +2003,6 @@ func (loader *LoadRomInfoMenu) UpdateWindowSize(x int, y int){
 }
 
 func keysInfo(keys common.EmulatorKeys) string {
-    // sdl.GetScancodeName(x)
     n := sdl.GetKeyName
     info := template.New("keys")
 
@@ -2055,7 +2054,7 @@ type ChangeKeyMenu struct {
     ChooseDone context.Context
     ChooseCancel context.CancelFunc
 
-    TempChoice sdl.Scancode
+    TempChoice sdl.Keycode
 
     Keys common.EmulatorKeys
     Lock sync.Mutex
@@ -2073,7 +2072,7 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
         if ok {
             switch key.GetType() {
                 case sdl.KEYDOWN:
-                    code := key.Keysym.Scancode
+                    code := key.Keysym.Sym
 
                     if code != menu.TempChoice {
 
@@ -2105,7 +2104,7 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
                                         menu.Current = 0
                                         menu.ChooseCancel()
                                         menu.Keys.Update(choosingKey, code)
-                                        name := sdl.GetScancodeName(code)
+                                        name := sdl.GetKeyName(code)
                                         menu.ChoosingButton.Update(choosingKey, name)
                                         menu.Lock.Unlock()
 
@@ -2206,7 +2205,7 @@ func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManag
             current := menu.Current
             menu.Lock.Unlock()
 
-            common.WriteFont(font, renderer, textX, textY, sdl.GetScancodeName(tempChoice), common.Glow(red, yellow, 15, current))
+            common.WriteFont(font, renderer, textX, textY, sdl.GetKeyName(tempChoice), common.Glow(red, yellow, 15, current))
         }
 
         return nil
@@ -2324,7 +2323,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
         button := &StaticFixedWidthButton{
             Width: 200,
             Parts: []string{name, sdl.GetKeyName(code)},
-            // Name: fmt.Sprintf("%v: %v", name, sdl.GetScancodeName(code)),
+            // Name: fmt.Sprintf("%v: %v", name, sdl.GetKeyCode(code)),
             Func: func(self *StaticFixedWidthButton){
                 keyMenu.SetChoosing(true, name, self)
             },
@@ -2538,24 +2537,24 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                     }
 
                     /* allow vi input */
-                    switch keyboard_event.Keysym.Scancode {
-                        case sdl.SCANCODE_LEFT, sdl.SCANCODE_H:
+                    switch keyboard_event.Keysym.Sym {
+                        case sdl.K_LEFT, sdl.K_h:
                             select {
                                 case userInput <- MenuPrevious:
                             }
-                        case sdl.SCANCODE_RIGHT, sdl.SCANCODE_L:
+                        case sdl.K_RIGHT, sdl.K_l:
                             select {
                                 case userInput <- MenuNext:
                             }
-                        case sdl.SCANCODE_UP, sdl.SCANCODE_K:
+                        case sdl.K_UP, sdl.K_k:
                             select {
                                 case userInput <- MenuUp:
                             }
-                        case sdl.SCANCODE_DOWN, sdl.SCANCODE_J:
+                        case sdl.K_DOWN, sdl.K_j:
                             select {
                                 case userInput <- MenuDown:
                             }
-                        case sdl.SCANCODE_RETURN:
+                        case sdl.K_RETURN:
                             select {
                                 case userInput <- MenuSelect:
                             }

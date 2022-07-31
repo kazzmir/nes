@@ -538,7 +538,7 @@ type EmulatorKey struct {
     Code sdl.Keycode
 }
 
-func (keys *EmulatorKeys) Update(key string, value sdl.Scancode) {
+func (keys *EmulatorKeys) Update(key string, value sdl.Keycode) {
     /* FIXME */
 }
 

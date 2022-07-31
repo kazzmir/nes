@@ -10,6 +10,7 @@ import (
     "bytes"
     "time"
     "sync"
+    "github.com/kazzmir/nes/util"
     nes "github.com/kazzmir/nes/lib"
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
@@ -85,14 +86,23 @@ func RunNSF(path string) error {
         return err
     }
 
-    err = sdl.Init(sdl.INIT_EVERYTHING)
+    // force a software renderer
+    if !util.HasGlxinfo() {
+        sdl.Do(func(){
+            sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
+        })
+    }
+
+    sdl.Do(func(){
+        err = sdl.Init(sdl.INIT_EVERYTHING)
+    })
     if err != nil {
         return err
     }
     defer sdl.Quit()
 
-    sdl.DisableScreenSaver()
-    defer sdl.EnableScreenSaver()
+    sdl.Do(sdl.DisableScreenSaver)
+    defer sdl.Do(sdl.EnableScreenSaver)
 
     var window *sdl.Window
     var renderer *sdl.Renderer
@@ -110,7 +120,9 @@ func RunNSF(path string) error {
         window.SetTitle("nsf player")
     })
 
-    defer window.Destroy()
+    defer sdl.Do(func(){
+        window.Destroy()
+    })
 
     /*
     renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
@@ -119,15 +131,20 @@ func RunNSF(path string) error {
     }
     */
 
-    err = ttf.Init()
+    sdl.Do(func(){
+        err = ttf.Init()
+    })
     if err != nil {
         return err
     }
 
-    defer ttf.Quit()
+    defer sdl.Do(ttf.Quit)
 
     /* FIXME: choose a font somehow if this one is not found */
-    font, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "data/DejaVuSans.ttf"), 20)
+    var font *ttf.Font
+    sdl.Do(func(){
+        font, err = ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "data/DejaVuSans.ttf"), 20)
+    })
     if err != nil {
         return err
     }
@@ -323,9 +340,13 @@ func RunNSF(path string) error {
         return fmt.Errorf("Could not initialize audio: %v", err)
     }
 
-    defer sdl.CloseAudioDevice(audioDevice)
+    defer sdl.Do(func(){
+        sdl.CloseAudioDevice(audioDevice)
+    })
     log.Printf("Opened SDL audio device %v", audioDevice)
-    sdl.PauseAudioDevice(audioDevice, false)
+    sdl.Do(func(){
+        sdl.PauseAudioDevice(audioDevice, false)
+    })
 
     go func(){
         <-quit.Done()
@@ -343,16 +364,16 @@ func RunNSF(path string) error {
         }()
     }
 
-    keyMapping := make(map[sdl.Scancode]NSFPlayerActions)
-    keyMapping[sdl.SCANCODE_UP] = NSFPlayerNext5Tracks
-    keyMapping[sdl.SCANCODE_K] = NSFPlayerNext5Tracks
-    keyMapping[sdl.SCANCODE_RIGHT] = NSFPlayerNext
-    keyMapping[sdl.SCANCODE_L] = NSFPlayerNext
-    keyMapping[sdl.SCANCODE_LEFT] = NSFPlayerPrevious
-    keyMapping[sdl.SCANCODE_H] = NSFPlayerPrevious
-    keyMapping[sdl.SCANCODE_DOWN] = NSFPlayerPrevious5Tracks
-    keyMapping[sdl.SCANCODE_J] = NSFPlayerPrevious5Tracks
-    keyMapping[sdl.SCANCODE_SPACE] = NSFPlayerPause
+    keyMapping := make(map[sdl.Keycode]NSFPlayerActions)
+    keyMapping[sdl.K_UP] = NSFPlayerNext5Tracks
+    keyMapping[sdl.K_k] = NSFPlayerNext5Tracks
+    keyMapping[sdl.K_RIGHT] = NSFPlayerNext
+    keyMapping[sdl.K_l] = NSFPlayerNext
+    keyMapping[sdl.K_LEFT] = NSFPlayerPrevious
+    keyMapping[sdl.K_h] = NSFPlayerPrevious
+    keyMapping[sdl.K_DOWN] = NSFPlayerPrevious5Tracks
+    keyMapping[sdl.K_j] = NSFPlayerPrevious5Tracks
+    keyMapping[sdl.K_SPACE] = NSFPlayerPause
 
     for quit.Err() == nil {
         event := sdl.WaitEvent()
@@ -367,7 +388,7 @@ func RunNSF(path string) error {
                         cancel()
                     }
 
-                    action, ok := keyMapping[keyboard_event.Keysym.Scancode]
+                    action, ok := keyMapping[keyboard_event.Keysym.Sym]
                     if ok {
                         nsfActions <- action
                     }
