@@ -239,6 +239,7 @@ type EmulatorMessageLayer struct {
     emulatorMessages []EmulatorMessage
     Index int
     ReceiveMessages chan string
+    Lock sync.Mutex
 }
 
 func (layer *EmulatorMessageLayer) ZIndex() int {
@@ -250,10 +251,14 @@ func (layer *EmulatorMessageLayer) Render(renderInfo common.RenderInfo) error {
 
     font := renderInfo.SmallFont
 
+    layer.Lock.Lock()
+    messages := common.CopyArray(layer.emulatorMessages)
+    layer.Lock.Unlock()
+
     y := int(windowHeight) - font.Height() - 1
     now := time.Now()
-    for i := len(layer.emulatorMessages)-1; i >= 0; i-- {
-        message := layer.emulatorMessages[i]
+    for i := len(messages)-1; i >= 0; i-- {
+        message := messages[i]
         if message.DeathTime.After(now){
             x := int(windowWidth) - 100
             remaining := message.DeathTime.Sub(now)
@@ -288,6 +293,7 @@ func (layer *EmulatorMessageLayer) Run(quit context.Context){
             case <-quit.Done():
                 return
             case message := <-layer.ReceiveMessages:
+                layer.Lock.Lock()
                 layer.emulatorMessages = append(layer.emulatorMessages, EmulatorMessage{
                     Message: message,
                     DeathTime: time.Now().Add(time.Millisecond * 1500),
@@ -295,9 +301,11 @@ func (layer *EmulatorMessageLayer) Run(quit context.Context){
                 if len(layer.emulatorMessages) > maxEmulatorMessages {
                     layer.emulatorMessages = layer.emulatorMessages[len(layer.emulatorMessages) - maxEmulatorMessages:len(layer.emulatorMessages)]
                 }
+                layer.Lock.Unlock()
                 /* remove deceased messages */
             case <-emulatorMessageTicker.C:
                 now := time.Now()
+                layer.Lock.Lock()
                 i := 0
                 for i < len(layer.emulatorMessages) {
                     /* find the first non-dead message */
@@ -308,6 +316,7 @@ func (layer *EmulatorMessageLayer) Run(quit context.Context){
                     }
                 }
                 layer.emulatorMessages = layer.emulatorMessages[i:]
+                layer.Lock.Unlock()
         }
     }
 }

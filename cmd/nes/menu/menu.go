@@ -486,10 +486,19 @@ type StaticButtonFunc func(button *StaticButton)
 type StaticButton struct {
     Name string
     Func StaticButtonFunc
+    Lock sync.Mutex
 }
 
 func (button *StaticButton) Text() string {
+    button.Lock.Lock()
+    defer button.Lock.Unlock()
     return button.Name
+}
+
+func (button *StaticButton) Update(text string){
+    button.Lock.Lock()
+    defer button.Lock.Unlock()
+    button.Name = text
 }
 
 func (button *StaticButton) Interact(menu SubMenu) SubMenu {
@@ -1963,12 +1972,14 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
                     if code != menu.TempChoice {
 
                         menu.ChooseCancel()
+                        menu.Lock.Lock()
                         menu.ChooseDone, menu.ChooseCancel = context.WithCancel(menu.MenuQuit)
 
                         log.Printf("Change key %v", code)
                         choosingKey := menu.ChoosingKey
                         menu.TempChoice = code
                         menu.Current = 0
+                        menu.Lock.Unlock()
 
                         go func(done context.Context){
                             xtime := time.NewTicker(time.Second / 10)
@@ -1977,16 +1988,21 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
                             for {
                                 select {
                                     case <-xtime.C:
+                                        menu.Lock.Lock()
                                         menu.Current += 1
+                                        menu.Lock.Unlock()
                                     case <-done.Done():
                                         return
                                     case <-after:
+                                        menu.Lock.Lock()
                                         menu.TempChoice = 0
                                         menu.Current = 0
                                         menu.ChooseCancel()
                                         menu.Keys.Update(choosingKey, code)
                                         name := sdl.GetScancodeName(code)
-                                        menu.ChoosingButton.Name = fmt.Sprintf("%v: %v", choosingKey, name)
+                                        menu.ChoosingButton.Update(fmt.Sprintf("%v: %v", choosingKey, name))
+                                        menu.Lock.Unlock()
+
                                         menu.SetChoosing(false, "", nil)
                                         return
                                 }
@@ -1995,7 +2011,9 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
                     }
                 case sdl.KEYUP:
                     menu.ChooseCancel()
+                    menu.Lock.Lock()
                     menu.TempChoice = 0
+                    menu.Lock.Unlock()
             }
         }
     }
@@ -2077,7 +2095,12 @@ func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManag
 
             textY += font.Height() + 2
 
-            common.WriteFont(font, renderer, textX, textY, sdl.GetScancodeName(menu.TempChoice), common.Glow(red, yellow, 15, menu.Current))
+            menu.Lock.Lock()
+            tempChoice := menu.TempChoice
+            current := menu.Current
+            menu.Lock.Unlock()
+
+            common.WriteFont(font, renderer, textX, textY, sdl.GetScancodeName(tempChoice), common.Glow(red, yellow, 15, current))
         }
 
         return nil
