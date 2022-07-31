@@ -211,6 +211,28 @@ func drawButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureM
     return info.Width, info.Height, err
 }
 
+func drawFixedWidthButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, textureId TextureId, width int, x int, y int, message string, color sdl.Color) (int, int, error) {
+    buttonInside := sdl.Color{R: 64, G: 64, B: 64, A: 255}
+    buttonOutline := sdl.Color{R: 32, G: 32, B: 32, A: 255}
+
+    info, err := textureManager.RenderText(font, renderer, message, color, textureId)
+    if err != nil {
+        return 0, 0, err
+    }
+
+    margin := 12
+
+    renderer.SetDrawColor(buttonOutline.R, buttonOutline.G, buttonOutline.B, buttonOutline.A)
+    renderer.FillRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(width + margin), H: int32(info.Height + margin)})
+
+    renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
+    renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(width + margin - 3), H: int32(info.Height + margin - 3)})
+
+    err = common.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
+
+    return width + margin, info.Height, err
+}
+
 /* a button that cannot be interacted with */
 func drawConstButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, textureId TextureId, x int, y int, message string, color sdl.Color) (int, int, error) {
     buttonInside := sdl.Color{R: 0x55, G: 0x55, B: 0x40, A: 255}
@@ -562,6 +584,90 @@ func _doRenderButton(button Button, font *ttf.Font, renderer *sdl.Renderer, butt
 
     return width, height, err
 }
+
+type StaticFixedButtonFunc func(*StaticFixedWidthButton)
+
+/* A button that renders its components in a fixed width */
+type StaticFixedWidthButton struct {
+    Width int
+    Parts []string
+    Func StaticFixedButtonFunc
+    Lock sync.Mutex
+}
+
+func (button *StaticFixedWidthButton) Text() string {
+    button.Lock.Lock()
+    defer button.Lock.Unlock()
+    out := ""
+    /* FIXME: this doesn't really take into account the width */
+    for _, part := range button.Parts {
+        out += part
+    }
+    return out
+}
+
+func (button *StaticFixedWidthButton) Update(parts... string){
+    button.Lock.Lock()
+    button.Parts = parts
+    button.Lock.Unlock()
+}
+
+func (button *StaticFixedWidthButton) Interact(menu SubMenu) SubMenu {
+    if button.Func != nil {
+        button.Func(button)
+    }
+
+    return menu
+}
+
+func (button *StaticFixedWidthButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
+    yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+    red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+    color := white
+    if selected {
+        color = common.Glow(red, yellow, 15, clock)
+    }
+
+    button.Lock.Lock()
+    parts := common.CopyArray(button.Parts)
+    button.Lock.Unlock()
+
+    totalLength := 0
+    for _, part := range parts {
+        totalLength += common.TextWidth(font, part)
+    }
+
+    space := common.TextWidth(font, " ")
+
+    left := button.Width - totalLength
+    var out string
+    if left > 0 {
+        spaces := left / space
+
+        if len(parts) > 0 {
+            out = parts[0]
+            if len(parts) > 1 {
+                out += strings.Repeat(" ", spaces)
+                for _, part := range parts[1:] {
+                    out += part
+                }
+            }
+        }
+    } else {
+        for _, part := range parts {
+            out += part
+        }
+    }
+
+    textureId := buttonManager.GetButtonTextureId(textureManager, out, color)
+
+    width, height, err := drawFixedWidthButton(font, renderer, textureManager, textureId, button.Width, x, y, out, color)
+
+    return width, height, err
+}
+
 
 func (button *SubMenuButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
     return _doRenderButton(button, font, renderer, buttonManager, textureManager, x, y, selected, clock)
@@ -1943,7 +2049,7 @@ type ChangeKeyMenu struct {
     Chooser *ChooseButton
     Choosing bool
     ChoosingKey string
-    ChoosingButton *StaticButton
+    ChoosingButton *StaticFixedWidthButton
     Current uint64
 
     ChooseDone context.Context
@@ -2000,7 +2106,7 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
                                         menu.ChooseCancel()
                                         menu.Keys.Update(choosingKey, code)
                                         name := sdl.GetScancodeName(code)
-                                        menu.ChoosingButton.Update(fmt.Sprintf("%v: %v", choosingKey, name))
+                                        menu.ChoosingButton.Update(choosingKey, name)
                                         menu.Lock.Unlock()
 
                                         menu.SetChoosing(false, "", nil)
@@ -2023,7 +2129,7 @@ func (menu *ChangeKeyMenu) UpdateWindowSize(x int, y int){
     // nothing
 }
 
-func (menu *ChangeKeyMenu) SetChoosing(v bool, key string, button *StaticButton){
+func (menu *ChangeKeyMenu) SetChoosing(v bool, key string, button *StaticFixedWidthButton){
     menu.Lock.Lock()
     defer menu.Lock.Unlock()
     menu.Choosing = v
@@ -2210,14 +2316,16 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
     back := &SubMenuButton{Name: "Back", Func: func() SubMenu { return parentMenu } }
     keyMenu.Buttons.Add(back)
 
-    changeButtons := make(map[string]*StaticButton)
+    changeButtons := make(map[string]*StaticFixedWidthButton)
     for _, key := range keys.AllKeys() {
         name := key.Name
         code := key.Code
 
-        button := &StaticButton{
-            Name: fmt.Sprintf("%v: %v", name, sdl.GetScancodeName(code)),
-            Func: func(self *StaticButton){
+        button := &StaticFixedWidthButton{
+            Width: 200,
+            Parts: []string{name, sdl.GetScancodeName(code)},
+            // Name: fmt.Sprintf("%v: %v", name, sdl.GetScancodeName(code)),
+            Func: func(self *StaticFixedWidthButton){
                 keyMenu.SetChoosing(true, name, self)
             },
         }
@@ -2262,7 +2370,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
         button := changeButtons[name]
         keyMenu.Buttons.Add(button)
         count += 1
-        if count % 3 == 0 {
+        if count % 2 == 0 {
             keyMenu.Buttons.Add(&MenuNextLine{})
         }
     }
