@@ -375,29 +375,29 @@ func (console *Console) HandleText(event sdl.Event){
 }
 
 func (console *Console) HandleKey(event *sdl.KeyboardEvent, emulatorKeys common.EmulatorKeys){
-    switch event.Keysym.Scancode {
+    switch event.Keysym.Sym {
         case emulatorKeys.Console:
             console.Toggle()
-        case sdl.SCANCODE_BACKSPACE:
+        case sdl.K_BACKSPACE:
             select {
                 case console.Messages <- BackspaceMessage{}:
                 default:
             }
-        case sdl.SCANCODE_W:
+        case sdl.K_w:
             if (event.Keysym.Mod & sdl.KMOD_LCTRL) == sdl.KMOD_LCTRL {
                 select {
                     case console.Messages <- RemoveWordMessage{}:
                     default:
                 }
             }
-        case sdl.SCANCODE_U:
+        case sdl.K_u:
             if (event.Keysym.Mod & sdl.KMOD_LCTRL) == sdl.KMOD_LCTRL {
                 select {
                     case console.Messages <- ClearLineMessage{}:
                     default:
                 }
             }
-        case sdl.SCANCODE_RETURN:
+        case sdl.K_RETURN:
             select {
                 case console.Messages <- EnterMessage{}:
                 default:

@@ -2004,7 +2004,7 @@ func (loader *LoadRomInfoMenu) UpdateWindowSize(x int, y int){
 
 func keysInfo(keys common.EmulatorKeys) string {
     // sdl.GetScancodeName(x)
-    n := sdl.GetScancodeName
+    n := sdl.GetKeyName
     info := template.New("keys")
 
     info.Funcs(map[string]any{
@@ -2292,7 +2292,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
     var items []string
 
     for _, key := range keys.AllKeys() {
-        items = append(items, fmt.Sprintf("%v: %v", key.Name, sdl.GetScancodeName(key.Code)))
+        items = append(items, fmt.Sprintf("%v: %v", key.Name, sdl.GetKeyName(key.Code)))
     }
 
     chooseButton := &ChooseButton{Items: items}
@@ -2323,7 +2323,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
 
         button := &StaticFixedWidthButton{
             Width: 200,
-            Parts: []string{name, sdl.GetScancodeName(code)},
+            Parts: []string{name, sdl.GetKeyName(code)},
             // Name: fmt.Sprintf("%v: %v", name, sdl.GetScancodeName(code)),
             Func: func(self *StaticFixedWidthButton){
                 keyMenu.SetChoosing(true, name, self)
@@ -2340,7 +2340,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
 
             for _, key := range keyMenu.Keys.AllKeys() {
                 button := changeButtons[key.Name]
-                button.Update(fmt.Sprintf("%v: %v", key.Name, sdl.GetScancodeName(key.Code)))
+                button.Update(fmt.Sprintf("%v: %v", key.Name, sdl.GetKeyName(key.Code)))
             }
         },
     }

@@ -296,7 +296,7 @@ func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
             return
     }
 
-    switch event.Keysym.Scancode {
+    switch event.Keysym.Sym {
         case buttons.Keys.ButtonA: buttons.ButtonA = set
         case buttons.Keys.ButtonB: buttons.ButtonB = set
         case buttons.Keys.ButtonTurboA:
@@ -508,34 +508,34 @@ func (combine *CombineButtons) Get() nes.ButtonMapping {
 }
 
 type EmulatorKeys struct {
-    Turbo sdl.Scancode
-    Pause sdl.Scancode
-    HardReset sdl.Scancode
-    PPUDebug sdl.Scancode
-    SlowDown sdl.Scancode
-    SpeedUp sdl.Scancode
-    Normal sdl.Scancode
-    StepFrame sdl.Scancode
-    Record sdl.Scancode
-    SaveState sdl.Scancode
-    LoadState sdl.Scancode
-    Console sdl.Scancode
+    Turbo sdl.Keycode
+    Pause sdl.Keycode
+    HardReset sdl.Keycode
+    PPUDebug sdl.Keycode
+    SlowDown sdl.Keycode
+    SpeedUp sdl.Keycode
+    Normal sdl.Keycode
+    StepFrame sdl.Keycode
+    Record sdl.Keycode
+    SaveState sdl.Keycode
+    LoadState sdl.Keycode
+    Console sdl.Keycode
 
-    ButtonA sdl.Scancode
-    ButtonB sdl.Scancode
-    ButtonTurboA sdl.Scancode
-    ButtonTurboB sdl.Scancode
-    ButtonSelect sdl.Scancode
-    ButtonStart sdl.Scancode
-    ButtonUp sdl.Scancode
-    ButtonDown sdl.Scancode
-    ButtonLeft sdl.Scancode
-    ButtonRight sdl.Scancode
+    ButtonA sdl.Keycode
+    ButtonB sdl.Keycode
+    ButtonTurboA sdl.Keycode
+    ButtonTurboB sdl.Keycode
+    ButtonSelect sdl.Keycode
+    ButtonStart sdl.Keycode
+    ButtonUp sdl.Keycode
+    ButtonDown sdl.Keycode
+    ButtonLeft sdl.Keycode
+    ButtonRight sdl.Keycode
 }
 
 type EmulatorKey struct {
     Name string
-    Code sdl.Scancode
+    Code sdl.Keycode
 }
 
 func (keys *EmulatorKeys) Update(key string, value sdl.Scancode) {
@@ -572,28 +572,28 @@ func (keys EmulatorKeys) AllKeys() []EmulatorKey {
 
 func DefaultEmulatorKeys() EmulatorKeys {
     return EmulatorKeys {
-        Turbo: sdl.SCANCODE_GRAVE,
-        Pause: sdl.SCANCODE_SPACE,
-        HardReset: sdl.SCANCODE_R,
-        PPUDebug: sdl.SCANCODE_P,
-        SlowDown: sdl.SCANCODE_MINUS,
-        SpeedUp: sdl.SCANCODE_EQUALS,
-        Normal: sdl.SCANCODE_0,
-        StepFrame: sdl.SCANCODE_O,
-        Record: sdl.SCANCODE_M,
-        SaveState: sdl.SCANCODE_1,
-        LoadState: sdl.SCANCODE_2,
-        Console: sdl.SCANCODE_TAB,
+        Turbo: sdl.K_BACKQUOTE,
+        Pause: sdl.K_SPACE,
+        HardReset: sdl.K_r,
+        PPUDebug: sdl.K_p,
+        SlowDown: sdl.K_MINUS,
+        SpeedUp: sdl.K_EQUALS,
+        Normal: sdl.K_0,
+        StepFrame: sdl.K_o,
+        Record: sdl.K_m,
+        SaveState: sdl.K_1,
+        LoadState: sdl.K_2,
+        Console: sdl.K_TAB,
 
-        ButtonA: sdl.SCANCODE_A,
-        ButtonB: sdl.SCANCODE_S,
-        ButtonTurboA: sdl.SCANCODE_D,
-        ButtonTurboB: sdl.SCANCODE_F,
-        ButtonSelect: sdl.SCANCODE_Q,
-        ButtonStart: sdl.SCANCODE_RETURN,
-        ButtonUp:  sdl.SCANCODE_UP,
-        ButtonDown: sdl.SCANCODE_DOWN,
-        ButtonLeft: sdl.SCANCODE_LEFT,
-        ButtonRight: sdl.SCANCODE_RIGHT,
+        ButtonA: sdl.K_a,
+        ButtonB: sdl.K_s,
+        ButtonTurboA: sdl.K_d,
+        ButtonTurboB: sdl.K_f,
+        ButtonSelect: sdl.K_q,
+        ButtonStart: sdl.K_RETURN,
+        ButtonUp:  sdl.K_UP,
+        ButtonDown: sdl.K_DOWN,
+        ButtonLeft: sdl.K_LEFT,
+        ButtonRight: sdl.K_RIGHT,
     }
 }

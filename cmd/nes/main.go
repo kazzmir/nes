@@ -955,7 +955,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
                     input.HandleEvent(keyboard_event)
 
-                    switch keyboard_event.Keysym.Scancode {
+                    switch keyboard_event.Keysym.Sym {
                         case emulatorKeys.Console:
                             console.Toggle()
                         case emulatorKeys.Turbo:
@@ -1041,8 +1041,8 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
                 case sdl.KEYUP:
                     keyboard_event := event.(*sdl.KeyboardEvent)
                     input.HandleEvent(keyboard_event)
-                    scancode := keyboard_event.Keysym.Scancode
-                    if scancode == emulatorKeys.Turbo || scancode == emulatorKeys.Pause {
+                    code := keyboard_event.Keysym.Sym
+                    if code == emulatorKeys.Turbo || code == emulatorKeys.Pause {
                         select {
                             case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
                             default:
