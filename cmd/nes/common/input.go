@@ -544,6 +544,17 @@ func (keys *EmulatorKeys) Update(key string, value sdl.Scancode) {
 
 func (keys EmulatorKeys) AllKeys() []EmulatorKey {
     return []EmulatorKey{
+        EmulatorKey{Name: "A", Code: keys.ButtonA},
+        EmulatorKey{Name: "B", Code: keys.ButtonB},
+        EmulatorKey{Name: "TurboA", Code: keys.ButtonTurboA},
+        EmulatorKey{Name: "TurboB", Code: keys.ButtonTurboB},
+        EmulatorKey{Name: "Select", Code: keys.ButtonSelect},
+        EmulatorKey{Name: "Start", Code: keys.ButtonStart},
+        EmulatorKey{Name: "Up", Code: keys.ButtonUp},
+        EmulatorKey{Name: "Down", Code: keys.ButtonDown},
+        EmulatorKey{Name: "Left", Code: keys.ButtonLeft},
+        EmulatorKey{Name: "Right", Code: keys.ButtonRight},
+
         EmulatorKey{Name: "Turbo", Code: keys.Turbo},
         EmulatorKey{Name: "Pause", Code: keys.Pause},
         EmulatorKey{Name: "HardReset", Code: keys.HardReset},
@@ -556,16 +567,6 @@ func (keys EmulatorKeys) AllKeys() []EmulatorKey {
         EmulatorKey{Name: "SaveState", Code: keys.SaveState},
         EmulatorKey{Name: "LoadState", Code: keys.LoadState},
         EmulatorKey{Name: "Console", Code: keys.Console},
-        EmulatorKey{Name: "A", Code: keys.ButtonA},
-        EmulatorKey{Name: "B", Code: keys.ButtonB},
-        EmulatorKey{Name: "TurboA", Code: keys.ButtonTurboA},
-        EmulatorKey{Name: "TurboB", Code: keys.ButtonTurboB},
-        EmulatorKey{Name: "Select", Code: keys.ButtonSelect},
-        EmulatorKey{Name: "Start", Code: keys.ButtonStart},
-        EmulatorKey{Name: "Up", Code: keys.ButtonUp},
-        EmulatorKey{Name: "Down", Code: keys.ButtonDown},
-        EmulatorKey{Name: "Left", Code: keys.ButtonLeft},
-        EmulatorKey{Name: "Right", Code: keys.ButtonRight},
     }
 }
 

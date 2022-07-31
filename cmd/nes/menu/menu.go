@@ -2210,6 +2210,35 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
     back := &SubMenuButton{Name: "Back", Func: func() SubMenu { return parentMenu } }
     keyMenu.Buttons.Add(back)
 
+    changeButtons := make(map[string]*StaticButton)
+    for _, key := range keys.AllKeys() {
+        name := key.Name
+        code := key.Code
+
+        button := &StaticButton{
+            Name: fmt.Sprintf("%v: %v", name, sdl.GetScancodeName(code)),
+            Func: func(self *StaticButton){
+                keyMenu.SetChoosing(true, name, self)
+            },
+        }
+
+        changeButtons[name] = button
+    }
+
+    defaults := &StaticButton{
+        Name: "Reset to defaults",
+        Func: func(self *StaticButton){
+            keyMenu.Keys = common.DefaultEmulatorKeys()
+
+            for _, key := range keyMenu.Keys.AllKeys() {
+                button := changeButtons[key.Name]
+                button.Update(fmt.Sprintf("%v: %v", key.Name, sdl.GetScancodeName(key.Code)))
+            }
+        },
+    }
+
+    keyMenu.Buttons.Add(defaults)
+
     /*
     keyMenu.Buttons.Add(&StaticButton{Name: "Change key", Func: func(){
         if chooseButton.Toggle() {
@@ -2230,13 +2259,8 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys common.EmulatorKeys) SubM
     count := 0
     for _, key := range keys.AllKeys() {
         name := key.Name
-        code := key.Code
-        keyMenu.Buttons.Add(&StaticButton{
-            Name: fmt.Sprintf("%v: %v", name, sdl.GetScancodeName(code)),
-            Func: func(self *StaticButton){
-                keyMenu.SetChoosing(true, name, self)
-            },
-        })
+        button := changeButtons[name]
+        keyMenu.Buttons.Add(button)
         count += 1
         if count % 3 == 0 {
             keyMenu.Buttons.Add(&MenuNextLine{})
