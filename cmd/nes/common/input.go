@@ -8,9 +8,6 @@ import (
     "log"
     "fmt"
     "errors"
-    "os"
-    "path/filepath"
-    "encoding/json"
 
     // "runtime/debug"
 )
@@ -54,80 +51,30 @@ func (manager *JoystickManager) CurrentName() string {
     return "No joystick found"
 }
 
-type ConfigJoystickData struct {
-    A string
-    B string
-    Select string
-    Start string
-    Up string
-    Down string
-    Left string
-    Right string
-    Guid string
-    Name string
-}
-
-type ConfigData struct {
-    Version int
-    Player1Joystick ConfigJoystickData
-}
-
-func GetOrCreateConfigDir() (string, error) {
-    configDir, err := os.UserConfigDir()
-    if err != nil {
-        return "", err
-    }
-    configPath := filepath.Join(configDir, "jon-nes")
-    err = os.MkdirAll(configPath, 0755)
-    if err != nil {
-        return "", err
-    }
-
-    return configPath, nil
-}
-
 func (manager *JoystickManager) SaveInput() error {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
-    configPath, err := GetOrCreateConfigDir()
-    if err != nil {
-        return err
-    }
-    config := filepath.Join(configPath, "config.json")
-
-    file, err := os.Create(config)
-    if err != nil {
-        return err
-    }
-    defer file.Close()
-
     if manager.Player1 != nil {
-        data := ConfigData{
-            Version: 1,
-            Player1Joystick: ConfigJoystickData{
-                A: manager.Player1.Inputs[nes.ButtonIndexA].Serialize(),
-                B: manager.Player1.Inputs[nes.ButtonIndexB].Serialize(),
-                Select: manager.Player1.Inputs[nes.ButtonIndexSelect].Serialize(),
-                Start: manager.Player1.Inputs[nes.ButtonIndexStart].Serialize(),
-                Up: manager.Player1.Inputs[nes.ButtonIndexUp].Serialize(),
-                Down: manager.Player1.Inputs[nes.ButtonIndexDown].Serialize(),
-                Left: manager.Player1.Inputs[nes.ButtonIndexLeft].Serialize(),
-                Right: manager.Player1.Inputs[nes.ButtonIndexRight].Serialize(),
-                Guid: sdl.JoystickGetGUIDString(manager.Player1.joystick.GUID()),
-                Name: strings.TrimSpace(manager.Player1.joystick.Name()),
-            },
-        }
-
-        serialized, err := json.Marshal(data)
+        data, err := LoadConfigData()
         if err != nil {
-            return err
+            log.Printf("Warning: could not load config. Creating new config")
+        }
+        data.Player1Joystick = ConfigJoystickData{
+            A: manager.Player1.Inputs[nes.ButtonIndexA].Serialize(),
+            B: manager.Player1.Inputs[nes.ButtonIndexB].Serialize(),
+            Select: manager.Player1.Inputs[nes.ButtonIndexSelect].Serialize(),
+            Start: manager.Player1.Inputs[nes.ButtonIndexStart].Serialize(),
+            Up: manager.Player1.Inputs[nes.ButtonIndexUp].Serialize(),
+            Down: manager.Player1.Inputs[nes.ButtonIndexDown].Serialize(),
+            Left: manager.Player1.Inputs[nes.ButtonIndexLeft].Serialize(),
+            Right: manager.Player1.Inputs[nes.ButtonIndexRight].Serialize(),
+            Guid: sdl.JoystickGetGUIDString(manager.Player1.joystick.GUID()),
+            Name: strings.TrimSpace(manager.Player1.joystick.Name()),
         }
 
-        file.Write(serialized)
+        return SaveConfigData(data)
     }
-
-    log.Printf("Saved config to %v", config)
 
     return nil
 }
@@ -223,7 +170,7 @@ func (manager *JoystickManager) Get() nes.ButtonMapping {
 }
 
 type SDLKeyboardButtons struct {
-    Keys EmulatorKeys
+    Keys *EmulatorKeys
 
     /* true if held down, false if not */
     ButtonA bool
@@ -296,7 +243,7 @@ func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
             return
     }
 
-    switch event.Keysym.Scancode {
+    switch event.Keysym.Sym {
         case buttons.Keys.ButtonA: buttons.ButtonA = set
         case buttons.Keys.ButtonB: buttons.ButtonB = set
         case buttons.Keys.ButtonTurboA:
@@ -508,55 +455,191 @@ func (combine *CombineButtons) Get() nes.ButtonMapping {
 }
 
 type EmulatorKeys struct {
-    Turbo sdl.Scancode
-    Pause sdl.Scancode
-    HardReset sdl.Scancode
-    PPUDebug sdl.Scancode
-    SlowDown sdl.Scancode
-    SpeedUp sdl.Scancode
-    Normal sdl.Scancode
-    StepFrame sdl.Scancode
-    Record sdl.Scancode
-    SaveState sdl.Scancode
-    LoadState sdl.Scancode
-    Console sdl.Scancode
+    Turbo sdl.Keycode
+    Pause sdl.Keycode
+    HardReset sdl.Keycode
+    PPUDebug sdl.Keycode
+    SlowDown sdl.Keycode
+    SpeedUp sdl.Keycode
+    Normal sdl.Keycode
+    StepFrame sdl.Keycode
+    Record sdl.Keycode
+    SaveState sdl.Keycode
+    LoadState sdl.Keycode
+    Console sdl.Keycode
 
-    ButtonA sdl.Scancode
-    ButtonB sdl.Scancode
-    ButtonTurboA sdl.Scancode
-    ButtonTurboB sdl.Scancode
-    ButtonSelect sdl.Scancode
-    ButtonStart sdl.Scancode
-    ButtonUp sdl.Scancode
-    ButtonDown sdl.Scancode
-    ButtonLeft sdl.Scancode
-    ButtonRight sdl.Scancode
+    ButtonA sdl.Keycode
+    ButtonB sdl.Keycode
+    ButtonTurboA sdl.Keycode
+    ButtonTurboB sdl.Keycode
+    ButtonSelect sdl.Keycode
+    ButtonStart sdl.Keycode
+    ButtonUp sdl.Keycode
+    ButtonDown sdl.Keycode
+    ButtonLeft sdl.Keycode
+    ButtonRight sdl.Keycode
+}
+
+type EmulatorKey struct {
+    Name string
+    Code sdl.Keycode
+}
+
+func (keys *EmulatorKeys) Update(key string, value sdl.Keycode) {
+    switch key {
+        case "A": keys.ButtonA = value
+        case "B": keys.ButtonB = value
+        case "TurboA": keys.ButtonTurboA = value
+        case "TurboB": keys.ButtonTurboB = value
+        case "Select": keys.ButtonSelect = value
+        case "Start": keys.ButtonStart = value
+        case "Up": keys.ButtonUp = value
+        case "Down": keys.ButtonDown = value
+        case "Left": keys.ButtonLeft = value
+        case "Right": keys.ButtonRight = value
+        case "Turbo": keys.Turbo = value
+        case "Pause": keys.Pause = value
+        case "HardReset": keys.HardReset = value
+        case "PPUDebug": keys.PPUDebug = value
+        case "SlowDown": keys.SlowDown = value
+        case "SpeedUp": keys.SpeedUp = value
+        case "Normal": keys.Normal = value
+        case "StepFrame": keys.StepFrame = value
+        case "Record": keys.Record = value
+        case "SaveState": keys.SaveState = value
+        case "LoadState": keys.LoadState = value
+        case "Console": keys.Console = value
+
+    }
+}
+
+func (keys *EmulatorKeys) UpdateAll(other EmulatorKeys){
+    *keys = other
+}
+
+func (keys EmulatorKeys) AllKeys() []EmulatorKey {
+    return []EmulatorKey{
+        EmulatorKey{Name: "A", Code: keys.ButtonA},
+        EmulatorKey{Name: "B", Code: keys.ButtonB},
+        EmulatorKey{Name: "TurboA", Code: keys.ButtonTurboA},
+        EmulatorKey{Name: "TurboB", Code: keys.ButtonTurboB},
+        EmulatorKey{Name: "Select", Code: keys.ButtonSelect},
+        EmulatorKey{Name: "Start", Code: keys.ButtonStart},
+        EmulatorKey{Name: "Up", Code: keys.ButtonUp},
+        EmulatorKey{Name: "Down", Code: keys.ButtonDown},
+        EmulatorKey{Name: "Left", Code: keys.ButtonLeft},
+        EmulatorKey{Name: "Right", Code: keys.ButtonRight},
+
+        EmulatorKey{Name: "Turbo", Code: keys.Turbo},
+        EmulatorKey{Name: "Pause", Code: keys.Pause},
+        EmulatorKey{Name: "HardReset", Code: keys.HardReset},
+        EmulatorKey{Name: "PPUDebug", Code: keys.PPUDebug},
+        EmulatorKey{Name: "SlowDown", Code: keys.SlowDown},
+        EmulatorKey{Name: "SpeedUp", Code: keys.SpeedUp},
+        EmulatorKey{Name: "Normal", Code: keys.Normal},
+        EmulatorKey{Name: "StepFrame", Code: keys.StepFrame},
+        EmulatorKey{Name: "Record", Code: keys.Record},
+        EmulatorKey{Name: "SaveState", Code: keys.SaveState},
+        EmulatorKey{Name: "LoadState", Code: keys.LoadState},
+        EmulatorKey{Name: "Console", Code: keys.Console},
+    }
+}
+
+func LoadEmulatorKeys() EmulatorKeys {
+    data, _ := LoadConfigData()
+
+    out := DefaultEmulatorKeys()
+
+    convert := func(key string, default_ sdl.Keycode) sdl.Keycode {
+        if key != "" {
+            return sdl.GetKeyFromName(key)
+        }
+        return default_
+    }
+
+    out.Turbo = convert(data.Player1Keys.Turbo, out.Turbo)
+    out.Pause = convert(data.Player1Keys.Pause, out.Pause)
+    out.HardReset = convert(data.Player1Keys.HardReset, out.HardReset)
+    out.PPUDebug = convert(data.Player1Keys.PPUDebug, out.PPUDebug)
+    out.SlowDown = convert(data.Player1Keys.SlowDown, out.SlowDown)
+    out.SpeedUp = convert(data.Player1Keys.SpeedUp, out.SpeedUp)
+    out.Normal = convert(data.Player1Keys.Normal, out.Normal)
+    out.StepFrame = convert(data.Player1Keys.StepFrame, out.StepFrame)
+    out.Record = convert(data.Player1Keys.Record, out.Record)
+    out.SaveState = convert(data.Player1Keys.SaveState, out.SaveState)
+    out.LoadState = convert(data.Player1Keys.LoadState, out.LoadState)
+    out.Console = convert(data.Player1Keys.Console, out.Console)
+    out.ButtonA = convert(data.Player1Keys.ButtonA, out.ButtonA)
+    out.ButtonB = convert(data.Player1Keys.ButtonB, out.ButtonB)
+    out.ButtonTurboA = convert(data.Player1Keys.ButtonTurboA, out.ButtonTurboA)
+    out.ButtonTurboB = convert(data.Player1Keys.ButtonTurboB, out.ButtonTurboB)
+    out.ButtonSelect = convert(data.Player1Keys.ButtonSelect, out.ButtonSelect)
+    out.ButtonStart = convert(data.Player1Keys.ButtonStart, out.ButtonStart)
+    out.ButtonUp = convert(data.Player1Keys.ButtonUp, out.ButtonUp)
+    out.ButtonDown = convert(data.Player1Keys.ButtonDown, out.ButtonDown)
+    out.ButtonLeft = convert(data.Player1Keys.ButtonLeft, out.ButtonLeft)
+    out.ButtonRight = convert(data.Player1Keys.ButtonRight, out.ButtonRight)
+
+    return out
+}
+
+func SaveEmulatorKeys(keys EmulatorKeys){
+    data, _ := LoadConfigData()
+    data.Player1Keys.Turbo = sdl.GetKeyName(keys.Turbo)
+    data.Player1Keys.Pause = sdl.GetKeyName(keys.Pause)
+
+    data.Player1Keys.HardReset = sdl.GetKeyName(keys.HardReset)
+    data.Player1Keys.PPUDebug = sdl.GetKeyName(keys.PPUDebug)
+    data.Player1Keys.SlowDown = sdl.GetKeyName(keys.SlowDown)
+    data.Player1Keys.SpeedUp = sdl.GetKeyName(keys.SpeedUp)
+    data.Player1Keys.Normal = sdl.GetKeyName(keys.Normal)
+    data.Player1Keys.StepFrame = sdl.GetKeyName(keys.StepFrame)
+    data.Player1Keys.Record = sdl.GetKeyName(keys.Record)
+    data.Player1Keys.SaveState = sdl.GetKeyName(keys.SaveState)
+    data.Player1Keys.LoadState = sdl.GetKeyName(keys.LoadState)
+    data.Player1Keys.Console = sdl.GetKeyName(keys.Console)
+
+    data.Player1Keys.ButtonA = sdl.GetKeyName(keys.ButtonA)
+    data.Player1Keys.ButtonB = sdl.GetKeyName(keys.ButtonB)
+    data.Player1Keys.ButtonTurboA = sdl.GetKeyName(keys.ButtonTurboA)
+    data.Player1Keys.ButtonTurboB = sdl.GetKeyName(keys.ButtonTurboB)
+    data.Player1Keys.ButtonSelect = sdl.GetKeyName(keys.ButtonSelect)
+    data.Player1Keys.ButtonStart = sdl.GetKeyName(keys.ButtonStart)
+    data.Player1Keys.ButtonUp = sdl.GetKeyName(keys.ButtonUp)
+    data.Player1Keys.ButtonDown = sdl.GetKeyName(keys.ButtonDown)
+    data.Player1Keys.ButtonLeft = sdl.GetKeyName(keys.ButtonLeft)
+    data.Player1Keys.ButtonRight = sdl.GetKeyName(keys.ButtonRight)
+
+    err := SaveConfigData(data)
+    if err != nil {
+        log.Printf("Warning: could not save config: %v", err)
+    }
 }
 
 func DefaultEmulatorKeys() EmulatorKeys {
     return EmulatorKeys {
-        Turbo: sdl.SCANCODE_GRAVE,
-        Pause: sdl.SCANCODE_SPACE,
-        HardReset: sdl.SCANCODE_R,
-        PPUDebug: sdl.SCANCODE_P,
-        SlowDown: sdl.SCANCODE_MINUS,
-        SpeedUp: sdl.SCANCODE_EQUALS,
-        Normal: sdl.SCANCODE_0,
-        StepFrame: sdl.SCANCODE_O,
-        Record: sdl.SCANCODE_M,
-        SaveState: sdl.SCANCODE_1,
-        LoadState: sdl.SCANCODE_2,
-        Console: sdl.SCANCODE_TAB,
+        Turbo: sdl.K_BACKQUOTE,
+        Pause: sdl.K_SPACE,
+        HardReset: sdl.K_r,
+        PPUDebug: sdl.K_p,
+        SlowDown: sdl.K_MINUS,
+        SpeedUp: sdl.K_EQUALS,
+        Normal: sdl.K_0,
+        StepFrame: sdl.K_o,
+        Record: sdl.K_m,
+        SaveState: sdl.K_1,
+        LoadState: sdl.K_2,
+        Console: sdl.K_TAB,
 
-        ButtonA: sdl.SCANCODE_A,
-        ButtonB: sdl.SCANCODE_S,
-        ButtonTurboA: sdl.SCANCODE_D,
-        ButtonTurboB: sdl.SCANCODE_F,
-        ButtonSelect: sdl.SCANCODE_Q,
-        ButtonStart: sdl.SCANCODE_RETURN,
-        ButtonUp:  sdl.SCANCODE_UP,
-        ButtonDown: sdl.SCANCODE_DOWN,
-        ButtonLeft: sdl.SCANCODE_LEFT,
-        ButtonRight: sdl.SCANCODE_RIGHT,
+        ButtonA: sdl.K_a,
+        ButtonB: sdl.K_s,
+        ButtonTurboA: sdl.K_d,
+        ButtonTurboB: sdl.K_f,
+        ButtonSelect: sdl.K_q,
+        ButtonStart: sdl.K_RETURN,
+        ButtonUp:  sdl.K_UP,
+        ButtonDown: sdl.K_DOWN,
+        ButtonLeft: sdl.K_LEFT,
+        ButtonRight: sdl.K_RIGHT,
     }
 }

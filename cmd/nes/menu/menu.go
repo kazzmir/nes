@@ -211,6 +211,28 @@ func drawButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureM
     return info.Width, info.Height, err
 }
 
+func drawFixedWidthButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, textureId TextureId, width int, x int, y int, message string, color sdl.Color) (int, int, error) {
+    buttonInside := sdl.Color{R: 64, G: 64, B: 64, A: 255}
+    buttonOutline := sdl.Color{R: 32, G: 32, B: 32, A: 255}
+
+    info, err := textureManager.RenderText(font, renderer, message, color, textureId)
+    if err != nil {
+        return 0, 0, err
+    }
+
+    margin := 12
+
+    renderer.SetDrawColor(buttonOutline.R, buttonOutline.G, buttonOutline.B, buttonOutline.A)
+    renderer.FillRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(width + margin), H: int32(info.Height + margin)})
+
+    renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
+    renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(width + margin - 3), H: int32(info.Height + margin - 3)})
+
+    err = common.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
+
+    return width + margin, info.Height, err
+}
+
 /* a button that cannot be interacted with */
 func drawConstButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, textureId TextureId, x int, y int, message string, color sdl.Color) (int, int, error) {
     buttonInside := sdl.Color{R: 0x55, G: 0x55, B: 0x40, A: 255}
@@ -430,7 +452,20 @@ func MakeMenu(mainQuit context.Context, font *ttf.Font) Menu {
 
 type MenuItem interface {
     Text() string
+    /* returns next x,y coordinate where rendering can occur, and a possible error */
     Render(*ttf.Font, *sdl.Renderer, *ButtonManager, *TextureManager, int, int, bool, uint64) (int, int, error)
+}
+
+type MenuSpace struct {
+    Space int
+}
+
+func (space *MenuSpace) Text() string {
+    return ""
+}
+
+func (space *MenuSpace) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
+    return x + space.Space, y, nil
 }
 
 type MenuNextLine struct {
@@ -447,6 +482,7 @@ func (line *MenuNextLine) Render(font *ttf.Font, renderer *sdl.Renderer, buttonM
 
 type MenuLabel struct {
     Label string
+    Color sdl.Color
 }
 
 func (label *MenuLabel) Text() string {
@@ -454,32 +490,42 @@ func (label *MenuLabel) Text() string {
 }
 
 func (label *MenuLabel) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
-    color := sdl.Color{R: 255, G: 0, B: 0, A: 255}
-    textureId := buttonManager.GetButtonTextureId(textureManager, label.Text(), color)
-    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, label.Text(), color)
+    // color := sdl.Color{R: 255, G: 0, B: 0, A: 255}
+    textureId := buttonManager.GetButtonTextureId(textureManager, label.Text(), label.Color)
+    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, label.Text(), label.Color)
     return width, height, err
 }
 
 type Button interface {
     MenuItem
+    /* invoked when the user presses enter while selecting this button */
     Interact(SubMenu) SubMenu
 }
 
-type StaticButtonFunc func()
+type StaticButtonFunc func(button *StaticButton)
 
 /* A button that does not change state */
 type StaticButton struct {
     Name string
     Func StaticButtonFunc
+    Lock sync.Mutex
 }
 
 func (button *StaticButton) Text() string {
+    button.Lock.Lock()
+    defer button.Lock.Unlock()
     return button.Name
+}
+
+func (button *StaticButton) Update(text string){
+    button.Lock.Lock()
+    defer button.Lock.Unlock()
+    button.Name = text
 }
 
 func (button *StaticButton) Interact(menu SubMenu) SubMenu {
     if button.Func != nil {
-        button.Func()
+        button.Func(button)
     }
 
     return menu
@@ -539,6 +585,90 @@ func _doRenderButton(button Button, font *ttf.Font, renderer *sdl.Renderer, butt
     return width, height, err
 }
 
+type StaticFixedButtonFunc func(*StaticFixedWidthButton)
+
+/* A button that renders its components in a fixed width */
+type StaticFixedWidthButton struct {
+    Width int
+    Parts []string
+    Func StaticFixedButtonFunc
+    Lock sync.Mutex
+}
+
+func (button *StaticFixedWidthButton) Text() string {
+    button.Lock.Lock()
+    defer button.Lock.Unlock()
+    out := ""
+    /* FIXME: this doesn't really take into account the width */
+    for _, part := range button.Parts {
+        out += part
+    }
+    return out
+}
+
+func (button *StaticFixedWidthButton) Update(parts... string){
+    button.Lock.Lock()
+    button.Parts = parts
+    button.Lock.Unlock()
+}
+
+func (button *StaticFixedWidthButton) Interact(menu SubMenu) SubMenu {
+    if button.Func != nil {
+        button.Func(button)
+    }
+
+    return menu
+}
+
+func (button *StaticFixedWidthButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
+    yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+    red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+    color := white
+    if selected {
+        color = common.Glow(red, yellow, 15, clock)
+    }
+
+    button.Lock.Lock()
+    parts := common.CopyArray(button.Parts)
+    button.Lock.Unlock()
+
+    totalLength := 0
+    for _, part := range parts {
+        totalLength += common.TextWidth(font, part)
+    }
+
+    space := common.TextWidth(font, " ")
+
+    left := button.Width - totalLength
+    var out string
+    if left > 0 {
+        spaces := left / space
+
+        if len(parts) > 0 {
+            out = parts[0]
+            if len(parts) > 1 {
+                out += strings.Repeat(" ", spaces)
+                for _, part := range parts[1:] {
+                    out += part
+                }
+            }
+        }
+    } else {
+        for _, part := range parts {
+            out += part
+        }
+    }
+
+    textureId := buttonManager.GetButtonTextureId(textureManager, out, color)
+
+    width, height, err := drawFixedWidthButton(font, renderer, textureManager, textureId, button.Width, x, y, out, color)
+
+    return width, height, err
+}
+
+
 func (button *SubMenuButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
     return _doRenderButton(button, font, renderer, buttonManager, textureManager, x, y, selected, clock)
 }
@@ -586,6 +716,15 @@ func (buttons *MenuButtons) Next(){
     }
 }
 
+func (buttons *MenuButtons) Select(item MenuItem){
+    for i := 0; i < len(buttons.Items); i++ {
+        if buttons.Items[i] == item {
+            buttons.Selected = i
+            return
+        }
+    }
+}
+
 func (buttons *MenuButtons) Add(item MenuItem){
     buttons.Items = append(buttons.Items, item)
 }
@@ -615,10 +754,10 @@ func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
     defer buttons.Lock.Unlock()
 
     switch input {
-    case MenuPrevious:
+    case MenuPrevious, MenuUp:
         buttons.Previous()
         menu.PlayBeep()
-    case MenuNext:
+    case MenuNext, MenuDown:
         buttons.Next()
         menu.PlayBeep()
     case MenuSelect:
@@ -705,26 +844,31 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
     }
 }
 
+func renderLines(renderer *sdl.Renderer, x int, y int, font *ttf.Font, info string) (int, int, error) {
+    aLength := common.TextWidth(font, "A")
+    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+
+    for _, line := range strings.Split(info, "\n") {
+        parts := strings.Split(line, "\t")
+        for i, part := range parts {
+            common.WriteFont(font, renderer, x + i * aLength * 20, y, part, white)
+        }
+        y += font.Height() + 2
+    }
+
+    return x, y, nil
+}
+
 func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
     
     return func(renderer *sdl.Renderer) error {
-        _, y, err := menu.Buttons.Render(50, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
+        startX := 50
+        _, y, err := menu.Buttons.Render(startX, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
 
-        x := 50
-        /* FIXME: base this on the size of a button */
-        y += 80
+        x := startX
+        y += font.Height() * 3
 
-        aLength := common.TextWidth(smallFont, "A")
-        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-
-        for _, line := range strings.Split(menu.ExtraInfo, "\n") {
-            parts := strings.Split(line, "\t")
-            for i, part := range parts {
-                common.WriteFont(smallFont, renderer, x + i * aLength * 20, y, part, white)
-            }
-            y += smallFont.Height() + 2
-        }
-
+        _, _, err = renderLines(renderer, x, y, smallFont, menu.ExtraInfo)
         return err
     }
 }
@@ -1536,7 +1680,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
     menu.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu{ return parent } })
 
     menu.Buttons.Add(&MenuNextLine{})
-    menu.Buttons.Add(&MenuLabel{Label: "Configure"})
+    menu.Buttons.Add(&MenuLabel{Label: "Configure", Color: sdl.Color{R: 255, G: 0, B: 0, A: 255}})
     menu.Buttons.Add(&MenuNextLine{})
 
     menu.Buttons.Add(&SubMenuButton{Name: "All Buttons", Func: func() SubMenu {
@@ -1858,9 +2002,8 @@ func (loader *LoadRomInfoMenu) UpdateWindowSize(x int, y int){
     loader.RomLoader.UpdateWindowSize(x, y)
 }
 
-func keysInfo(keys common.EmulatorKeys) string {
-    // sdl.GetScancodeName(x)
-    n := sdl.GetScancodeName
+func keysInfo(keys *common.EmulatorKeys) string {
+    n := sdl.GetKeyName
     info := template.New("keys")
 
     info.Funcs(map[string]any{
@@ -1896,9 +2039,371 @@ Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
     return data.String()
 }
 
-func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager, keys common.EmulatorKeys) SubMenu {
+type ChangeKeyMenu struct {
+    MenuQuit context.Context
+    Quit MenuQuitFunc
+    Buttons MenuButtons
+    ExtraInfo string
+    Beep *mix.Music
+    Chooser *ChooseButton
+    Choosing bool
+    ChoosingKey string
+    ChoosingButton *StaticFixedWidthButton
+    Current uint64
+    /* show a warning if the user is choosing a key that is already in use */
+    Warning string
+
+    ChooseDone context.Context
+    ChooseCancel context.CancelFunc
+
+    TempChoice sdl.Keycode
+
+    Keys *common.EmulatorKeys
+    Lock sync.Mutex
+}
+
+func (menu *ChangeKeyMenu) PlayBeep() {
+    if menu.Beep != nil {
+        menu.Beep.Play(0)
+    }
+}
+
+func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
+    if menu.IsChoosing() {
+        key, ok := event.(*sdl.KeyboardEvent)
+        if ok {
+            switch key.GetType() {
+                case sdl.KEYDOWN:
+                    code := key.Keysym.Sym
+
+                    /* check if the user pressed a new key. if they pressed the same key that is being changed then don't do anything */
+                    if code != menu.TempChoice {
+
+                        menu.ChooseCancel()
+                        menu.Lock.Lock()
+                        menu.ChooseDone, menu.ChooseCancel = context.WithCancel(menu.MenuQuit)
+
+                        // log.Printf("Change key %v", code)
+                        choosingKey := menu.ChoosingKey
+                        menu.TempChoice = code
+                        menu.Current = 0
+
+                        for _, check := range menu.Keys.AllKeys() {
+                            if check.Name != menu.ChoosingKey && code == check.Code {
+                                menu.Warning = fmt.Sprintf("%v already in use", check.Name)
+                            }
+                        }
+
+                        menu.Lock.Unlock()
+
+
+                        go func(done context.Context){
+                            xtime := time.NewTicker(time.Second / 10)
+                            defer xtime.Stop()
+                            after := time.After(500 * time.Millisecond)
+                            for {
+                                select {
+                                    case <-xtime.C:
+                                        menu.Lock.Lock()
+                                        menu.Current += 1
+                                        menu.Lock.Unlock()
+                                    case <-done.Done():
+                                        return
+                                    case <-after:
+                                        menu.Lock.Lock()
+                                        menu.TempChoice = 0
+                                        menu.Current = 0
+                                        menu.ChooseCancel()
+                                        menu.Keys.Update(choosingKey, code)
+                                        name := sdl.GetKeyName(code)
+                                        menu.ChoosingButton.Update(choosingKey, name)
+                                        common.SaveEmulatorKeys(*menu.Keys)
+                                        menu.Lock.Unlock()
+
+                                        menu.SetChoosing(false, "", nil)
+                                        return
+                                }
+                            }
+                        }(menu.ChooseDone)
+                    }
+                case sdl.KEYUP:
+                    menu.ChooseCancel()
+                    menu.Lock.Lock()
+                    menu.TempChoice = 0
+                    menu.Warning = ""
+                    menu.Lock.Unlock()
+            }
+        }
+    }
+}
+
+func (menu *ChangeKeyMenu) UpdateWindowSize(x int, y int){
+    // nothing
+}
+
+func (menu *ChangeKeyMenu) SetChoosing(v bool, key string, button *StaticFixedWidthButton){
+    menu.Lock.Lock()
+    defer menu.Lock.Unlock()
+    menu.Choosing = v
+    menu.ChoosingKey = key
+    menu.ChoosingButton = button
+    menu.Warning = ""
+}
+
+func (menu *ChangeKeyMenu) IsChoosing() bool {
+    menu.Lock.Lock()
+    defer menu.Lock.Unlock()
+    return menu.Choosing
+}
+
+func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
+    switch input {
+        case MenuQuit:
+            if menu.IsChoosing() {
+                menu.ChooseCancel()
+                menu.SetChoosing(false, "", nil)
+                return menu
+            }
+            return menu.Quit(menu)
+        default:
+            if menu.IsChoosing() {
+                return menu
+            }
+            return menu.Buttons.Interact(input, menu)
+    }
+}
+
+func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
+    return func(renderer *sdl.Renderer) error {
+        startX := 50
+        _, y, err := menu.Buttons.Render(startX, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
+
+        _ = err
+
+        x := startX
+        y += font.Height() * 3
+
+        _, _, err = renderLines(renderer, x, y, smallFont, menu.ExtraInfo)
+
+        if menu.IsChoosing() {
+            yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
+            red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
+            white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+            renderer.SetDrawColor(5, 5, 5, 230)
+
+            line := "Press a key"
+            width := common.TextWidth(font, strings.Repeat("A", 20))
+            height := font.Height()
+
+            midX := maxWidth / 2
+            midY := maxHeight / 2
+
+            margin := font.Height() * 3
+            x1 := midX - width / 2 - margin
+            y1 := midY - height / 2 - margin
+            x2 := midX + width / 2 + margin
+            y2 := midY + height / 2 + margin
+
+            renderer.FillRect(&sdl.Rect{X: int32(x1), Y: int32(y1), W: int32(x2 - x1), H: int32(y2 - y1)})
+            renderer.SetDrawColor(255, 255, 255, 250)
+            renderer.DrawRect(&sdl.Rect{X: int32(x1), Y: int32(y1), W: int32(x2 - x1), H: int32(y2 - y1)})
+
+            textX := midX - width / 2
+            textY := midY - height / 2
+            common.WriteFont(font, renderer, midX - width / 2, midY - height / 2, line, white)
+
+            textY += font.Height() + 2
+
+            menu.Lock.Lock()
+            tempChoice := menu.TempChoice
+            current := menu.Current
+            warning := menu.Warning
+            menu.Lock.Unlock()
+
+            common.WriteFont(font, renderer, textX, textY, sdl.GetKeyName(tempChoice), common.Glow(red, yellow, 15, current))
+
+            textY += font.Height() + 2
+
+            if warning != "" {
+                common.WriteFont(font, renderer, textX, textY, warning, white)
+            }
+        }
+
+        return nil
+    }
+}
+
+type ChooseButton struct {
+    Enabled bool
+    Lock sync.Mutex
+    Items []string
+    Choice int
+}
+
+func (choose *ChooseButton) Text() string {
+    choose.Lock.Lock()
+    defer choose.Lock.Unlock()
+    return choose.Items[choose.Choice]
+}
+
+func (choose *ChooseButton) Next() {
+    choose.Lock.Lock()
+    defer choose.Lock.Unlock()
+    choose.Choice = (choose.Choice + 1) % len(choose.Items)
+}
+
+func (choose *ChooseButton) Previous() {
+    choose.Lock.Lock()
+    defer choose.Lock.Unlock()
+    choose.Choice -= 1
+    if choose.Choice < 0 {
+        choose.Choice += len(choose.Items)
+    }
+}
+
+func (choose *ChooseButton) Interact(menu SubMenu) SubMenu {
+    return menu
+}
+
+
+func (choose *ChooseButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
+    if choose.IsEnabled() {
+
+        size := 10
+        common.DrawEquilateralTriange(renderer, x-size*2, y + size + font.Height() / 4, float64(size), 180.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
+        width, height, err := _doRenderButton(choose, font, renderer, buttonManager, textureManager, x, y, selected, clock)
+        x += width
+        _ = height
+        common.DrawEquilateralTriange(renderer, x+size*2, y + size + font.Height() / 4, float64(size), 0.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
+
+        return x + size*2 + size*2, font.Height(), err
+    } else {
+        return x, y, nil
+    }
+}
+
+func (choose *ChooseButton) IsEnabled() bool {
+    choose.Lock.Lock()
+    defer choose.Lock.Unlock()
+    return choose.Enabled
+}
+
+func (choose *ChooseButton) SetEnabled(v bool){
+    choose.Lock.Lock()
+    defer choose.Lock.Unlock()
+    choose.Enabled = v
+}
+
+func (choose *ChooseButton) Toggle() bool {
+    choose.SetEnabled(!choose.IsEnabled())
+    return choose.IsEnabled()
+}
+
+func (choose *ChooseButton) Disable() {
+    choose.SetEnabled(false)
+}
+
+func (choose *ChooseButton) Enable() {
+    choose.SetEnabled(true)
+}
+
+func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKeys), keys *common.EmulatorKeys) SubMenu {
+
+    var items []string
+
+    for _, key := range keys.AllKeys() {
+        items = append(items, fmt.Sprintf("%v: %v", key.Name, sdl.GetKeyName(key.Code)))
+    }
+
+    chooseButton := &ChooseButton{Items: items}
+
+    chooseDone, chooseCancel := context.WithCancel(menu.quit)
+
+    keyMenu := &ChangeKeyMenu{
+        MenuQuit: menu.quit,
+        Quit: func(current SubMenu) SubMenu {
+            update(*keys)
+            return parentMenu
+        },
+        // ExtraInfo: keysInfo(keys),
+        Beep: menu.Beep,
+        ChooseDone: chooseDone,
+        ChooseCancel: chooseCancel,
+        Chooser: chooseButton,
+        Choosing: false,
+        Keys: keys,
+    }
+
+    back := &SubMenuButton{Name: "Back", Func: func() SubMenu { return parentMenu } }
+    keyMenu.Buttons.Add(back)
+
+    changeButtons := make(map[string]*StaticFixedWidthButton)
+    for _, key := range keys.AllKeys() {
+        name := key.Name
+        code := key.Code
+
+        button := &StaticFixedWidthButton{
+            Width: 200,
+            Parts: []string{name, sdl.GetKeyName(code)},
+            // Name: fmt.Sprintf("%v: %v", name, sdl.GetKeyCode(code)),
+            Func: func(self *StaticFixedWidthButton){
+                keyMenu.SetChoosing(true, name, self)
+            },
+        }
+
+        changeButtons[name] = button
+    }
+
+    defaults := &StaticButton{
+        Name: "Reset to defaults",
+        Func: func(self *StaticButton){
+            keyMenu.Keys.UpdateAll(common.DefaultEmulatorKeys())
+            common.SaveEmulatorKeys(*keyMenu.Keys)
+
+            for _, key := range keyMenu.Keys.AllKeys() {
+                button := changeButtons[key.Name]
+                button.Update(fmt.Sprintf("%v: %v", key.Name, sdl.GetKeyName(key.Code)))
+            }
+        },
+    }
+
+    keyMenu.Buttons.Add(defaults)
+
+    /*
+    keyMenu.Buttons.Add(&StaticButton{Name: "Change key", Func: func(){
+        if chooseButton.Toggle() {
+            keyMenu.Buttons.Select(chooseButton)
+        } else {
+            keyMenu.Buttons.Select(back)
+        }
+    }})
+    */
+
+    keyMenu.Buttons.Add(&MenuNextLine{})
+    keyMenu.Buttons.Add(&MenuLabel{Label: "Select a key to change", Color: sdl.Color{R: 255, G: 255, B: 0, A: 255}})
+    keyMenu.Buttons.Add(&MenuNextLine{})
+
+    // keyMenu.Buttons.Add(&MenuSpace{Space: 60})
+    // keyMenu.Buttons.Add(chooseButton)
+
+    count := 0
+    for _, key := range keys.AllKeys() {
+        name := key.Name
+        button := changeButtons[name]
+        keyMenu.Buttons.Add(button)
+        count += 1
+        if count % 2 == 0 {
+            keyMenu.Buttons.Add(&MenuNextLine{})
+        }
+    }
+
+    return keyMenu
+}
+
+func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager, keys *common.EmulatorKeys) SubMenu {
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
+            /* quit the entire menu system if the user presses escape at the top level */
             menu.cancel()
             return current
         },
@@ -1907,7 +2412,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
 
     joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickManager)
 
-    main.Buttons.Add(&StaticButton{Name: "Quit", Func: func(){
+    main.Buttons.Add(&StaticButton{Name: "Quit", Func: func(button *StaticButton){
         mainCancel()
     }})
 
@@ -1943,6 +2448,15 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
                               },
                 })
 
+    /* FIXME: this callback to update ExtraInfo feels a bit hacky */
+    keysMenu := MakeKeysMenu(menu, main, func (newKeys common.EmulatorKeys){
+        main.ExtraInfo = keysInfo(&newKeys)
+    }, keys)
+
+    main.Buttons.Add(&SubMenuButton{Name: "Keys", Func: func() SubMenu {
+        return keysMenu
+    }})
+
     main.Buttons.Add(&SubMenuButton{Name: "Joystick", Func: func() SubMenu { return joystickMenu } })
 
     main.ExtraInfo = keysInfo(keys)
@@ -1963,7 +2477,7 @@ func (layer *MenuRenderLayer) ZIndex() int {
     return layer.Index
 }
 
-func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *common.RenderManager, joystickManager *common.JoystickManager, emulatorKeys common.EmulatorKeys){
+func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *common.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys){
 
     menuZIndex := 10
 
@@ -2050,24 +2564,24 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                     }
 
                     /* allow vi input */
-                    switch keyboard_event.Keysym.Scancode {
-                        case sdl.SCANCODE_LEFT, sdl.SCANCODE_H:
+                    switch keyboard_event.Keysym.Sym {
+                        case sdl.K_LEFT, sdl.K_h:
                             select {
                                 case userInput <- MenuPrevious:
                             }
-                        case sdl.SCANCODE_RIGHT, sdl.SCANCODE_L:
+                        case sdl.K_RIGHT, sdl.K_l:
                             select {
                                 case userInput <- MenuNext:
                             }
-                        case sdl.SCANCODE_UP, sdl.SCANCODE_K:
+                        case sdl.K_UP, sdl.K_k:
                             select {
                                 case userInput <- MenuUp:
                             }
-                        case sdl.SCANCODE_DOWN, sdl.SCANCODE_J:
+                        case sdl.K_DOWN, sdl.K_j:
                             select {
                                 case userInput <- MenuDown:
                             }
-                        case sdl.SCANCODE_RETURN:
+                        case sdl.K_RETURN:
                             select {
                                 case userInput <- MenuSelect:
                             }

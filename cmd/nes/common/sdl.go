@@ -6,8 +6,10 @@ import (
     "sync"
     "math"
     "encoding/binary"
+    "errors"
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
+    "github.com/veandco/go-sdl2/gfx"
 )
 
 type RenderFunction func(*sdl.Renderer) error
@@ -323,4 +325,21 @@ func Glow(start sdl.Color, end sdl.Color, speed float32, clock uint64) sdl.Color
 
     r, g, b := hsv2rgb(h, s, v)
     return sdl.Color{R: uint8(clamp(r*255, 0, 255)), G: uint8(clamp(g*255, 0, 255)), B: uint8(clamp(b*255, 0, 255)), A: 255}
+}
+
+func DrawEquilateralTriange(renderer *sdl.Renderer, x int, y int, size float64, angle float64, color sdl.Color) error {
+    x1 := float64(x) + math.Cos(angle * math.Pi / 180) * size
+    y1 := float64(y) - math.Sin(angle * math.Pi / 180) * size
+
+    x2 := float64(x) + math.Cos((angle - 90) * math.Pi / 180) * size
+    y2 := float64(y) - math.Sin((angle - 90) * math.Pi / 180) * size
+
+    x3 := float64(x) + math.Cos((angle + 90) * math.Pi / 180) * size
+    y3 := float64(y) - math.Sin((angle + 90) * math.Pi / 180) * size
+
+    if !gfx.FilledTrigonColor(renderer, int32(x1), int32(y1), int32(x2), int32(y2), int32(x3), int32(y3), color) {
+        return errors.New("Unable to render triangle")
+    } else {
+        return nil
+    }
 }
