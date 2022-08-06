@@ -2050,6 +2050,8 @@ type ChangeKeyMenu struct {
     ChoosingKey string
     ChoosingButton *StaticFixedWidthButton
     Current uint64
+    /* show a warning if the user is choosing a key that is already in use */
+    Warning string
 
     ChooseDone context.Context
     ChooseCancel context.CancelFunc
@@ -2074,17 +2076,26 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
                 case sdl.KEYDOWN:
                     code := key.Keysym.Sym
 
+                    /* check if the user pressed a new key. if they pressed the same key that is being changed then don't do anything */
                     if code != menu.TempChoice {
 
                         menu.ChooseCancel()
                         menu.Lock.Lock()
                         menu.ChooseDone, menu.ChooseCancel = context.WithCancel(menu.MenuQuit)
 
-                        log.Printf("Change key %v", code)
+                        // log.Printf("Change key %v", code)
                         choosingKey := menu.ChoosingKey
                         menu.TempChoice = code
                         menu.Current = 0
+
+                        for _, check := range menu.Keys.AllKeys() {
+                            if check.Name != menu.ChoosingKey && code == check.Code {
+                                menu.Warning = fmt.Sprintf("%v already in use", check.Name)
+                            }
+                        }
+
                         menu.Lock.Unlock()
+
 
                         go func(done context.Context){
                             xtime := time.NewTicker(time.Second / 10)
@@ -2119,6 +2130,7 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
                     menu.ChooseCancel()
                     menu.Lock.Lock()
                     menu.TempChoice = 0
+                    menu.Warning = ""
                     menu.Lock.Unlock()
             }
         }
@@ -2135,6 +2147,7 @@ func (menu *ChangeKeyMenu) SetChoosing(v bool, key string, button *StaticFixedWi
     menu.Choosing = v
     menu.ChoosingKey = key
     menu.ChoosingButton = button
+    menu.Warning = ""
 }
 
 func (menu *ChangeKeyMenu) IsChoosing() bool {
@@ -2179,13 +2192,13 @@ func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManag
             renderer.SetDrawColor(5, 5, 5, 230)
 
             line := "Press a key"
-            width := common.TextWidth(font, line)
+            width := common.TextWidth(font, strings.Repeat("A", 20))
             height := font.Height()
 
             midX := maxWidth / 2
             midY := maxHeight / 2
 
-            margin := 60
+            margin := font.Height() * 3
             x1 := midX - width / 2 - margin
             y1 := midY - height / 2 - margin
             x2 := midX + width / 2 + margin
@@ -2204,9 +2217,16 @@ func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManag
             menu.Lock.Lock()
             tempChoice := menu.TempChoice
             current := menu.Current
+            warning := menu.Warning
             menu.Lock.Unlock()
 
             common.WriteFont(font, renderer, textX, textY, sdl.GetKeyName(tempChoice), common.Glow(red, yellow, 15, current))
+
+            textY += font.Height() + 2
+
+            if warning != "" {
+                common.WriteFont(font, renderer, textX, textY, warning, white)
+            }
         }
 
         return nil
@@ -2337,6 +2357,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys *common.EmulatorKeys) Sub
         Name: "Reset to defaults",
         Func: func(self *StaticButton){
             keyMenu.Keys.UpdateAll(common.DefaultEmulatorKeys())
+            common.SaveEmulatorKeys(*keyMenu.Keys)
 
             for _, key := range keyMenu.Keys.AllKeys() {
                 button := changeButtons[key.Name]
