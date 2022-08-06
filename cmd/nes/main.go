@@ -702,7 +702,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
 
     go makeAudioWorker(audioDevice, audioInput, audioActionsInput, mainQuit)()
 
-    emulatorKeys := common.DefaultEmulatorKeys()
+    emulatorKeys := common.LoadEmulatorKeys()
     input := &common.SDLKeyboardButtons{
         Keys: &emulatorKeys,
     }

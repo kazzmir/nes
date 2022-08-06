@@ -545,6 +545,77 @@ func (keys EmulatorKeys) AllKeys() []EmulatorKey {
     }
 }
 
+func LoadEmulatorKeys() EmulatorKeys {
+    data, _ := LoadConfigData()
+
+    out := DefaultEmulatorKeys()
+
+    convert := func(key string, default_ sdl.Keycode) sdl.Keycode {
+        if key != "" {
+            return sdl.GetKeyFromName(key)
+        }
+        return default_
+    }
+
+    out.Turbo = convert(data.Player1Keys.Turbo, out.Turbo)
+    out.Pause = convert(data.Player1Keys.Pause, out.Pause)
+    out.HardReset = convert(data.Player1Keys.HardReset, out.HardReset)
+    out.PPUDebug = convert(data.Player1Keys.PPUDebug, out.PPUDebug)
+    out.SlowDown = convert(data.Player1Keys.SlowDown, out.SlowDown)
+    out.SpeedUp = convert(data.Player1Keys.SpeedUp, out.SpeedUp)
+    out.Normal = convert(data.Player1Keys.Normal, out.Normal)
+    out.StepFrame = convert(data.Player1Keys.StepFrame, out.StepFrame)
+    out.Record = convert(data.Player1Keys.Record, out.Record)
+    out.SaveState = convert(data.Player1Keys.SaveState, out.SaveState)
+    out.LoadState = convert(data.Player1Keys.LoadState, out.LoadState)
+    out.Console = convert(data.Player1Keys.Console, out.Console)
+    out.ButtonA = convert(data.Player1Keys.ButtonA, out.ButtonA)
+    out.ButtonB = convert(data.Player1Keys.ButtonB, out.ButtonB)
+    out.ButtonTurboA = convert(data.Player1Keys.ButtonTurboA, out.ButtonTurboA)
+    out.ButtonTurboB = convert(data.Player1Keys.ButtonTurboB, out.ButtonTurboB)
+    out.ButtonSelect = convert(data.Player1Keys.ButtonSelect, out.ButtonSelect)
+    out.ButtonStart = convert(data.Player1Keys.ButtonStart, out.ButtonStart)
+    out.ButtonUp = convert(data.Player1Keys.ButtonUp, out.ButtonUp)
+    out.ButtonDown = convert(data.Player1Keys.ButtonDown, out.ButtonDown)
+    out.ButtonLeft = convert(data.Player1Keys.ButtonLeft, out.ButtonLeft)
+    out.ButtonRight = convert(data.Player1Keys.ButtonRight, out.ButtonRight)
+
+    return out
+}
+
+func SaveEmulatorKeys(keys EmulatorKeys){
+    data, _ := LoadConfigData()
+    data.Player1Keys.Turbo = sdl.GetKeyName(keys.Turbo)
+    data.Player1Keys.Pause = sdl.GetKeyName(keys.Pause)
+
+    data.Player1Keys.HardReset = sdl.GetKeyName(keys.HardReset)
+    data.Player1Keys.PPUDebug = sdl.GetKeyName(keys.PPUDebug)
+    data.Player1Keys.SlowDown = sdl.GetKeyName(keys.SlowDown)
+    data.Player1Keys.SpeedUp = sdl.GetKeyName(keys.SpeedUp)
+    data.Player1Keys.Normal = sdl.GetKeyName(keys.Normal)
+    data.Player1Keys.StepFrame = sdl.GetKeyName(keys.StepFrame)
+    data.Player1Keys.Record = sdl.GetKeyName(keys.Record)
+    data.Player1Keys.SaveState = sdl.GetKeyName(keys.SaveState)
+    data.Player1Keys.LoadState = sdl.GetKeyName(keys.LoadState)
+    data.Player1Keys.Console = sdl.GetKeyName(keys.Console)
+
+    data.Player1Keys.ButtonA = sdl.GetKeyName(keys.ButtonA)
+    data.Player1Keys.ButtonB = sdl.GetKeyName(keys.ButtonB)
+    data.Player1Keys.ButtonTurboA = sdl.GetKeyName(keys.ButtonTurboA)
+    data.Player1Keys.ButtonTurboB = sdl.GetKeyName(keys.ButtonTurboB)
+    data.Player1Keys.ButtonSelect = sdl.GetKeyName(keys.ButtonSelect)
+    data.Player1Keys.ButtonStart = sdl.GetKeyName(keys.ButtonStart)
+    data.Player1Keys.ButtonUp = sdl.GetKeyName(keys.ButtonUp)
+    data.Player1Keys.ButtonDown = sdl.GetKeyName(keys.ButtonDown)
+    data.Player1Keys.ButtonLeft = sdl.GetKeyName(keys.ButtonLeft)
+    data.Player1Keys.ButtonRight = sdl.GetKeyName(keys.ButtonRight)
+
+    err := SaveConfigData(data)
+    if err != nil {
+        log.Printf("Warning: could not save config: %v", err)
+    }
+}
+
 func DefaultEmulatorKeys() EmulatorKeys {
     return EmulatorKeys {
         Turbo: sdl.K_BACKQUOTE,

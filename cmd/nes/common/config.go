@@ -20,9 +20,36 @@ type ConfigJoystickData struct {
     Name string `json:"name,omitempty"`
 }
 
+type ConfigKeys struct {
+    Turbo string
+    Pause string
+    HardReset string
+    PPUDebug string
+    SlowDown string
+    SpeedUp string
+    Normal string
+    StepFrame string
+    Record string
+    SaveState string
+    LoadState string
+    Console string
+
+    ButtonA string
+    ButtonB string
+    ButtonTurboA string
+    ButtonTurboB string
+    ButtonSelect string
+    ButtonStart string
+    ButtonUp string
+    ButtonDown string
+    ButtonLeft string
+    ButtonRight string
+}
+
 type ConfigData struct {
     Version int `json:"version,omitempty"`
     Player1Joystick ConfigJoystickData `json:"player1-joystick,omitempty"`
+    Player1Keys ConfigKeys `json:"player1-keys,omitempty"`
 }
 
 /* make the directory where the config file lives, which is ~/.config/jon-nes on linux */
@@ -83,5 +110,6 @@ func SaveConfigData(data ConfigData) error {
     defer file.Close()
 
     encoder := json.NewEncoder(file)
+    encoder.SetIndent("", "  ")
     return encoder.Encode(data)
 }

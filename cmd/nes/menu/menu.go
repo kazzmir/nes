@@ -2106,6 +2106,7 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
                                         menu.Keys.Update(choosingKey, code)
                                         name := sdl.GetKeyName(code)
                                         menu.ChoosingButton.Update(choosingKey, name)
+                                        common.SaveEmulatorKeys(*menu.Keys)
                                         menu.Lock.Unlock()
 
                                         menu.SetChoosing(false, "", nil)
