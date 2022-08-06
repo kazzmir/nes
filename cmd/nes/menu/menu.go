@@ -2307,7 +2307,7 @@ func (choose *ChooseButton) Enable() {
     choose.SetEnabled(true)
 }
 
-func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys *common.EmulatorKeys) SubMenu {
+func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKeys), keys *common.EmulatorKeys) SubMenu {
 
     var items []string
 
@@ -2322,6 +2322,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, keys *common.EmulatorKeys) Sub
     keyMenu := &ChangeKeyMenu{
         MenuQuit: menu.quit,
         Quit: func(current SubMenu) SubMenu {
+            update(*keys)
             return parentMenu
         },
         // ExtraInfo: keysInfo(keys),
@@ -2447,7 +2448,11 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
                               },
                 })
 
-    keysMenu := MakeKeysMenu(menu, main, keys)
+    /* FIXME: this callback to update ExtraInfo feels a bit hacky */
+    keysMenu := MakeKeysMenu(menu, main, func (newKeys common.EmulatorKeys){
+        main.ExtraInfo = keysInfo(&newKeys)
+    }, keys)
+
     main.Buttons.Add(&SubMenuButton{Name: "Keys", Func: func() SubMenu {
         return keysMenu
     }})
