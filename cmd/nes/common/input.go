@@ -8,9 +8,6 @@ import (
     "log"
     "fmt"
     "errors"
-    "os"
-    "path/filepath"
-    "encoding/json"
 
     // "runtime/debug"
 )
@@ -54,80 +51,30 @@ func (manager *JoystickManager) CurrentName() string {
     return "No joystick found"
 }
 
-type ConfigJoystickData struct {
-    A string
-    B string
-    Select string
-    Start string
-    Up string
-    Down string
-    Left string
-    Right string
-    Guid string
-    Name string
-}
-
-type ConfigData struct {
-    Version int
-    Player1Joystick ConfigJoystickData
-}
-
-func GetOrCreateConfigDir() (string, error) {
-    configDir, err := os.UserConfigDir()
-    if err != nil {
-        return "", err
-    }
-    configPath := filepath.Join(configDir, "jon-nes")
-    err = os.MkdirAll(configPath, 0755)
-    if err != nil {
-        return "", err
-    }
-
-    return configPath, nil
-}
-
 func (manager *JoystickManager) SaveInput() error {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
-    configPath, err := GetOrCreateConfigDir()
-    if err != nil {
-        return err
-    }
-    config := filepath.Join(configPath, "config.json")
-
-    file, err := os.Create(config)
-    if err != nil {
-        return err
-    }
-    defer file.Close()
-
     if manager.Player1 != nil {
-        data := ConfigData{
-            Version: 1,
-            Player1Joystick: ConfigJoystickData{
-                A: manager.Player1.Inputs[nes.ButtonIndexA].Serialize(),
-                B: manager.Player1.Inputs[nes.ButtonIndexB].Serialize(),
-                Select: manager.Player1.Inputs[nes.ButtonIndexSelect].Serialize(),
-                Start: manager.Player1.Inputs[nes.ButtonIndexStart].Serialize(),
-                Up: manager.Player1.Inputs[nes.ButtonIndexUp].Serialize(),
-                Down: manager.Player1.Inputs[nes.ButtonIndexDown].Serialize(),
-                Left: manager.Player1.Inputs[nes.ButtonIndexLeft].Serialize(),
-                Right: manager.Player1.Inputs[nes.ButtonIndexRight].Serialize(),
-                Guid: sdl.JoystickGetGUIDString(manager.Player1.joystick.GUID()),
-                Name: strings.TrimSpace(manager.Player1.joystick.Name()),
-            },
-        }
-
-        serialized, err := json.Marshal(data)
+        data, err := LoadConfigData()
         if err != nil {
-            return err
+            log.Printf("Warning: could not load config. Creating new config")
+        }
+        data.Player1Joystick = ConfigJoystickData{
+            A: manager.Player1.Inputs[nes.ButtonIndexA].Serialize(),
+            B: manager.Player1.Inputs[nes.ButtonIndexB].Serialize(),
+            Select: manager.Player1.Inputs[nes.ButtonIndexSelect].Serialize(),
+            Start: manager.Player1.Inputs[nes.ButtonIndexStart].Serialize(),
+            Up: manager.Player1.Inputs[nes.ButtonIndexUp].Serialize(),
+            Down: manager.Player1.Inputs[nes.ButtonIndexDown].Serialize(),
+            Left: manager.Player1.Inputs[nes.ButtonIndexLeft].Serialize(),
+            Right: manager.Player1.Inputs[nes.ButtonIndexRight].Serialize(),
+            Guid: sdl.JoystickGetGUIDString(manager.Player1.joystick.GUID()),
+            Name: strings.TrimSpace(manager.Player1.joystick.Name()),
         }
 
-        file.Write(serialized)
+        return SaveConfigData(data)
     }
-
-    log.Printf("Saved config to %v", config)
 
     return nil
 }
