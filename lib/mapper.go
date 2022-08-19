@@ -506,6 +506,7 @@ func MakeMapper1(bankMemory []byte, chrMemory []byte) Mapper {
 
 type Mapper2 struct {
     BankMemory []byte `json:"bankmemory"`
+    SaveRam []byte `json:"saveram"`
     LastBankAddress uint32 `json:"lastaddress"`
     Bank byte `json:"bank"`
 }
@@ -530,6 +531,7 @@ func (mapper *Mapper2) Compare(other Mapper) error {
 func (mapper *Mapper2) Copy() Mapper {
     return &Mapper2{
         BankMemory: copySlice(mapper.BankMemory),
+        SaveRam: copySlice(mapper.SaveRam),
         LastBankAddress: mapper.LastBankAddress,
         Bank: mapper.Bank,
     }
@@ -544,9 +546,20 @@ func (mapper *Mapper2) IsIRQAsserted() bool {
 }
 
 func (mapper *Mapper2) Read(address uint16) byte {
+    if address >= 0x6000 && address < 0x8000 {
+        use := address - 0x6000
+        return mapper.SaveRam[use]
+    }
+
     if address < 0xc000 {
         offset := uint32(address - 0x8000)
-        return mapper.BankMemory[uint32(mapper.Bank) * 0x4000 + offset]
+        final := uint32(mapper.Bank) * 0x4000 + offset
+        if final < uint32(len(mapper.BankMemory)) {
+            return mapper.BankMemory[final]
+        } else {
+            log.Printf("mapper2: warning: reading invalid address 0x%x. max=0x%x", final, len(mapper.BankMemory))
+            return 0
+        }
     } else {
         offset := uint32(address - 0xc000)
         return mapper.BankMemory[mapper.LastBankAddress + offset]
@@ -558,7 +571,15 @@ func (mapper *Mapper2) Write(cpu *CPUState, address uint16, value byte) error {
         log.Printf("Accessing bank switching register 0x%x with value 0x%x", address, value)
     }
 
-    mapper.Bank = value
+    if address >= 0x6000 && address < 0x8000 {
+        use := address - 0x6000
+        mapper.SaveRam[use] = value
+        return nil
+    }
+
+    if address >= 0x8000 {
+        mapper.Bank = value
+    }
 
     return nil
 }
@@ -566,6 +587,7 @@ func (mapper *Mapper2) Write(cpu *CPUState, address uint16, value byte) error {
 func MakeMapper2(bankMemory []byte) Mapper {
     return &Mapper2{
         BankMemory: bankMemory,
+        SaveRam: make([]byte, 0x2000),
         LastBankAddress: uint32(len(bankMemory) - 0x4000),
     }
 }
