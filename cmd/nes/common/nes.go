@@ -151,7 +151,7 @@ func (action EmulatorActionGetInfo) Value() EmulatorActionValue {
     return EmulatorGetInfo
 }
 
-func SetupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
+func SetupCPU(nesFile nes.NESFile, debugCpu bool, debugPpu bool) (nes.CPUState, error) {
     cpu := nes.StartupState()
 
     if nesFile.HorizontalMirror {
@@ -173,8 +173,11 @@ func SetupCPU(nesFile nes.NESFile, debug bool) (nes.CPUState, error) {
     }
     cpu.PPU.CopyCharacterRom(0x0000, nesFile.CharacterRom[:maxCharacterRomLength])
 
-    if debug {
+    if debugCpu {
         cpu.Debug = 1
+    }
+
+    if debugPpu {
         cpu.PPU.Debug = 1
     }
 

@@ -348,7 +348,7 @@ func (layer *OverlayMessageLayer) Render(info common.RenderInfo) error {
     return nil
 }
 
-func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
+func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
     randomSeed := time.Now().UnixNano()
 
     rand.Seed(randomSeed)
@@ -708,7 +708,7 @@ func RunNES(path string, debug bool, maxCycles uint64, windowSizeMultiple int, r
     }
 
     startNES := func(nesFile nes.NESFile, quit context.Context){
-        cpu, err := common.SetupCPU(nesFile, debug)
+        cpu, err := common.SetupCPU(nesFile, debugCpu, debugPpu)
 
         input.Reset()
         combined := common.MakeCombineButtons(input, joystickManager)
@@ -1095,6 +1095,8 @@ func get_pixel_format(format uint32) string {
 type Arguments struct {
     NESPath string
     Debug bool
+    DebugCpu bool
+    DebugPpu bool
     MaxCycles uint64
     WindowSizeMultiple int
     CpuProfile bool
@@ -1118,7 +1120,9 @@ func parseArguments() (Arguments, error) {
 $ nes [rom.nes]
 Options:
   -h, --help: this help
-  -debug, --debug: enable debug output
+  -debug, --debug: enable all debug output
+  -debug=cpu, --debug=cpu: enable cpu debug output
+  -debug=ppu, --debug=ppu: enable ppu debug output
   -size, --size #: start the window at a multiple of the nes screen size of 320x200 (default 3)
   -record: enable recording to an mp4 when the rom loads
   -fps #: set a desired frame rate
@@ -1126,6 +1130,10 @@ Options:
 `)
             case "-debug", "--debug":
                 arguments.Debug = true
+            case "-debug=cpu", "--debug=cpu":
+                arguments.DebugCpu = true
+            case "-debug=ppu", "--debug=ppu":
+                arguments.DebugPpu = true
             case "-size", "--size":
                 var err error
                 argIndex += 1
@@ -1205,7 +1213,7 @@ func main(){
 
     if nes.IsNESFile(arguments.NESPath) {
         sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
+            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }
@@ -1220,7 +1228,7 @@ func main(){
     } else {
         /* Open up the loading menu immediately */
         sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
+            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }

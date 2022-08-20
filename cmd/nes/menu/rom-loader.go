@@ -411,7 +411,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
                     continue
                 }
 
-                cpu, err := common.SetupCPU(nesFile, false)
+                cpu, err := common.SetupCPU(nesFile, false, false)
                 if err != nil {
                     log.Printf("Unable to setup cpu for %v: %v", possibleRom.Path, err)
                     continue
