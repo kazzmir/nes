@@ -1281,7 +1281,7 @@ func (cpu *CPUState) Run(table InstructionTable) error {
 
     if cpu.Debug > 0 {
         log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cpu.Cycle)
-        dumpPage(cpu.Maps[0])
+        // dumpPage(cpu.Maps[0])
     }
     return cpu.Execute(instruction)
 }
