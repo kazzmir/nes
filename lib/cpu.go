@@ -18,7 +18,7 @@ import (
 const NMIVector uint16 = 0xfffa
 const ResetVector uint16 = 0xfffc
 const IRQVector uint16 = 0xfffe
-const BRKVector uint16 = 0xfff6
+const BRKVector uint16 = 0xfffe
 
 /* http://wiki.nesdev.org/w/index.php/Cycle_reference_chart#Clock_rates
  * NTSC 2c0c clock speed is 21.47~ MHz ÷ 12 = 1.789773 MHz
@@ -1250,6 +1250,19 @@ func (cpu *CPUState) Stall(cycles int){
     cpu.StallCycles += cycles
 }
 
+func dumpPage(memory []byte){
+    i := 0
+    for i < len(memory) {
+        fmt.Printf("%x: ", i)
+        for x := 0; x < 16; x++ {
+            val := memory[i+x]
+            fmt.Printf("%x ", val)
+        }
+        fmt.Println("")
+        i += 16
+    }
+}
+
 func (cpu *CPUState) Run(table InstructionTable) error {
     if cpu.StallCycles > 0 {
         cpu.StallCycles -= 1
@@ -1268,6 +1281,7 @@ func (cpu *CPUState) Run(table InstructionTable) error {
 
     if cpu.Debug > 0 {
         log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cpu.Cycle)
+        // dumpPage(cpu.Maps[0])
     }
     return cpu.Execute(instruction)
 }
@@ -1290,6 +1304,10 @@ func (cpu *CPUState) GetInterruptDisableFlag() bool {
 
 func (cpu *CPUState) SetInterruptDisableFlag(set bool){
     cpu.setBit(byte(1<<2), set)
+}
+
+func (cpu *CPUState) SetBreakFlag(set bool){
+    cpu.setBit(byte(1<<4), set)
 }
 
 func (cpu *CPUState) GetZeroFlag() bool {
@@ -4068,9 +4086,13 @@ func (cpu *CPUState) Reset() {
 }
 
 func (cpu *CPUState) BRK() {
+    cpu.PC += 2
     cpu.PushStack(byte(cpu.PC >> 8))
     cpu.PushStack(byte(cpu.PC) & 0xff)
+    savedStatus := cpu.Status
+    cpu.SetBreakFlag(true)
     cpu.PushStack(cpu.Status)
+    cpu.Status = savedStatus
 
     low := uint16(cpu.LoadMemory(BRKVector))
     high := uint16(cpu.LoadMemory(BRKVector+1))
