@@ -741,7 +741,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 default:
             }
             log.Printf("Run NES")
-            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1)
+            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1, nil)
             if err != nil {
                 if err == common.MaxCyclesReached {
                 } else {

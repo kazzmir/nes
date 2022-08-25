@@ -12,6 +12,7 @@ import (
     "compress/gzip"
     "encoding/json"
     nes "github.com/kazzmir/nes/lib"
+    "github.com/kazzmir/nes/cmd/nes/debug"
 )
 
 type AudioResponse int
@@ -281,7 +282,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32,
             emulatorActions <-chan EmulatorAction, screenListeners *ScreenListeners,
             renderOverlayUpdate chan<- string,
-            sampleRate float32, verbose int) error {
+            sampleRate float32, verbose int, debugger debug.Debugger) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
     screen := nes.MakeVirtualScreen(256, 240)
@@ -361,6 +362,10 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     cycleStart = cpu.Cycle
                 default:
             }
+        }
+
+        if debugger != nil {
+            debugger.Handle(cpu)
         }
 
         /* always run the system */
