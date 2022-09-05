@@ -301,6 +301,14 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                             } else {
                                 layer.AddLine("No debugger available")
                             }
+                        case "continue":
+                            debugger := console.GetDebugger(emulatorActions)
+                            if debugger != nil {
+                                debugger.Continue()
+                                layer.AddLine("Continue")
+                            } else {
+                                layer.AddLine("No debugger available")
+                            }
                         case "help", "?":
                             help := strings.Split(helpText, "\n")
                             for _, line := range help {

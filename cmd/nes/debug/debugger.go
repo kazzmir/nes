@@ -40,6 +40,7 @@ type Debugger interface {
     Handle(*nes.CPUState)
     AddPCBreakpoint(uint16) Breakpoint
     AddCurrentPCBreakpoint() Breakpoint
+    Continue()
     IsStopped() bool
 }
 
@@ -87,21 +88,26 @@ func (debugger *DefaultDebugger) Stop(){
     debugger.Stopped = true
 }
 
+func (debugger *DefaultDebugger) Continue(){
+    select {
+        case debugger.Commands<-DebugCommandContinue:
+        default:
+    }
+}
+
 func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState){
-    if debugger.IsStopped() {
-        select {
-            case command := <-debugger.Commands:
-                if command == DebugCommandStep {
+    select {
+        case command := <-debugger.Commands:
+            switch command {
+                case DebugCommandStep:
                     log.Printf("[debug] step")
                     return
-                }
-                if command == DebugCommandContinue {
+                case DebugCommandContinue:
                     log.Printf("[debug] continue")
                     debugger.ContinueUntilBreak()
                     return
-                }
-            default:
-        }
+            }
+        default:
     }
 
     for _, breakpoint := range debugger.Breakpoints {
