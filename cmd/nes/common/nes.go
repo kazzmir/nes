@@ -120,6 +120,7 @@ const (
     EmulatorSaveState
     EmulatorLoadState
     EmulatorGetInfo
+    EmulatorGetDebugger
 )
 
 type EmulatorAction interface {
@@ -140,8 +141,17 @@ func MakeEmulatorAction(value EmulatorActionValue) EmulatorAction {
     }
 }
 
+type EmulatorActionGetDebugger struct {
+    Response chan<- debug.Debugger
+}
+
+func (action EmulatorActionGetDebugger) Value() EmulatorActionValue {
+    return EmulatorGetDebugger
+}
+
 type EmulatorInfo struct {
-    Cycles uint64
+    Cycles uint64 // current cycle of emulator
+    Pc uint16 // current pc register value
 }
 
 type EmulatorActionGetInfo struct {
@@ -379,91 +389,103 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             }
         }
 
+        handleAction := func(action EmulatorAction){
+            switch action.Value() {
+                case EmulatorSaveState:
+                    value := cpu.Copy()
+                    go serializeState(quit, &value, getSha256())
+                    log.Printf("State saved")
+                case EmulatorLoadState:
+                    loadedState, err := loadCpuState(getSha256())
+                    if err != nil {
+                        log.Printf("Unable to load saved state: %v", err)
+                    } else {
+                        cpu.Load(loadedState)
+                        lastCpuCycle = cpu.Cycle
+                        log.Printf("State loaded")
+                    }
+                case EmulatorGetInfo:
+                    info := action.(EmulatorActionGetInfo)
+                    data := EmulatorInfo{
+                        Cycles: cpu.Cycle,
+                        Pc: cpu.PC,
+                    }
+                    select {
+                        case info.Response<-data:
+                        default:
+                    }
+                    close(info.Response)
+                case EmulatorNothing:
+                    /* nothing */
+                case EmulatorTurbo:
+                    turboMultiplier = 3
+                case EmulatorInfinite:
+                    infiniteSpeed = true
+                case EmulatorNormal:
+                    turboMultiplier = 1
+                    if verbose > 0 {
+                        log.Printf("Emulator speed set to %v", turboMultiplier)
+                    }
+                case EmulatorSlowDown:
+                    turboMultiplier -= 0.1
+                    if turboMultiplier < 0.1 {
+                        turboMultiplier = 0.1
+                    }
+                    if verbose > 0 {
+                        log.Printf("Emulator speed set to %v", turboMultiplier)
+                    }
+                case EmulatorStepFrame:
+                    stepFrame = !stepFrame
+                    if verbose > 0 {
+                        log.Printf("Emulator step frame is %v", stepFrame)
+                    }
+                case EmulatorSpeedUp:
+                    turboMultiplier += 0.1
+                    if verbose > 0 {
+                        log.Printf("Emulator speed set to %v", turboMultiplier)
+                    }
+                case EmulatorTogglePause:
+                    paused = !paused
+
+                    message := "Paused"
+                    if !paused {
+                        message = ""
+                    }
+                    select {
+                        case renderOverlayUpdate <- message:
+                        default:
+                    }
+
+                case EmulatorSetPause:
+                    paused = true
+                    select {
+                        case renderOverlayUpdate <- "Paused":
+                        default:
+                    }
+                case EmulatorUnpause:
+                    paused = false
+                    select {
+                        case renderOverlayUpdate <- "":
+                        default:
+                    }
+                case EmulatorTogglePPUDebug:
+                    cpu.PPU.ToggleDebug()
+                case EmulatorGetDebugger:
+                    info := action.(EmulatorActionGetDebugger)
+                    select {
+                        case info.Response<-debugger:
+                        default:
+                    }
+                    close(info.Response)
+            }
+        }
+
         for cycleCounter <= 0 {
             select {
                 case <-quit.Done():
                     return nil
                 case action := <-emulatorActions:
-                    switch action.Value() {
-                        case EmulatorSaveState:
-                            value := cpu.Copy()
-                            go serializeState(quit, &value, getSha256())
-                            log.Printf("State saved")
-                        case EmulatorLoadState:
-                            loadedState, err := loadCpuState(getSha256())
-                            if err != nil {
-                                log.Printf("Unable to load saved state: %v", err)
-                            } else {
-                                cpu.Load(loadedState)
-                                lastCpuCycle = cpu.Cycle
-                                log.Printf("State loaded")
-                            }
-                        case EmulatorGetInfo:
-                            info := action.(EmulatorActionGetInfo)
-                            data := EmulatorInfo{
-                                Cycles: cpu.Cycle,
-                            }
-                            select {
-                                case info.Response<-data:
-                                default:
-                            }
-                            close(info.Response)
-                        case EmulatorNothing:
-                            /* nothing */
-                        case EmulatorTurbo:
-                            turboMultiplier = 3
-                        case EmulatorInfinite:
-                            infiniteSpeed = true
-                        case EmulatorNormal:
-                            turboMultiplier = 1
-                            if verbose > 0 {
-                                log.Printf("Emulator speed set to %v", turboMultiplier)
-                            }
-                        case EmulatorSlowDown:
-                            turboMultiplier -= 0.1
-                            if turboMultiplier < 0.1 {
-                                turboMultiplier = 0.1
-                            }
-                            if verbose > 0 {
-                                log.Printf("Emulator speed set to %v", turboMultiplier)
-                            }
-                        case EmulatorStepFrame:
-                            stepFrame = !stepFrame
-                            if verbose > 0 {
-                                log.Printf("Emulator step frame is %v", stepFrame)
-                            }
-                        case EmulatorSpeedUp:
-                            turboMultiplier += 0.1
-                            if verbose > 0 {
-                                log.Printf("Emulator speed set to %v", turboMultiplier)
-                            }
-                        case EmulatorTogglePause:
-                            paused = !paused
-
-                            message := "Paused"
-                            if !paused {
-                                message = ""
-                            }
-                            select {
-                                case renderOverlayUpdate <- message:
-                                default:
-                            }
-
-                        case EmulatorSetPause:
-                            paused = true
-                            select {
-                                case renderOverlayUpdate <- "Paused":
-                                default:
-                            }
-                        case EmulatorUnpause:
-                            paused = false
-                            select {
-                                case renderOverlayUpdate <- "":
-                                default:
-                            }
-                        case EmulatorTogglePPUDebug:
-                            cpu.PPU.ToggleDebug()
-                    }
+                    handleAction(action)
                 case <-cycleTimer.C:
                     cycleCounter += cycleDiff * turboMultiplier
             }
@@ -471,6 +493,16 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             if paused {
                 cycleCounter = 0
             }
+        }
+
+        if debugger != nil && debugger.IsStopped() {
+            select {
+                case action := <-emulatorActions:
+                    handleAction(action)
+                case <-time.After(1 * time.Millisecond):
+            }
+
+            continue
         }
 
         // log.Printf("Cycle counter %v\n", cycleCounter)

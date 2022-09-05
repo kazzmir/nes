@@ -38,6 +38,9 @@ func (breakpoint *Breakpoint) Hit(cpu *nes.CPUState) bool {
 
 type Debugger interface {
     Handle(*nes.CPUState)
+    AddPCBreakpoint(uint16) Breakpoint
+    AddCurrentPCBreakpoint() Breakpoint
+    IsStopped() bool
 }
 
 type DefaultDebugger struct {
@@ -45,6 +48,7 @@ type DefaultDebugger struct {
     Stopped bool
     Breakpoints []Breakpoint
     BreakpointId uint64
+    Cpu *nes.CPUState
 }
 
 func (debugger *DefaultDebugger) IsStopped() bool {
@@ -55,12 +59,18 @@ func (debugger *DefaultDebugger) ContinueUntilBreak(){
     debugger.Stopped = false
 }
 
-func (debugger *DefaultDebugger) AddPCBreakpoint(pc uint16){
-    debugger.Breakpoints = append(debugger.Breakpoints, Breakpoint{
+func (debugger *DefaultDebugger) AddPCBreakpoint(pc uint16) Breakpoint {
+    breakpoint := Breakpoint{
         PC: pc,
         Id: debugger.BreakpointId,
-    })
+    }
+    debugger.Breakpoints = append(debugger.Breakpoints, breakpoint)
     debugger.BreakpointId += 1
+    return breakpoint
+}
+
+func (debugger *DefaultDebugger) AddCurrentPCBreakpoint() Breakpoint {
+    return debugger.AddPCBreakpoint(debugger.Cpu.PC)
 }
 
 func (debugger *DefaultDebugger) RemoveBreakpoint(id uint64){
@@ -79,15 +89,18 @@ func (debugger *DefaultDebugger) Stop(){
 
 func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState){
     if debugger.IsStopped() {
-        command := <-debugger.Commands
-        if command == DebugCommandStep {
-            log.Printf("[debug] step")
-            return
-        }
-        if command == DebugCommandContinue {
-            log.Printf("[debug] continue")
-            debugger.ContinueUntilBreak()
-            return
+        select {
+            case command := <-debugger.Commands:
+                if command == DebugCommandStep {
+                    log.Printf("[debug] step")
+                    return
+                }
+                if command == DebugCommandContinue {
+                    log.Printf("[debug] continue")
+                    debugger.ContinueUntilBreak()
+                    return
+                }
+            default:
         }
     }
 
@@ -98,10 +111,11 @@ func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState){
     }
 }
 
-func MakeDebugger() Debugger {
+func MakeDebugger(cpu *nes.CPUState) Debugger {
     return &DefaultDebugger{
         Commands: make(chan DebugCommand, 5),
-        Stopped: true,
+        Stopped: false,
         BreakpointId: 1,
+        Cpu: cpu,
     }
 }

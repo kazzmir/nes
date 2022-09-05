@@ -8,6 +8,7 @@ import (
     "strings"
     "sync"
     "github.com/kazzmir/nes/cmd/nes/common"
+    "github.com/kazzmir/nes/cmd/nes/debug"
     "github.com/veandco/go-sdl2/sdl"
 )
 
@@ -175,6 +176,21 @@ info: show emulator info
 reload, restart: reload the current rom
 `
 
+func (console *Console) GetDebugger(emulatorActions chan<- common.EmulatorAction) debug.Debugger {
+    data := make(chan debug.Debugger)
+    response := common.EmulatorActionGetDebugger{
+        Response: data,
+    }
+    select {
+        case emulatorActions<-response:
+            for debugger := range data {
+                return debugger
+            }
+        default:
+    }
+    return nil
+}
+
 func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool){
     normalTime := time.Millisecond * 13
     slowTime := time.Hour * 100
@@ -277,6 +293,14 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                             layer.ClearLines()
                         case "sup":
                             layer.AddLine("nm, u?")
+                        case "break":
+                            debugger := console.GetDebugger(emulatorActions)
+                            if debugger != nil {
+                                breakpoint := debugger.AddCurrentPCBreakpoint()
+                                layer.AddLine(fmt.Sprintf("Breakpoint %v added at 0x%x", breakpoint.Id, breakpoint.PC))
+                            } else {
+                                layer.AddLine("No debugger available")
+                            }
                         case "help", "?":
                             help := strings.Split(helpText, "\n")
                             for _, line := range help {
@@ -305,6 +329,7 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                                         ok = true
                                         layer.AddLine("Emulator Info")
                                         layer.AddLine(fmt.Sprintf("Cycles: %v", info.Cycles))
+                                        layer.AddLine(fmt.Sprintf("PC: 0x%x", info.Pc))
                                         break
                                     }
                                     if !ok {

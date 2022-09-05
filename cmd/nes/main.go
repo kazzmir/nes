@@ -32,6 +32,7 @@ import (
 
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/menu"
+    "github.com/kazzmir/nes/cmd/nes/debug"
 
     // rdebug "runtime/debug"
 )
@@ -535,6 +536,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     if i == 0 {
                         log.Printf("Shutting down due to signal")
                         mainCancel()
+                        go func(){
+                            time.Sleep(2 * time.Second)
+                            os.Exit(1)
+                        }()
                     } else {
                         log.Printf("Hard kill")
                         os.Exit(1)
@@ -710,6 +715,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     startNES := func(nesFile nes.NESFile, quit context.Context){
         cpu, err := common.SetupCPU(nesFile, debugCpu, debugPpu)
 
+        debugger := debug.MakeDebugger(&cpu)
+
         input.Reset()
         combined := common.MakeCombineButtons(input, joystickManager)
         cpu.Input = nes.MakeInput(&combined)
@@ -741,7 +748,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 default:
             }
             log.Printf("Run NES")
-            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1, nil)
+            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1, debugger)
             if err != nil {
                 if err == common.MaxCyclesReached {
                 } else {
