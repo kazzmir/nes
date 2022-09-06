@@ -210,6 +210,9 @@ func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat com
 type NesAction interface {
 }
 
+type NesActionDebugger struct {
+}
+
 type NesActionLoad struct {
     File nes.NESFile
 }
@@ -800,6 +803,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             defer nesWaiter.Done()
                             startNES(nesFile, quit)
                         }(currentFile, nesQuit)
+                    }
+
+                    _, ok = action.(*NesActionDebugger)
+                    if ok {
+                        debug.OpenWindow()
                     }
             }
         }

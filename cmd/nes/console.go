@@ -303,6 +303,13 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                             layer.ClearLines()
                         case "sup":
                             layer.AddLine("nm, u?")
+                        case "debug", "debugger":
+                            select {
+                                case nesActions <- &NesActionDebugger{}:
+                                    layer.AddLine("Opening the debug window..")
+                                default:
+                                    layer.AddLine("Error: input dropped. Try again")
+                            }
                         case "break":
                             debugger := console.GetDebugger(emulatorActions)
                             if debugger != nil {
