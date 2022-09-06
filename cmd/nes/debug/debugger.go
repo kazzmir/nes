@@ -30,10 +30,11 @@ var DebugCommandContinue DebugCommand = makeCommand("continue")
 type Breakpoint struct {
     PC uint16
     Id uint64
+    Enabled bool
 }
 
 func (breakpoint *Breakpoint) Hit(cpu *nes.CPUState) bool {
-    return breakpoint.PC == cpu.PC
+    return breakpoint.Enabled && breakpoint.PC == cpu.PC
 }
 
 type Debugger interface {
@@ -41,6 +42,7 @@ type Debugger interface {
     AddPCBreakpoint(uint16) Breakpoint
     AddCurrentPCBreakpoint() Breakpoint
     RemoveBreakpoint(id uint64) bool
+    GetBreakpoints() []Breakpoint
     Continue()
     Step()
     IsStopped() bool
@@ -70,10 +72,15 @@ func (debugger *DefaultDebugger) ContinueUntilBreak(){
     debugger.Mode = ModeContinue
 }
 
+func (debugger *DefaultDebugger) GetBreakpoints() []Breakpoint {
+    return debugger.Breakpoints
+}
+
 func (debugger *DefaultDebugger) AddPCBreakpoint(pc uint16) Breakpoint {
     breakpoint := Breakpoint{
         PC: pc,
         Id: debugger.BreakpointId,
+        Enabled: true,
     }
     debugger.Breakpoints = append(debugger.Breakpoints, breakpoint)
     debugger.BreakpointId += 1

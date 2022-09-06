@@ -306,8 +306,26 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                         case "break":
                             debugger := console.GetDebugger(emulatorActions)
                             if debugger != nil {
-                                breakpoint := debugger.AddCurrentPCBreakpoint()
-                                layer.AddLine(fmt.Sprintf("Breakpoint %v added at 0x%x", breakpoint.Id, breakpoint.PC))
+                                if len(args) > 1 {
+                                    if strings.ToLower(args[1]) == "list" {
+                                        layer.AddLine("Breakpoints")
+                                        breakpoints := debugger.GetBreakpoints()
+                                        for _, breakpoint := range breakpoints {
+                                            layer.AddLine(fmt.Sprintf(" %v: enabled=%v 0x%x", breakpoint.Id, breakpoint.Enabled, breakpoint.PC))
+                                        }
+                                    } else {
+                                        pc, err := strconv.ParseInt(args[1], 0, 32)
+                                        if err != nil {
+                                            layer.AddLine(fmt.Sprintf("Invalid address '%v': %v", args[1], err))
+                                        } else {
+                                            breakpoint := debugger.AddPCBreakpoint(uint16(pc))
+                                            layer.AddLine(fmt.Sprintf("Breakpoint %v added at 0x%x", breakpoint.Id, breakpoint.PC))
+                                        }
+                                    }
+                                } else {
+                                    breakpoint := debugger.AddCurrentPCBreakpoint()
+                                    layer.AddLine(fmt.Sprintf("Breakpoint %v added at 0x%x", breakpoint.Id, breakpoint.PC))
+                                }
                             } else {
                                 layer.AddLine("No debugger available")
                             }
