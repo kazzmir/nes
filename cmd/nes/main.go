@@ -541,6 +541,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         mainCancel()
                         go func(){
                             time.Sleep(2 * time.Second)
+                            log.Printf("Bailing..")
                             os.Exit(1)
                         }()
                     } else {
@@ -763,6 +764,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         }
     }
 
+    debugWindow := debug.MakeDebugWindow(mainQuit)
+
     /* runs the nes emulator */
     waiter.Add(1)
     go func(){
@@ -807,7 +810,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                     _, ok = action.(*NesActionDebugger)
                     if ok {
-                        debug.OpenWindow()
+                        debugWindow.Open()
                     }
             }
         }
@@ -913,11 +916,25 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 case sdl.QUIT: mainCancel()
                 case sdl.WINDOWEVENT:
                     window_event := event.(*sdl.WindowEvent)
+                    useWindow, err := sdl.GetWindowFromID(window_event.WindowID)
+                    if err != nil {
+                        log.Printf("Event sent to invalid window: %v %v", window_event.WindowID, err)
+                        return
+                    }
                     switch window_event.Event {
                         case sdl.WINDOWEVENT_EXPOSED:
-                            select {
-                                case renderNow <- true:
-                                default:
+                            if useWindow == window {
+                                select {
+                                    case renderNow <- true:
+                                    default:
+                                }
+                            } else if debugWindow.IsWindow(useWindow) {
+                            }
+                        case sdl.WINDOWEVENT_CLOSE:
+                            if useWindow == window {
+                                mainCancel()
+                            } else if debugWindow.IsWindow(useWindow) {
+                                debugWindow.Close(mainQuit)
                             }
                         case sdl.WINDOWEVENT_RESIZED:
                             // log.Printf("Window resized")

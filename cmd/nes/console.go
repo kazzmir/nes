@@ -406,7 +406,9 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                                 default:
                             }
                         default:
-                            layer.AddLine(text)
+                            if strings.TrimSpace(text) != "" {
+                                layer.AddLine(text)
+                            }
                     }
 
                     layer.SetText("")
