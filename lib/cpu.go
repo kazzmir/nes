@@ -278,6 +278,7 @@ const (
     Instruction_CLV =                 0xb8
     Instruction_LDA_absolute_y =      0xb9
     Instruction_TSX =                 0xba
+    Instruction_LAS =                 0xbb
     Instruction_LDY_absolute_x =      0xbc
     Instruction_LDA_absolute_x =      0xbd
     Instruction_LDX_absolute_y =      0xbe
@@ -455,6 +456,7 @@ func MakeInstructionDescriptiontable() InstructionTable {
     table[Instruction_ISC_indirect_y] = InstructionDescription{Name: "isc", Operands: 1}
     table[Instruction_ISC_absolute] = InstructionDescription{Name: "isc", Operands: 2}
     table[Instruction_ISC_zero] = InstructionDescription{Name: "isc", Operands: 1}
+    table[Instruction_LAS] = InstructionDescription{Name: "las", Operands: 2}
     table[Instruction_DCP_indirect_x] = InstructionDescription{Name: "dcp", Operands: 1}
     table[Instruction_DCP_indirect_y] = InstructionDescription{Name: "dcp", Operands: 1}
     table[Instruction_DCP_absolute] = InstructionDescription{Name: "dcp", Operands: 2}
@@ -1229,7 +1231,7 @@ func (cpu *CPUState) Fetch(table InstructionTable) (Instruction, error) {
 
     description, ok := table[firstI]
     if !ok {
-        return Instruction{}, fmt.Errorf("unknown instruction: 0x%x\n", first)
+        return Instruction{}, fmt.Errorf("unknown instruction: 0x%x at 0x%x", first, cpu.PC)
     }
 
     operands := make([]byte, description.Operands)
@@ -1566,6 +1568,17 @@ func (cpu *CPUState) doIsc(address uint16){
     cpu.StoreMemory(address, value)
     /* FIXME: not totally sure sbc is the right thing to do here */
     cpu.doSbc(value)
+}
+
+/* illegal opcode that combines LDA/TSX */
+func (cpu *CPUState) doLas(address uint16){
+    value := cpu.LoadMemory(address)
+    computed := value & cpu.SP
+    cpu.A = computed
+    cpu.X = computed
+    cpu.SP = computed
+    cpu.SetNegativeFlag(int8(cpu.A) < 0)
+    cpu.SetZeroFlag(cpu.A == 0)
 }
 
 /* illegal opcode that combines ROL with 'and' */
@@ -3882,6 +3895,15 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.doIsc(address)
             cpu.Cycle += 6
             cpu.PC += instruction.Length()
+            return nil
+        case Instruction_LAS:
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            cpu.doLas(address)
+            cpu.PC += instruction.Length()
+            cpu.Cycle += 4
             return nil
         case Instruction_ISC_absolute:
             address, err := instruction.OperandWord()
