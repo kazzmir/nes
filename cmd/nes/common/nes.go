@@ -374,10 +374,6 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             }
         }
 
-        if debugger != nil {
-            debugger.Handle(cpu)
-        }
-
         /* always run the system */
         if infiniteSpeed {
             cycleCounter = 1
@@ -495,14 +491,17 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             }
         }
 
-        if debugger != nil && debugger.IsStopped() {
-            select {
-                case action := <-emulatorActions:
-                    handleAction(action)
-                case <-time.After(1 * time.Millisecond):
-            }
+        if debugger != nil {
+            if !debugger.Handle(cpu) {
+                select {
+                    case action := <-emulatorActions:
+                        handleAction(action)
+                    case <-time.After(1 * time.Millisecond):
+                }
 
-            continue
+                cycleCounter = 0
+                continue
+            }
         }
 
         // log.Printf("Cycle counter %v\n", cycleCounter)

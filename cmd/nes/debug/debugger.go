@@ -37,27 +37,37 @@ func (breakpoint *Breakpoint) Hit(cpu *nes.CPUState) bool {
 }
 
 type Debugger interface {
-    Handle(*nes.CPUState)
+    Handle(*nes.CPUState) bool
     AddPCBreakpoint(uint16) Breakpoint
     AddCurrentPCBreakpoint() Breakpoint
+    RemoveBreakpoint(id uint64) bool
     Continue()
+    Step()
     IsStopped() bool
 }
 
+type DebuggerMode int
+
+const (
+    ModeStopped DebuggerMode = iota
+    ModeStepping
+    ModeContinue
+)
+
 type DefaultDebugger struct {
     Commands chan DebugCommand
-    Stopped bool
+    Mode DebuggerMode
     Breakpoints []Breakpoint
     BreakpointId uint64
     Cpu *nes.CPUState
 }
 
 func (debugger *DefaultDebugger) IsStopped() bool {
-    return debugger.Stopped
+    return debugger.Mode == ModeStopped || debugger.Mode == ModeStepping
 }
 
 func (debugger *DefaultDebugger) ContinueUntilBreak(){
-    debugger.Stopped = false
+    debugger.Mode = ModeContinue
 }
 
 func (debugger *DefaultDebugger) AddPCBreakpoint(pc uint16) Breakpoint {
@@ -74,18 +84,22 @@ func (debugger *DefaultDebugger) AddCurrentPCBreakpoint() Breakpoint {
     return debugger.AddPCBreakpoint(debugger.Cpu.PC)
 }
 
-func (debugger *DefaultDebugger) RemoveBreakpoint(id uint64){
+func (debugger *DefaultDebugger) RemoveBreakpoint(id uint64) bool {
     var out []Breakpoint
+    found := false
     for _, breakpoint := range debugger.Breakpoints {
         if breakpoint.Id != id {
             out = append(out, breakpoint)
+        } else {
+            found = true
         }
     }
     debugger.Breakpoints = out
+    return found
 }
 
 func (debugger *DefaultDebugger) Stop(){
-    debugger.Stopped = true
+    debugger.Mode = ModeStopped
 }
 
 func (debugger *DefaultDebugger) Continue(){
@@ -95,32 +109,51 @@ func (debugger *DefaultDebugger) Continue(){
     }
 }
 
-func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState){
+func (debugger *DefaultDebugger) Step(){
+    select {
+        case debugger.Commands<-DebugCommandStep:
+        default:
+    }
+}
+
+func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState) bool {
     select {
         case command := <-debugger.Commands:
             switch command {
                 case DebugCommandStep:
                     log.Printf("[debug] step")
-                    return
+                    debugger.Mode = ModeStepping
+                    return true
                 case DebugCommandContinue:
                     log.Printf("[debug] continue")
                     debugger.ContinueUntilBreak()
-                    return
+                    return true
             }
         default:
+    }
+
+    if debugger.Mode == ModeStepping {
+        return false
+    }
+
+    if debugger.Mode == ModeStopped {
+        return false
     }
 
     for _, breakpoint := range debugger.Breakpoints {
         if breakpoint.Hit(cpu) {
             debugger.Stop()
+            return false
         }
     }
+
+    return true
 }
 
 func MakeDebugger(cpu *nes.CPUState) Debugger {
     return &DefaultDebugger{
         Commands: make(chan DebugCommand, 5),
-        Stopped: false,
+        Mode: ModeContinue,
         BreakpointId: 1,
         Cpu: cpu,
     }

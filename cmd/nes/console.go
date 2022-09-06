@@ -6,6 +6,7 @@ import (
     "log"
     "fmt"
     "strings"
+    "strconv"
     "sync"
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/debug"
@@ -191,6 +192,13 @@ func (console *Console) GetDebugger(emulatorActions chan<- common.EmulatorAction
     return nil
 }
 
+func firstString(strings []string) string {
+    if len(strings) > 0 {
+        return strings[0]
+    }
+    return ""
+}
+
 func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool){
     normalTime := time.Millisecond * 13
     slowTime := time.Hour * 100
@@ -286,7 +294,9 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                 if ok {
                     text := layer.GetText()
 
-                    switch strings.ToLower(strings.TrimSpace(text)) {
+                    args := strings.Split(text, " ")
+
+                    switch strings.ToLower(strings.TrimSpace(firstString(args))) {
                         case "exit", "quit":
                             mainCancel()
                         case "clear":
@@ -300,6 +310,31 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
                                 layer.AddLine(fmt.Sprintf("Breakpoint %v added at 0x%x", breakpoint.Id, breakpoint.PC))
                             } else {
                                 layer.AddLine("No debugger available")
+                            }
+                        case "step":
+                            debugger := console.GetDebugger(emulatorActions)
+                            if debugger != nil {
+                                debugger.Step()
+                                layer.AddLine("Step")
+                            } else {
+                                layer.AddLine("No debugger available")
+                            }
+                        case "delete":
+                            if len(args) == 2 {
+                                id, err := strconv.Atoi(args[1])
+                                if err != nil {
+                                    layer.AddLine(fmt.Sprintf("Bad breakpoint '%v'", args[1]))
+                                } else {
+                                    debugger := console.GetDebugger(emulatorActions)
+                                    if debugger != nil {
+                                        debugger.RemoveBreakpoint(uint64(id))
+                                        layer.AddLine(fmt.Sprintf("Removed breakpoint %v", id))
+                                    } else {
+                                        layer.AddLine("No debugger available")
+                                    }
+                                }
+                            } else {
+                                layer.AddLine("Give a breakpoint id to delete")
                             }
                         case "continue":
                             debugger := console.GetDebugger(emulatorActions)
