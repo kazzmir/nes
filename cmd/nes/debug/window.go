@@ -23,6 +23,9 @@ type WindowRequestText struct {
     Text string
 }
 
+type WindowRequestRaise struct {
+}
+
 type Line struct {
     Text string
 }
@@ -116,6 +119,13 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
                     windowRequest.Response <- window
                 }
 
+                _, ok = request.(WindowRequestRaise)
+                if ok {
+                    sdl.Do(func(){
+                        window.Raise()
+                    })
+                }
+
                 _, ok = request.(WindowRequestRedraw)
                 if ok {
                     select {
@@ -164,6 +174,8 @@ func (debug *DebugWindow) Open(){
             debug.IsOpen = false
         }()
     })
+
+    debug.Requests <- WindowRequestRaise{}
 }
 
 func (debug *DebugWindow) Close(mainQuit context.Context) {
