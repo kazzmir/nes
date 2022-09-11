@@ -124,6 +124,10 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
                     sdl.Do(func(){
                         window.Raise()
                     })
+                    select {
+                        case redraw <- true:
+                        default:
+                    }
                 }
 
                 _, ok = request.(WindowRequestRedraw)
