@@ -31,6 +31,7 @@ import (
     "runtime/pprof"
 
     "github.com/kazzmir/nes/cmd/nes/common"
+    "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/menu"
     "github.com/kazzmir/nes/cmd/nes/debug"
 
@@ -160,7 +161,7 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
 }
 
 /* must be called in a sdl.Do */
-func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat, renderer *sdl.Renderer) error {
+func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat gfx.PixelFormat, renderer *sdl.Renderer) error {
 
     pixels := C.CBytes(raw_pixels)
     defer C.free(pixels)
@@ -226,11 +227,11 @@ type EmulatorMessage struct {
 }
 
 type DefaultRenderLayer struct {
-    RenderFunc func(common.RenderInfo) error
+    RenderFunc func(gfx.RenderInfo) error
     Index int
 }
 
-func (layer *DefaultRenderLayer) Render(info common.RenderInfo) error {
+func (layer *DefaultRenderLayer) Render(info gfx.RenderInfo) error {
     return layer.RenderFunc(info)
 }
 
@@ -250,13 +251,13 @@ func (layer *EmulatorMessageLayer) ZIndex() int {
     return layer.Index
 }
 
-func (layer *EmulatorMessageLayer) Render(renderInfo common.RenderInfo) error {
+func (layer *EmulatorMessageLayer) Render(renderInfo gfx.RenderInfo) error {
     windowWidth, windowHeight := renderInfo.Window.GetSize()
 
     font := renderInfo.SmallFont
 
     layer.Lock.Lock()
-    messages := common.CopyArray(layer.emulatorMessages)
+    messages := gfx.CopyArray(layer.emulatorMessages)
     layer.Lock.Unlock()
 
     y := int(windowHeight) - font.Height() - 1
@@ -279,7 +280,7 @@ func (layer *EmulatorMessageLayer) Render(renderInfo common.RenderInfo) error {
             }
             white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
             // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
-            common.WriteFont(font, renderInfo.Renderer, x, y, message.Message, white)
+            gfx.WriteFont(font, renderInfo.Renderer, x, y, message.Message, white)
             y -= font.Height() + 2
         }
     }
@@ -334,7 +335,7 @@ func (layer *OverlayMessageLayer) ZIndex() int {
     return layer.Index
 }
 
-func (layer *OverlayMessageLayer) Render(info common.RenderInfo) error {
+func (layer *OverlayMessageLayer) Render(info gfx.RenderInfo) error {
     width, height := info.Window.GetSize()
 
     font := info.Font
@@ -342,13 +343,13 @@ func (layer *OverlayMessageLayer) Render(info common.RenderInfo) error {
 
     black := sdl.Color{R: 0, G: 0, B: 0, A: 200}
     white := sdl.Color{R: 255, G: 255, B: 255, A: 200}
-    messageLength := common.TextWidth(font, layer.Message)
+    messageLength := gfx.TextWidth(font, layer.Message)
     x := int(width)/2 - messageLength / 2
     y := int(height)/2
     renderer.SetDrawColor(black.R, black.G, black.B, black.A)
     renderer.FillRect(&sdl.Rect{X: int32(x - 10), Y: int32(y - 10), W: int32(messageLength + 10 + 5), H: int32(font.Height() + 10 + 5)})
 
-    common.WriteFont(font, renderer, x, y, layer.Message, white)
+    gfx.WriteFont(font, renderer, x, y, layer.Message, white)
     return nil
 }
 
@@ -361,7 +362,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     doMenu := make(chan bool, 5)
     renderOverlayUpdate := make(chan string, 5)
 
-    var renderManager common.RenderManager
+    var renderManager gfx.RenderManager
 
     if path != "" {
         log.Printf("Opening NES file '%v'", path)
@@ -555,7 +556,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     toDraw := make(chan nes.VirtualScreen, 1)
     bufferReady := make(chan nes.VirtualScreen, 1)
 
-    pixelFormat := common.FindPixelFormat()
+    pixelFormat := gfx.FindPixelFormat()
 
     log.Printf("Using pixel format %v\n", sdl.GetPixelFormatName(uint(pixelFormat)))
 
@@ -646,7 +647,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             renderer.SetDrawColor(0, 0, 0, 0)
             renderer.Clear()
 
-            err := renderManager.RenderAll(common.RenderInfo{
+            err := renderManager.RenderAll(gfx.RenderInfo{
                 Renderer: renderer,
                 Font: font,
                 SmallFont: smallFont,
@@ -725,7 +726,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         combined := common.MakeCombineButtons(input, joystickManager)
         cpu.Input = nes.MakeInput(&combined)
 
-        renderNes := func(info common.RenderInfo) error {
+        renderNes := func(info gfx.RenderInfo) error {
             return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, info.Renderer)
         }
 
@@ -764,7 +765,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         }
     }
 
-    debugWindow := debug.MakeDebugWindow(mainQuit)
+    debugWindow := debug.MakeDebugWindow(mainQuit, font, smallFont)
 
     /* runs the nes emulator */
     waiter.Add(1)
@@ -929,6 +930,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                                     default:
                                 }
                             } else if debugWindow.IsWindow(useWindow) {
+                                debugWindow.Redraw()
                             }
                         case sdl.WINDOWEVENT_CLOSE:
                             if useWindow == window {

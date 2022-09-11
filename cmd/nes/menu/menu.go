@@ -26,6 +26,7 @@ import (
     "golang.org/x/image/bmp"
 
     "github.com/kazzmir/nes/cmd/nes/common"
+    "github.com/kazzmir/nes/cmd/nes/gfx"
     nes "github.com/kazzmir/nes/lib"
 
     "github.com/veandco/go-sdl2/sdl"
@@ -206,7 +207,7 @@ func drawButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureM
     renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
     renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(info.Width + margin - 3), H: int32(info.Height + margin - 3)})
 
-    err = common.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
+    err = gfx.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
 
     return info.Width, info.Height, err
 }
@@ -228,7 +229,7 @@ func drawFixedWidthButton(font *ttf.Font, renderer *sdl.Renderer, textureManager
     renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
     renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(width + margin - 3), H: int32(info.Height + margin - 3)})
 
-    err = common.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
+    err = gfx.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
 
     return width + margin, info.Height, err
 }
@@ -251,7 +252,7 @@ func drawConstButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *Tex
     renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
     renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(info.Width + margin - 3), H: int32(info.Height + margin - 3)})
 
-    err = common.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
+    err = gfx.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
 
     return info.Width, info.Height, err
 }
@@ -262,7 +263,7 @@ func writeFontCached(font *ttf.Font, renderer *sdl.Renderer, textureManager *Tex
     if err != nil {
         return err
     }
-    return common.CopyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
+    return gfx.CopyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
 }
 
 type MenuState int
@@ -271,7 +272,7 @@ const (
     MenuStateLoadRom
 )
 
-func chainRenders(functions ...common.RenderFunction) common.RenderFunction {
+func chainRenders(functions ...gfx.RenderFunction) gfx.RenderFunction {
     return func(renderer *sdl.Renderer) error {
         for _, f := range functions {
             err := f(renderer)
@@ -306,7 +307,7 @@ func (menu *Menu) ToggleActive(){
     menu.active = ! menu.active
 }
 
-func doRender(width int, height int, raw_pixels []byte, destX int, destY int, destWidth int, destHeight int, pixelFormat common.PixelFormat, renderer *sdl.Renderer) error {
+func doRender(width int, height int, raw_pixels []byte, destX int, destY int, destWidth int, destHeight int, pixelFormat gfx.PixelFormat, renderer *sdl.Renderer) error {
     pixels := C.CBytes(raw_pixels)
     defer C.free(pixels)
 
@@ -576,7 +577,7 @@ func _doRenderButton(button Button, font *ttf.Font, renderer *sdl.Renderer, butt
 
     color := white
     if selected {
-        color = common.Glow(red, yellow, 15, clock)
+        color = gfx.Glow(red, yellow, 15, clock)
     }
 
     textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
@@ -627,19 +628,19 @@ func (button *StaticFixedWidthButton) Render(font *ttf.Font, renderer *sdl.Rende
 
     color := white
     if selected {
-        color = common.Glow(red, yellow, 15, clock)
+        color = gfx.Glow(red, yellow, 15, clock)
     }
 
     button.Lock.Lock()
-    parts := common.CopyArray(button.Parts)
+    parts := gfx.CopyArray(button.Parts)
     button.Lock.Unlock()
 
     totalLength := 0
     for _, part := range parts {
-        totalLength += common.TextWidth(font, part)
+        totalLength += gfx.TextWidth(font, part)
     }
 
-    space := common.TextWidth(font, " ")
+    space := gfx.TextWidth(font, " ")
 
     left := button.Width - totalLength
     var out string
@@ -743,7 +744,7 @@ func isAudioEnabled(quit context.Context, programActions chan<- common.ProgramAc
 type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
     Input(input MenuInput) SubMenu
-    MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction
+    MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) gfx.RenderFunction
     UpdateWindowSize(int, int)
     RawInput(sdl.Event)
     PlayBeep()
@@ -779,7 +780,7 @@ func (buttons *MenuButtons) Render(startX int, startY int, maxWidth int, maxHeig
     x := startX
     y := startY
     for i, item := range buttons.Items {
-        if x > maxWidth - common.TextWidth(font, item.Text()) {
+        if x > maxWidth - gfx.TextWidth(font, item.Text()) {
             x = startX
             y += font.Height() + 20
         }
@@ -845,13 +846,13 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
 }
 
 func renderLines(renderer *sdl.Renderer, x int, y int, font *ttf.Font, info string) (int, int, error) {
-    aLength := common.TextWidth(font, "A")
+    aLength := gfx.TextWidth(font, "A")
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
 
     for _, line := range strings.Split(info, "\n") {
         parts := strings.Split(line, "\t")
         for i, part := range parts {
-            common.WriteFont(font, renderer, x + i * aLength * 20, y, part, white)
+            gfx.WriteFont(font, renderer, x + i * aLength * 20, y, part, white)
         }
         y += font.Height() + 2
     }
@@ -859,7 +860,7 @@ func renderLines(renderer *sdl.Renderer, x int, y int, font *ttf.Font, info stri
     return x, y, nil
 }
 
-func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
+func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) gfx.RenderFunction {
     
     return func(renderer *sdl.Renderer) error {
         startX := 50
@@ -1367,7 +1368,7 @@ func (menu *JoystickMenu) GetTexture(textureManager *TextureManager, text string
     return next
 }
 
-func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
+func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) gfx.RenderFunction {
     menu.Lock.Lock()
     defer menu.Lock.Unlock()
 
@@ -1390,7 +1391,7 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
         x := 10
         y := 10
 
-        err = common.CopyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
+        err = gfx.CopyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
         if err != nil {
             return err
         }
@@ -1412,7 +1413,7 @@ func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManage
                 return err
             }
 
-            err = common.CopyTexture(info2.Texture, renderer, info2.Width, info2.Height, x, y)
+            err = gfx.CopyTexture(info2.Texture, renderer, info2.Width, info2.Height, x, y)
             if err != nil {
                 return err
             }
@@ -1814,7 +1815,7 @@ func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
     }
 }
 
-func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
+func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) gfx.RenderFunction {
     return func(renderer *sdl.Renderer) error {
         return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, smallFont, renderer, textureManager)
     }
@@ -1902,7 +1903,7 @@ func niceSize(size int64) string {
     return fmt.Sprintf("%v%v", size, last)
 }
 
-func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
+func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) gfx.RenderFunction {
     old := loader.RomLoader.MakeRenderer(maxWidth, maxHeight, buttonManager, textureManager, font, smallFont, clock)
 
     return func(renderer *sdl.Renderer) error {
@@ -1945,17 +1946,17 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
 
         textY := y
         textX := x
-        common.WriteFont(font, renderer, textX, textY, fmt.Sprintf("%v", filepath.Base(loader.Info.Path)), white)
+        gfx.WriteFont(font, renderer, textX, textY, fmt.Sprintf("%v", filepath.Base(loader.Info.Path)), white)
 
         textY += font.Height() + 2
 
-        common.WriteFont(font, renderer, textX, textY, fmt.Sprintf("File size: %v", niceSize(loader.Filesize)), white)
+        gfx.WriteFont(font, renderer, textX, textY, fmt.Sprintf("File size: %v", niceSize(loader.Filesize)), white)
         textY += font.Height() + 2
 
         if loader.Mapper == -1 {
-            common.WriteFont(font, renderer, textX, textY, "Mapper: unknown", white)
+            gfx.WriteFont(font, renderer, textX, textY, "Mapper: unknown", white)
         } else {
-            common.WriteFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: %v", loader.Mapper), white)
+            gfx.WriteFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: %v", loader.Mapper), white)
         }
         textY += font.Height() + 2
 
@@ -1970,7 +1971,7 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
             // FIXME: move this allocation into the object so its not repeated every draw frame
             raw_pixels := make([]byte, width*height * 4)
             common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
-            pixelFormat := common.FindPixelFormat()
+            pixelFormat := gfx.FindPixelFormat()
 
             romWidth := int(float32(width) / divider)
             romHeight := int(float32(height) / divider)
@@ -1980,9 +1981,9 @@ func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, buttonM
             renderer.DrawRect(&sdl.Rect{X: int32(maxX - thumbnail - 2), Y: int32(y+10), W: int32(romWidth), H: int32(romHeight)})
 
             yPos := maxY - font.Height() * 4
-            common.WriteFont(font, renderer, x, yPos, "Load rom", loader.GetSelectionColor(LoadRomInfoSelect))
+            gfx.WriteFont(font, renderer, x, yPos, "Load rom", loader.GetSelectionColor(LoadRomInfoSelect))
             yPos += font.Height() + 2
-            common.WriteFont(font, renderer, x, yPos, "Back", loader.GetSelectionColor(LoadRomInfoBack))
+            gfx.WriteFont(font, renderer, x, yPos, "Back", loader.GetSelectionColor(LoadRomInfoBack))
         }
 
         return nil
@@ -2173,7 +2174,7 @@ func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
     }
 }
 
-func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) common.RenderFunction {
+func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager *ButtonManager, textureManager *TextureManager, font *ttf.Font, smallFont *ttf.Font, clock uint64) gfx.RenderFunction {
     return func(renderer *sdl.Renderer) error {
         startX := 50
         _, y, err := menu.Buttons.Render(startX, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
@@ -2192,7 +2193,7 @@ func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManag
             renderer.SetDrawColor(5, 5, 5, 230)
 
             line := "Press a key"
-            width := common.TextWidth(font, strings.Repeat("A", 20))
+            width := gfx.TextWidth(font, strings.Repeat("A", 20))
             height := font.Height()
 
             midX := maxWidth / 2
@@ -2210,7 +2211,7 @@ func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManag
 
             textX := midX - width / 2
             textY := midY - height / 2
-            common.WriteFont(font, renderer, midX - width / 2, midY - height / 2, line, white)
+            gfx.WriteFont(font, renderer, midX - width / 2, midY - height / 2, line, white)
 
             textY += font.Height() + 2
 
@@ -2220,12 +2221,12 @@ func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManag
             warning := menu.Warning
             menu.Lock.Unlock()
 
-            common.WriteFont(font, renderer, textX, textY, sdl.GetKeyName(tempChoice), common.Glow(red, yellow, 15, current))
+            gfx.WriteFont(font, renderer, textX, textY, sdl.GetKeyName(tempChoice), gfx.Glow(red, yellow, 15, current))
 
             textY += font.Height() + 2
 
             if warning != "" {
-                common.WriteFont(font, renderer, textX, textY, warning, white)
+                gfx.WriteFont(font, renderer, textX, textY, warning, white)
             }
         }
 
@@ -2270,11 +2271,11 @@ func (choose *ChooseButton) Render(font *ttf.Font, renderer *sdl.Renderer, butto
     if choose.IsEnabled() {
 
         size := 10
-        common.DrawEquilateralTriange(renderer, x-size*2, y + size + font.Height() / 4, float64(size), 180.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
+        gfx.DrawEquilateralTriange(renderer, x-size*2, y + size + font.Height() / 4, float64(size), 180.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
         width, height, err := _doRenderButton(choose, font, renderer, buttonManager, textureManager, x, y, selected, clock)
         x += width
         _ = height
-        common.DrawEquilateralTriange(renderer, x+size*2, y + size + font.Height() / 4, float64(size), 0.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
+        gfx.DrawEquilateralTriange(renderer, x+size*2, y + size + font.Height() / 4, float64(size), 0.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
 
         return x + size*2 + size*2, font.Height(), err
     } else {
@@ -2469,7 +2470,7 @@ type MenuRenderLayer struct {
     Index int
 }
 
-func (layer *MenuRenderLayer) Render(info common.RenderInfo) error {
+func (layer *MenuRenderLayer) Render(info gfx.RenderInfo) error {
     return layer.Renderer(info.Renderer)
 }
 
@@ -2477,7 +2478,7 @@ func (layer *MenuRenderLayer) ZIndex() int {
     return layer.Index
 }
 
-func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *common.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys){
+func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *gfx.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys){
 
     menuZIndex := 10
 
@@ -2609,8 +2610,8 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
             return nil
         }
 
-        makeSnowRenderer := func(snowflakes []Snow) common.RenderFunction {
-            snowCopy := common.CopyArray(snowflakes)
+        makeSnowRenderer := func(snowflakes []Snow) gfx.RenderFunction {
+            snowCopy := gfx.CopyArray(snowflakes)
             return func(renderer *sdl.Renderer) error {
                 for _, snow := range snowCopy {
                     c := snow.color
@@ -2627,7 +2628,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
         var windowSize common.WindowSize
 
-        makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) common.RenderFunction {
+        makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) gfx.RenderFunction {
             white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
             return func(renderer *sdl.Renderer) error {
                 err := writeFontCached(smallFont, renderer, textureManager, nesEmulatorTextureId, maxWidth - 130, maxHeight - smallFont.Height() * 3, "NES Emulator", white)

@@ -4,13 +4,18 @@ import (
     "sync"
     "context"
     "log"
+    "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/veandco/go-sdl2/sdl"
+    "github.com/veandco/go-sdl2/ttf"
 )
 
 type WindowRequest any
 
 type WindowRequestWindow struct {
     Response chan *sdl.Window
+}
+
+type WindowRequestRedraw struct {
 }
 
 type DebugWindow struct {
@@ -20,15 +25,19 @@ type DebugWindow struct {
     Requests chan WindowRequest
     IsOpen bool
     Wait sync.WaitGroup
+    BigFont *ttf.Font
+    SmallFont *ttf.Font
 }
 
-func MakeDebugWindow(mainQuit context.Context) *DebugWindow {
+func MakeDebugWindow(mainQuit context.Context, bigFont *ttf.Font, smallFont *ttf.Font) *DebugWindow {
     quit, cancel := context.WithCancel(mainQuit)
     return &DebugWindow{
         Quit: quit,
         Cancel: cancel,
         Requests: make(chan WindowRequest, 2),
         IsOpen: false,
+        BigFont: bigFont,
+        SmallFont: smallFont,
     }
 }
 
@@ -56,14 +65,45 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
         renderer.Destroy()
     })
 
+    white := sdl.Color{
+        R: 255,
+        G: 255,
+        B: 255,
+        A: 255,
+    }
+
+    render := func(renderer *sdl.Renderer){
+        renderer.SetDrawColor(0, 0, 0, 0)
+        renderer.Clear()
+
+        gfx.WriteFont(debug.BigFont, renderer, 1, 1, "Debugger", white)
+
+        renderer.Present()
+    }
+    
+    redraw := make(chan bool, 1)
+    redraw <- true
+
     for {
         select {
             case <-quit.Done():
                 return nil
+            case <-redraw:
+                sdl.Do(func(){
+                    render(renderer)
+                })
             case request := <-debug.Requests:
                 windowRequest, ok := request.(WindowRequestWindow)
                 if ok {
                     windowRequest.Response <- window
+                }
+
+                _, ok = request.(WindowRequestRedraw)
+                if ok {
+                    select {
+                        case redraw <- true:
+                        default:
+                    }
                 }
         }
     }
@@ -108,4 +148,11 @@ func (debug *DebugWindow) Close(mainQuit context.Context) {
         debug.Quit = quit
         debug.Cancel = cancel
     }()
+}
+
+func (debug *DebugWindow) Redraw() {
+    select {
+        case debug.Requests <- WindowRequestRedraw{}:
+        default:
+    }
 }

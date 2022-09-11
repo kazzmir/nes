@@ -15,6 +15,34 @@ import (
     "github.com/kazzmir/nes/cmd/nes/debug"
 )
 
+type WindowSize struct {
+    X int
+    Y int
+}
+
+type ProgramActions interface {
+}
+
+type ProgramToggleSound struct {
+}
+
+type ProgramQuit struct {
+}
+
+type ProgramPauseEmulator struct {
+}
+
+type ProgramUnpauseEmulator struct {
+}
+
+type ProgramQueryAudioState struct {
+    Response chan bool
+}
+
+type ProgramLoadRom struct {
+    Path string
+}
+
 type AudioResponse int
 const (
     AudioResponseEnabled AudioResponse = iota
@@ -596,3 +624,4 @@ func RenderPixelsRGBA(screen nes.VirtualScreen, raw_pixels []byte, overscanPixel
         raw_pixels[i*4+3] = byte(pixel >> 0)
     }
 }
+

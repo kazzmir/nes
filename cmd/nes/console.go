@@ -9,6 +9,7 @@ import (
     "strconv"
     "sync"
     "github.com/kazzmir/nes/cmd/nes/common"
+    "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/debug"
     "github.com/veandco/go-sdl2/sdl"
 )
@@ -70,13 +71,13 @@ func (enter EnterMessage) ConsoleMessage() {
 }
 
 type Console struct {
-    RenderManager *common.RenderManager
+    RenderManager *gfx.RenderManager
     State ConsoleState
     Messages chan Message
     ZIndex int
 }
 
-func MakeConsole(zindex int, manager *common.RenderManager, cancel context.CancelFunc, quit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool) *Console {
+func MakeConsole(zindex int, manager *gfx.RenderManager, cancel context.CancelFunc, quit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool) *Console {
     console := Console{
         RenderManager: manager,
         State: StateClosed,
@@ -126,7 +127,7 @@ func (layer *RenderConsoleLayer) SetText(text string){
     layer.Text = text
 }
 
-func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
+func (layer *RenderConsoleLayer) Render(info gfx.RenderInfo) error {
     renderer := info.Renderer
     var alpha uint8 = 200
     renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
@@ -146,16 +147,16 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
 
     yPos := y - info.SmallFont.Height() - 1
 
-    common.WriteFont(info.SmallFont, renderer, 1, yPos, fmt.Sprintf("> %s|", layer.GetText()), white)
+    gfx.WriteFont(info.SmallFont, renderer, 1, yPos, fmt.Sprintf("> %s|", layer.GetText()), white)
 
     layer.Lock.Lock()
     max := len(layer.Lines)
     if max > 30 {
         max = 30
     }
-    lines := common.CopyArray(layer.Lines[len(layer.Lines)-max:len(layer.Lines)])
+    lines := gfx.CopyArray(layer.Lines[len(layer.Lines)-max:len(layer.Lines)])
     layer.Lock.Unlock()
-    common.Reverse(lines)
+    gfx.Reverse(lines)
 
     /* show all previous lines */
     for _, line := range lines {
@@ -163,7 +164,7 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
         if yPos < -info.SmallFont.Height() {
             break
         }
-        common.WriteFont(info.SmallFont, renderer, 1, yPos, line, grey)
+        gfx.WriteFont(info.SmallFont, renderer, 1, yPos, line, grey)
     }
 
     return nil

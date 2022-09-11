@@ -27,6 +27,7 @@ import (
     "github.com/veandco/go-sdl2/ttf"
     "github.com/kazzmir/nes/cmd/nes/menu/filterlist"
     "github.com/kazzmir/nes/cmd/nes/common"
+    "github.com/kazzmir/nes/cmd/nes/gfx"
     nes "github.com/kazzmir/nes/lib"
 )
 
@@ -772,10 +773,10 @@ func (loader *RomLoaderState) ZoomOut() {
 func drawOverlayString(font *ttf.Font, renderer *sdl.Renderer, x int, y int, base string, startPosition int, length int, color sdl.Color) error {
     rendered := base[0:startPosition+1]
     // get the length of the text minus the last character
-    startLength := common.TextWidth(font, rendered) - common.TextWidth(font, string(rendered[len(rendered)-1]))
+    startLength := gfx.TextWidth(font, rendered) - gfx.TextWidth(font, string(rendered[len(rendered)-1]))
     matched := base[startPosition:startPosition+length]
     // show the matched part of the selected rom
-    return common.WriteFont(font, renderer, x + startLength, y, matched, color)
+    return gfx.WriteFont(font, renderer, x + startLength, y, matched, color)
 }
 
 func maxTextWidth(font *ttf.Font, maxWidth int) int {
@@ -783,7 +784,7 @@ func maxTextWidth(font *ttf.Font, maxWidth int) int {
         return 0
     }
 
-    size := common.TextWidth(font, "A")
+    size := gfx.TextWidth(font, "A")
     return maxWidth / size
 }
 
@@ -796,7 +797,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     green := sdl.Color{R: 0, G: 255, B: 0, A: 255}
 
     showTiles := loader.GetFilteredRoms()
-    common.WriteFont(font, renderer, 1, 1, fmt.Sprintf("Press enter to load a rom. Roms found %v (%v filtered)", loader.RomIdsAndPaths.Size(), len(showTiles)), white)
+    gfx.WriteFont(font, renderer, 1, 1, fmt.Sprintf("Press enter to load a rom. Roms found %v (%v filtered)", loader.RomIdsAndPaths.Size(), len(showTiles)), white)
 
     layout := loader.TileLayout()
 
@@ -819,7 +820,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         selectedY := font.Height() + 3
 
         // show the filename of the selected rom
-        common.WriteFont(font, renderer, selectedX, selectedY, showTiles[selectedIndex].Path, white)
+        gfx.WriteFont(font, renderer, selectedX, selectedY, showTiles[selectedIndex].Path, white)
 
         if loader.RomIdsAndPaths.Filter() != "" {
             path := showTiles[selectedIndex].Path
@@ -838,7 +839,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     _ = err
 
     raw_pixels := make([]byte, width*height * 4)
-    pixelFormat := common.FindPixelFormat()
+    pixelFormat := gfx.FindPixelFormat()
 
     /* if the rom doesn't have any frames loaded then show a blank thumbnail */
     blankScreen := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
@@ -897,7 +898,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
         }
     }
 
-    common.WriteFont(font, renderer, 30, maxHeight - 30, loader.RomIdsAndPaths.Filter(), green)
+    gfx.WriteFont(font, renderer, 30, maxHeight - 30, loader.RomIdsAndPaths.Filter(), green)
 
     MaxNameSize := maxTextWidth(smallFont, int(float32(width) / layout.Thumbnail))
 
@@ -924,7 +925,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
             name = fmt.Sprintf("%v..", name[0:MaxNameSize-2])
         }
 
-        common.WriteFont(smallFont, renderer, int(x), int(y + float32(height) / layout.Thumbnail + 1), name, white)
+        gfx.WriteFont(smallFont, renderer, int(x), int(y + float32(height) / layout.Thumbnail + 1), name, white)
 
         x += float32(width) / layout.Thumbnail + float32(layout.XSpace)
         if x + float32(width) / layout.Thumbnail + 5 > float32(maxWidth) {
