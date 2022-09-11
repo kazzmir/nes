@@ -26,6 +26,9 @@ type WindowRequestText struct {
 type WindowRequestRaise struct {
 }
 
+type WindowRequestBackspace struct {
+}
+
 type Line struct {
     Text string
 }
@@ -44,7 +47,7 @@ type DebugWindow struct {
 
 func MakeDebugWindow(mainQuit context.Context, bigFont *ttf.Font, smallFont *ttf.Font) *DebugWindow {
     quit, cancel := context.WithCancel(mainQuit)
-    return &DebugWindow{
+    debug := DebugWindow{
         Quit: quit,
         Cancel: cancel,
         Requests: make(chan WindowRequest, 5),
@@ -53,6 +56,8 @@ func MakeDebugWindow(mainQuit context.Context, bigFont *ttf.Font, smallFont *ttf
         SmallFont: smallFont,
         Line: Line{},
     }
+
+    return &debug
 }
 
 func (debug *DebugWindow) doOpen(quit context.Context) error {
@@ -103,16 +108,37 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
     
     redraw := make(chan bool, 1)
     redraw <- true
+    defer close(redraw)
 
+    /* FIXME: make this atomic */
+    debug.IsOpen = true
+    defer func(){
+        debug.IsOpen = false
+    }()
+
+    /* Listen for redraw events */
+    go func(){
+        for {
+            select {
+                case <-quit.Done():
+                    return
+                case <-redraw:
+                    windowWidth, windowHeight := window.GetSize()
+                    sdl.Do(func(){
+                        render(int(windowWidth), int(windowHeight), renderer)
+                    })
+            }
+        }
+    }()
+
+    /* Do not make any sdl.Do() calls in this for loop. If sdl.Do is needed then wrap it in
+     * another go func, e.g.:
+     *  go func(){ sdl.Do(...) }
+     */
     for {
         select {
             case <-quit.Done():
                 return nil
-            case <-redraw:
-                windowWidth, windowHeight := window.GetSize()
-                sdl.Do(func(){
-                    render(int(windowWidth), int(windowHeight), renderer)
-                })
             case request := <-debug.Requests:
                 windowRequest, ok := request.(WindowRequestWindow)
                 if ok {
@@ -121,13 +147,15 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
 
                 _, ok = request.(WindowRequestRaise)
                 if ok {
-                    sdl.Do(func(){
-                        window.Raise()
-                    })
-                    select {
-                        case redraw <- true:
-                        default:
-                    }
+                    go func(){
+                        sdl.Do(func(){
+                            window.Raise()
+                        })
+                        select {
+                            case redraw <- true:
+                            default:
+                        }
+                    }()
                 }
 
                 _, ok = request.(WindowRequestRedraw)
@@ -146,13 +174,24 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
                         default:
                     }
                 }
+
+                _, ok = request.(WindowRequestBackspace)
+                if ok {
+                    if len(debug.Line.Text) > 0 {
+                        debug.Line.Text = debug.Line.Text[0:len(debug.Line.Text)-1]
+                    }
+                    select {
+                        case redraw <- true:
+                        default:
+                    }
+                }
         }
     }
 
     return nil
 }
 
-func (debug *DebugWindow) IsWindow(window *sdl.Window) bool {
+func (debug *DebugWindow) IsWindow(windowId uint32) bool {
     if !debug.IsOpen {
         return false
     }
@@ -162,7 +201,29 @@ func (debug *DebugWindow) IsWindow(window *sdl.Window) bool {
     }
     debug.Requests <- request
     out := <-request.Response
-    return out == window
+    if out != nil {
+        id, err := out.GetID()
+        if err == nil {
+            return id == windowId
+        }
+    }
+    return false
+}
+
+func (debug *DebugWindow) notOpen(quit context.Context){
+    go func(){
+        for {
+            select {
+                case <-quit.Done():
+                    return
+                case request := <-debug.Requests:
+                    window, ok := request.(WindowRequestWindow)
+                    if ok {
+                        window.Response <- nil
+                    }
+            }
+        }
+    }()
 }
 
 func (debug *DebugWindow) Open(){
@@ -170,12 +231,10 @@ func (debug *DebugWindow) Open(){
         debug.Wait.Add(1)
         go func(){
             defer debug.Wait.Done()
-            debug.IsOpen = true
             err := debug.doOpen(debug.Quit)
             if err != nil {
                 log.Printf("Could not open debug window: %v", err)
             }
-            debug.IsOpen = false
         }()
     })
 
@@ -209,5 +268,21 @@ func (debug *DebugWindow) HandleText(event sdl.Event){
             }
 
             debug.Requests <- message
+    }
+}
+
+func (debug *DebugWindow) HandleKey(event sdl.Event){
+    switch event.GetType() {
+        case sdl.KEYDOWN:
+            key_event := event.(*sdl.KeyboardEvent)
+            switch key_event.Keysym.Sym {
+                case sdl.K_BACKSPACE:
+                    select {
+                        case debug.Requests <- WindowRequestBackspace{}:
+                        default:
+                    }
+            }
+
+        case sdl.KEYUP:
     }
 }
