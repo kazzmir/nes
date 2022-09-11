@@ -85,7 +85,7 @@ func MakeConsole(zindex int, manager *gfx.RenderManager, cancel context.CancelFu
         ZIndex: zindex,
     }
 
-    go console.Run(cancel, quit, emulatorActions, nesActions, renderNow)
+    go console.run(cancel, quit, emulatorActions, nesActions, renderNow)
 
     return &console
 }
@@ -176,6 +176,7 @@ exit, quit: quit the program
 clear: clear console text
 info: show emulator info
 reload, restart: reload the current rom
+debug: open debug window
 `
 
 func (console *Console) GetDebugger(emulatorActions chan<- common.EmulatorAction) debug.Debugger {
@@ -200,7 +201,7 @@ func firstString(strings []string) string {
     return ""
 }
 
-func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool){
+func (console *Console) run(mainCancel context.CancelFunc, mainQuit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool){
     normalTime := time.Millisecond * 13
     slowTime := time.Hour * 100
     ticker := time.NewTicker(slowTime)

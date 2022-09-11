@@ -353,6 +353,33 @@ func (layer *OverlayMessageLayer) Render(info gfx.RenderInfo) error {
     return nil
 }
 
+func getWindowFromEvent(event sdl.Event) *sdl.Window {
+    switch event.GetType() {
+        case sdl.TEXTEDITING:
+            text_event, ok := event.(*sdl.TextEditingEvent)
+            if ok {
+                useWindow, err := sdl.GetWindowFromID(text_event.WindowID)
+                if err != nil {
+                    log.Printf("Event sent to invalid window: %v %v", text_event.WindowID)
+                    return nil
+                }
+                return useWindow
+            }
+        case sdl.TEXTINPUT:
+            text_input, ok := event.(*sdl.TextInputEvent)
+            if ok {
+                useWindow, err := sdl.GetWindowFromID(text_input.WindowID)
+                if err != nil {
+                    log.Printf("Event sent to invalid window: %v %v", text_input.WindowID)
+                    return nil
+                }
+                return useWindow
+            }
+    }
+
+    return nil
+}
+
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
     randomSeed := time.Now().UnixNano()
 
@@ -953,7 +980,13 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     }
                     */
                 case sdl.TEXTINPUT, sdl.TEXTEDITING:
-                    console.HandleText(event)
+                    useWindow := getWindowFromEvent(event)
+
+                    if useWindow == window {
+                        console.HandleText(event)
+                    } else if debugWindow.IsWindow(useWindow) {
+                        debugWindow.HandleText(event)
+                    }
                 case sdl.DROPFILE:
                     drop_event := event.(*sdl.DropEvent)
                     switch drop_event.Type {
