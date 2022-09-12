@@ -618,7 +618,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     joystickManager := common.NewJoystickManager()
     defer joystickManager.Close()
 
-    sdl.Do(sdl.StopTextInput)
+    // sdl.Do(sdl.StopTextInput)
+    sdl.Do(sdl.StartTextInput)
 
     // var joystickInput nes.HostInput
     /*
@@ -945,199 +946,227 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         return err
     }
 
-    eventFunction := func(){
-        event := sdl.WaitEventTimeout(1)
-        if event != nil {
-            // log.Printf("Event %+v\n", event)
-            switch event.GetType() {
-                case sdl.QUIT: mainCancel()
-                case sdl.WINDOWEVENT:
-                    window_event := event.(*sdl.WindowEvent)
-                    useWindowId := getWindowIdFromEvent(window_event)
-                    switch window_event.Event {
-                        case sdl.WINDOWEVENT_EXPOSED:
-                            if useWindowId == mainWindowId {
-                                select {
-                                    case renderNow <- true:
-                                    default:
-                                }
-                            } else if debugWindow.IsWindow(useWindowId) {
-                                debugWindow.Redraw()
-                            }
-                        case sdl.WINDOWEVENT_CLOSE:
-                            if useWindowId == mainWindowId {
-                                mainCancel()
-                            } else if debugWindow.IsWindow(useWindowId) {
-                                debugWindow.Close(mainQuit)
-                            }
-                        case sdl.WINDOWEVENT_RESIZED:
-                            // log.Printf("Window resized")
+    events := make(chan sdl.Event, 20)
 
-                    }
-
-                    /*
-                    width, height := window.GetSize()
-                    / * Not great but tolerate not updating the system when the window changes * /
-                    select {
-                        case windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}:
-                        default:
-                            log.Printf("Warning: dropping a window event")
-                    }
-                    */
-                case sdl.TEXTINPUT, sdl.TEXTEDITING:
-                    useWindowId := getWindowIdFromEvent(event)
-
-                    if useWindowId == mainWindowId {
-                        console.HandleText(event)
-                    } else if debugWindow.IsWindow(useWindowId) {
-                        debugWindow.HandleText(event)
-                    }
-                case sdl.DROPFILE:
-                    drop_event := event.(*sdl.DropEvent)
-                    switch drop_event.Type {
-                        case sdl.DROPFILE:
-                            // log.Printf("drop file '%v'\n", drop_event.File)
-                            programActionsOutput <- &common.ProgramLoadRom{Path: drop_event.File}
-                        case sdl.DROPBEGIN:
-                            log.Printf("drop begin '%v'\n", drop_event.File)
-                        case sdl.DROPCOMPLETE:
-                            log.Printf("drop complete '%v'\n", drop_event.File)
-                        case sdl.DROPTEXT:
-                            log.Printf("drop text '%v'\n", drop_event.File)
-                    }
-
-                case sdl.KEYDOWN:
-                    keyboard_event := event.(*sdl.KeyboardEvent)
-                    useWindowId := getWindowIdFromEvent(event)
-                    if useWindowId == mainWindowId {
-                        // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
-                        quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
-
-                        if quit_pressed {
+    handleOneEvent := func(event sdl.Event){
+        switch event.GetType() {
+            case sdl.QUIT: mainCancel()
+            case sdl.WINDOWEVENT:
+                window_event := event.(*sdl.WindowEvent)
+                useWindowId := getWindowIdFromEvent(window_event)
+                switch window_event.Event {
+                    case sdl.WINDOWEVENT_EXPOSED:
+                        if useWindowId == mainWindowId {
                             select {
-                                case doMenu <- true:
+                                case renderNow <- true:
                                 default:
                             }
-
-                            // theMenu.Input <- menu.MenuToggle
+                        } else if debugWindow.IsWindow(useWindowId) {
+                            debugWindow.Redraw()
                         }
-
-                        if console.IsActive() {
-                            console.HandleKey(keyboard_event, emulatorKeys)
-                            return
+                    case sdl.WINDOWEVENT_CLOSE:
+                        if useWindowId == mainWindowId {
+                            mainCancel()
+                        } else if debugWindow.IsWindow(useWindowId) {
+                            debugWindow.Close(mainQuit)
                         }
+                    case sdl.WINDOWEVENT_RESIZED:
+                        // log.Printf("Window resized")
 
-                        /* Pass input to nes */
-                        input.HandleEvent(keyboard_event)
+                }
 
-                        switch keyboard_event.Keysym.Sym {
-                            case emulatorKeys.Console:
-                                console.Toggle()
-                            case emulatorKeys.Turbo:
-                                select {
-                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
-                                    default:
-                                }
-                            case emulatorKeys.StepFrame:
-                                select {
-                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorStepFrame):
-                                    default:
-                                }
-                            case emulatorKeys.SaveState:
-                                select {
-                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSaveState):
-                                        select {
-                                            case emulatorMessages.ReceiveMessages <- "Saved state":
-                                            default:
-                                        }
-                                    default:
-                                }
-                            case emulatorKeys.LoadState:
-                                select {
-                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorLoadState):
-                                        select {
-                                            case emulatorMessages.ReceiveMessages <- "Loaded state":
-                                            default:
-                                        }
-                                    default:
-                                }
-                            case emulatorKeys.Record:
-                                if recordQuit.Err() == nil {
-                                    recordCancel()
-                                    select {
-                                        case emulatorMessages.ReceiveMessages <- "Stopped recording":
-                                        default:
-                                    }
-                                } else {
-                                    recordQuit, recordCancel = context.WithCancel(mainQuit)
-                                    err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
-                                    if err != nil {
-                                        log.Printf("Could not record video: %v", err)
-                                    }
-                                    select {
-                                        case emulatorMessages.ReceiveMessages <- "Started recording":
-                                        default:
-                                    }
-                                }
-                            case emulatorKeys.Pause:
-                                log.Printf("Pause/unpause")
-                                select {
-                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePause):
-                                    default:
-                                }
-                            case emulatorKeys.PPUDebug:
-                                select {
-                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePPUDebug):
-                                    default:
-                                }
-                            case emulatorKeys.SlowDown:
-                                select {
-                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSlowDown):
-                                    default:
-                                }
-                            case emulatorKeys.SpeedUp:
-                                select {
-                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSpeedUp):
-                                    default:
-                                }
-                            case emulatorKeys.Normal:
-                                select {
-                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
-                                    default:
-                                }
-                            case emulatorKeys.HardReset:
-                                log.Printf("Hard reset")
-                                nesChannel <- &NesActionRestart{}
-                                select {
-                                    case emulatorMessages.ReceiveMessages <- "Hard reset":
-                                    default:
-                                }
-                        }
-                    } else if debugWindow.IsWindow(useWindowId) {
-                        debugWindow.HandleKey(event)
+                /*
+                width, height := window.GetSize()
+                / * Not great but tolerate not updating the system when the window changes * /
+                select {
+                    case windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}:
+                    default:
+                        log.Printf("Warning: dropping a window event")
+                }
+                */
+            case sdl.TEXTINPUT, sdl.TEXTEDITING:
+                useWindowId := getWindowIdFromEvent(event)
+
+                if useWindowId == mainWindowId {
+                    if console.IsActive() {
+                        console.HandleText(event)
                     }
-                case sdl.KEYUP:
-                    keyboard_event := event.(*sdl.KeyboardEvent)
-                    useWindowId := getWindowIdFromEvent(keyboard_event)
-                    if useWindowId == mainWindowId {
-                        input.HandleEvent(keyboard_event)
-                        code := keyboard_event.Keysym.Sym
-                        if code == emulatorKeys.Turbo || code == emulatorKeys.Pause {
+                } else if debugWindow.IsWindow(useWindowId) {
+                    debugWindow.HandleText(event)
+                }
+            case sdl.DROPFILE:
+                drop_event := event.(*sdl.DropEvent)
+                switch drop_event.Type {
+                    case sdl.DROPFILE:
+                        // log.Printf("drop file '%v'\n", drop_event.File)
+                        programActionsOutput <- &common.ProgramLoadRom{Path: drop_event.File}
+                    case sdl.DROPBEGIN:
+                        log.Printf("drop begin '%v'\n", drop_event.File)
+                    case sdl.DROPCOMPLETE:
+                        log.Printf("drop complete '%v'\n", drop_event.File)
+                    case sdl.DROPTEXT:
+                        log.Printf("drop text '%v'\n", drop_event.File)
+                }
+
+            case sdl.KEYDOWN:
+                keyboard_event := event.(*sdl.KeyboardEvent)
+                useWindowId := getWindowIdFromEvent(event)
+                if useWindowId == mainWindowId {
+                    // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
+                    quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
+
+                    if quit_pressed {
+                        select {
+                            case doMenu <- true:
+                            default:
+                        }
+
+                        // theMenu.Input <- menu.MenuToggle
+                    }
+
+                    if console.IsActive() {
+                        console.HandleKey(keyboard_event, emulatorKeys)
+                        return
+                    }
+
+                    /* Pass input to nes */
+                    input.HandleEvent(keyboard_event)
+
+                    switch keyboard_event.Keysym.Sym {
+                        case emulatorKeys.Console:
+                            console.Toggle()
+                        case emulatorKeys.Turbo:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
+                                default:
+                            }
+                        case emulatorKeys.StepFrame:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorStepFrame):
+                                default:
+                            }
+                        case emulatorKeys.SaveState:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSaveState):
+                                    select {
+                                        case emulatorMessages.ReceiveMessages <- "Saved state":
+                                        default:
+                                    }
+                                default:
+                            }
+                        case emulatorKeys.LoadState:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorLoadState):
+                                    select {
+                                        case emulatorMessages.ReceiveMessages <- "Loaded state":
+                                        default:
+                                    }
+                                default:
+                            }
+                        case emulatorKeys.Record:
+                            if recordQuit.Err() == nil {
+                                recordCancel()
+                                select {
+                                    case emulatorMessages.ReceiveMessages <- "Stopped recording":
+                                    default:
+                                }
+                            } else {
+                                recordQuit, recordCancel = context.WithCancel(mainQuit)
+                                err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
+                                if err != nil {
+                                    log.Printf("Could not record video: %v", err)
+                                }
+                                select {
+                                    case emulatorMessages.ReceiveMessages <- "Started recording":
+                                    default:
+                                }
+                            }
+                        case emulatorKeys.Pause:
+                            log.Printf("Pause/unpause")
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePause):
+                                default:
+                            }
+                        case emulatorKeys.PPUDebug:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePPUDebug):
+                                default:
+                            }
+                        case emulatorKeys.SlowDown:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSlowDown):
+                                default:
+                            }
+                        case emulatorKeys.SpeedUp:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSpeedUp):
+                                default:
+                            }
+                        case emulatorKeys.Normal:
                             select {
                                 case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
                                 default:
                             }
+                        case emulatorKeys.HardReset:
+                            log.Printf("Hard reset")
+                            nesChannel <- &NesActionRestart{}
+                            select {
+                                case emulatorMessages.ReceiveMessages <- "Hard reset":
+                                default:
+                            }
+                    }
+                } else if debugWindow.IsWindow(useWindowId) {
+                    debugWindow.HandleKey(event)
+                }
+            case sdl.KEYUP:
+                keyboard_event := event.(*sdl.KeyboardEvent)
+                useWindowId := getWindowIdFromEvent(keyboard_event)
+                if useWindowId == mainWindowId {
+                    input.HandleEvent(keyboard_event)
+                    code := keyboard_event.Keysym.Sym
+                    if code == emulatorKeys.Turbo || code == emulatorKeys.Pause {
+                        select {
+                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
+                            default:
                         }
-                    } else if debugWindow.IsWindow(useWindowId) {
-                        debugWindow.HandleKey(event)
                     }
-                case sdl.JOYBUTTONDOWN, sdl.JOYBUTTONUP, sdl.JOYAXISMOTION:
-                    action := joystickManager.HandleEvent(event)
-                    select {
-                        case emulatorActionsOutput <- action:
-                        default:
-                    }
+                } else if debugWindow.IsWindow(useWindowId) {
+                    debugWindow.HandleKey(event)
+                }
+            case sdl.JOYBUTTONDOWN, sdl.JOYBUTTONUP, sdl.JOYAXISMOTION:
+                action := joystickManager.HandleEvent(event)
+                select {
+                    case emulatorActionsOutput <- action:
+                    default:
+                }
+        }
+    }
+
+    /* Process events */
+    go func(){
+        for {
+            select {
+                case <-mainQuit.Done():
+                    return
+                case event := <-events:
+                    handleOneEvent(event)
             }
+        }
+    }()
+
+    /* This function executes in a sdl.Do context */
+    eventFunction := func(){
+        event := sdl.WaitEventTimeout(1)
+        if event != nil {
+            // log.Printf("Event %+v\n", event)
+            events <- event
+            /*
+            select {
+                case events <- event:
+                default:
+                    log.Printf("Dropping event %+v", event)
+            }
+            */
         }
     }
 

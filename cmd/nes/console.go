@@ -227,9 +227,9 @@ func (console *Console) run(mainCancel context.CancelFunc, mainQuit context.Cont
                         case StateOpen, StateOpening:
                             console.State = StateClosing
                             ticker.Reset(normalTime)
-                            sdl.Do(sdl.StopTextInput)
+                            // sdl.Do(sdl.StopTextInput)
                         case StateClosing, StateClosed:
-                            sdl.Do(sdl.StartTextInput)
+                            // sdl.Do(sdl.StartTextInput)
                             ticker.Reset(normalTime)
                             console.State = StateOpening
                             console.RenderManager.Replace(console.ZIndex, &layer)
@@ -503,6 +503,7 @@ func (console *Console) HandleKey(event *sdl.KeyboardEvent, emulatorKeys common.
 }
 
 func (console *Console) Toggle(){
+    log.Printf("toggle console")
     select {
         case console.Messages <- ToggleMessage{}:
         default:
