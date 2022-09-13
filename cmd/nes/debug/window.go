@@ -5,6 +5,7 @@ import (
     "context"
     "fmt"
     "log"
+    "strings"
     "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
@@ -70,6 +71,18 @@ func MakeDebugWindow(mainQuit context.Context, bigFont *ttf.Font, smallFont *ttf
     }
 
     return &debug
+}
+
+func removeLastWord(line string) string {
+    text := strings.TrimRight(line, " ")
+    last := strings.LastIndex(text, " ")
+    if last == -1 {
+        last = 0
+    } else {
+        last += 1
+    }
+    text = text[0:last]
+    return text
 }
 
 func (debug *DebugWindow) doOpen(quit context.Context) error {
@@ -188,6 +201,16 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
             if len(debug.Line.Text) > 0 {
                 debug.Line.Text = debug.Line.Text[0:len(debug.Line.Text)-1]
             }
+            select {
+                case redraw <- true:
+                default:
+            }
+            return
+        }
+
+        _, ok = request.(DebuggerTextRemoveWord)
+        if ok {
+            debug.Line.Text = removeLastWord(debug.Line.Text)
             select {
                 case redraw <- true:
                 default:
