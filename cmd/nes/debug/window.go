@@ -7,6 +7,7 @@ import (
     "time"
     "log"
     "strings"
+    nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/veandco/go-sdl2/sdl"
     "github.com/veandco/go-sdl2/ttf"
@@ -43,6 +44,11 @@ type DebuggerTextClearLine struct {
 type DebuggerTextEnter struct {
 }
 
+type DebuggerAddInstruction struct {
+    PC uint16
+    Instruction nes.Instruction
+}
+
 type Line struct {
     Text string
 }
@@ -57,6 +63,7 @@ type DebugWindow struct {
     BigFont *ttf.Font
     SmallFont *ttf.Font
     Line Line
+    Instructions []string
 }
 
 func MakeDebugWindow(mainQuit context.Context, bigFont *ttf.Font, smallFont *ttf.Font) *DebugWindow {
@@ -121,10 +128,24 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
         renderer.SetDrawColor(0, 0, 0, 0)
         renderer.Clear()
 
-        gfx.WriteFont(debug.BigFont, renderer, 1, 1, "Debugger", white)
+        y := 1
+        gfx.WriteFont(debug.BigFont, renderer, 1, y, "Debugger", white)
+        y += debug.BigFont.Height() + 1
+
+        consoleHeight := height - debug.SmallFont.Height() - 2
+
+        y = consoleHeight - debug.SmallFont.Height() - 1
+
+        for i := len(debug.Instructions)-1; i >= 0; i -= 1 {
+            gfx.WriteFont(debug.SmallFont, renderer, 1, y, debug.Instructions[i], white)
+            y -= debug.SmallFont.Height() + 1
+            if y < debug.BigFont.Height() {
+                break
+            }
+        }
 
         renderer.SetDrawColor(255, 255, 255, 255)
-        y := height - debug.SmallFont.Height() - 2
+        y = consoleHeight
         renderer.DrawLine(0, int32(y), int32(width), int32(y))
         y += 2
         gfx.WriteFont(debug.SmallFont, renderer, 1, y, fmt.Sprintf("> %v|", debug.Line.Text), white)
@@ -240,6 +261,20 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
             }
 
             debug.Line.Text = ""
+
+            select {
+                case redraw <- true:
+                default:
+            }
+            return
+        }
+
+        instruction, ok := request.(DebuggerAddInstruction)
+        if ok {
+            debug.Instructions = append(debug.Instructions, fmt.Sprintf("%X: %s", instruction.PC, instruction.Instruction.String()))
+            if len(debug.Instructions) > 100 {
+                debug.Instructions = debug.Instructions[len(debug.Instructions) - 100:len(debug.Instructions)]
+            }
 
             select {
                 case redraw <- true:
@@ -370,4 +405,15 @@ func (debug *DebugWindow) HandleKey(event sdl.Event){
             }
         case sdl.KEYUP:
     }
+}
+
+func (debug *DebugWindow) AddInstruction(pc uint16, instruction nes.Instruction){
+    if !debug.IsOpen {
+        return
+    }
+    request := DebuggerAddInstruction{
+        PC: pc,
+        Instruction: instruction,
+    }
+    debug.Requests <- request
 }

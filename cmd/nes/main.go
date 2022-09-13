@@ -748,10 +748,12 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         Keys: &emulatorKeys,
     }
 
+    debugWindow := debug.MakeDebugWindow(mainQuit, font, smallFont)
+
     startNES := func(nesFile nes.NESFile, quit context.Context){
         cpu, err := common.SetupCPU(nesFile, debugCpu, debugPpu)
 
-        debugger := debug.MakeDebugger(&cpu)
+        debugger := debug.MakeDebugger(&cpu, debugWindow)
 
         input.Reset()
         combined := common.MakeCombineButtons(input, joystickManager)
@@ -795,8 +797,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
         }
     }
-
-    debugWindow := debug.MakeDebugWindow(mainQuit, font, smallFont)
 
     /* runs the nes emulator */
     waiter.Add(1)

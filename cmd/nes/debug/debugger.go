@@ -46,6 +46,7 @@ type Debugger interface {
     Continue()
     Step()
     IsStopped() bool
+    Update(*nes.CPUState, nes.InstructionTable)
 }
 
 type DebuggerMode int
@@ -62,6 +63,17 @@ type DefaultDebugger struct {
     Breakpoints []Breakpoint
     BreakpointId uint64
     Cpu *nes.CPUState
+    Window *DebugWindow
+}
+
+func (debugger *DefaultDebugger) Update(cpu *nes.CPUState, table nes.InstructionTable){
+    instruction, err := cpu.Fetch(table)
+    if err == nil {
+        pc := cpu.PC
+        if debugger.Window != nil {
+            debugger.Window.AddInstruction(pc, instruction)
+        }
+    }
 }
 
 func (debugger *DefaultDebugger) IsStopped() bool {
@@ -157,11 +169,12 @@ func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState) bool {
     return true
 }
 
-func MakeDebugger(cpu *nes.CPUState) Debugger {
+func MakeDebugger(cpu *nes.CPUState, window *DebugWindow) Debugger {
     return &DefaultDebugger{
         Commands: make(chan DebugCommand, 5),
         Mode: ModeContinue,
         BreakpointId: 1,
         Cpu: cpu,
+        Window: window,
     }
 }

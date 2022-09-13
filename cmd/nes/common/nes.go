@@ -524,11 +524,16 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                 select {
                     case action := <-emulatorActions:
                         handleAction(action)
+                    /* FIXME: this time.After is lame. we should find a better way to
+                     * insert an idle cycle
+                     */
                     case <-time.After(1 * time.Millisecond):
                 }
 
                 cycleCounter = 0
                 continue
+            } else {
+                debugger.Update(cpu, instructionTable)
             }
         }
 
