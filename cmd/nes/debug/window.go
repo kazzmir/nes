@@ -19,14 +19,26 @@ type WindowRequestWindow struct {
 type WindowRequestRedraw struct {
 }
 
-type WindowRequestText struct {
-    Text string
-}
-
 type WindowRequestRaise struct {
 }
 
 type WindowRequestBackspace struct {
+}
+
+type DebuggerTextBackspace struct {
+}
+
+type DebuggerTextAdd struct {
+    Text string
+}
+
+type DebuggerTextRemoveWord struct {
+}
+
+type DebuggerTextClearLine struct {
+}
+
+type DebuggerTextEnter struct {
 }
 
 type Line struct {
@@ -101,7 +113,7 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
         y := height - debug.SmallFont.Height() - 2
         renderer.DrawLine(0, int32(y), int32(width), int32(y))
         y += 2
-        gfx.WriteFont(debug.SmallFont, renderer, 1, y, fmt.Sprintf("> %v", debug.Line.Text), white)
+        gfx.WriteFont(debug.SmallFont, renderer, 1, y, fmt.Sprintf("> %v|", debug.Line.Text), white)
 
         renderer.Present()
     }
@@ -131,6 +143,71 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
         }
     }()
 
+    handleRequest := func(request any){
+        windowRequest, ok := request.(WindowRequestWindow)
+        if ok {
+            windowRequest.Response <- window
+            return
+        }
+
+        _, ok = request.(WindowRequestRaise)
+        if ok {
+            go func(){
+                sdl.Do(func(){
+                    window.Raise()
+                })
+                select {
+                    case redraw <- true:
+                    default:
+                }
+            }()
+            return
+        }
+
+        _, ok = request.(WindowRequestRedraw)
+        if ok {
+            select {
+                case redraw <- true:
+                default:
+            }
+            return
+        }
+
+        input, ok := request.(DebuggerTextAdd)
+        if ok {
+            debug.Line.Text += input.Text
+            select {
+                case redraw <- true:
+                default:
+            }
+            return
+        }
+
+        _, ok = request.(DebuggerTextBackspace)
+        if ok {
+            if len(debug.Line.Text) > 0 {
+                debug.Line.Text = debug.Line.Text[0:len(debug.Line.Text)-1]
+            }
+            select {
+                case redraw <- true:
+                default:
+            }
+            return
+        }
+
+        _, ok = request.(DebuggerTextClearLine)
+        if ok {
+            debug.Line.Text = ""
+            select {
+                case redraw <- true:
+                default:
+            }
+            return
+        }
+
+        log.Printf("Unhandled debugger message: %+v", request)
+    }
+
     /* Do not make any sdl.Do() calls in this for loop. If sdl.Do is needed then wrap it in
      * another go func, e.g.:
      *  go func(){ sdl.Do(...) }
@@ -140,51 +217,7 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
             case <-quit.Done():
                 return nil
             case request := <-debug.Requests:
-                windowRequest, ok := request.(WindowRequestWindow)
-                if ok {
-                    windowRequest.Response <- window
-                }
-
-                _, ok = request.(WindowRequestRaise)
-                if ok {
-                    go func(){
-                        sdl.Do(func(){
-                            window.Raise()
-                        })
-                        select {
-                            case redraw <- true:
-                            default:
-                        }
-                    }()
-                }
-
-                _, ok = request.(WindowRequestRedraw)
-                if ok {
-                    select {
-                        case redraw <- true:
-                        default:
-                    }
-                }
-
-                input, ok := request.(WindowRequestText)
-                if ok {
-                    debug.Line.Text += input.Text
-                    select {
-                        case redraw <- true:
-                        default:
-                    }
-                }
-
-                _, ok = request.(WindowRequestBackspace)
-                if ok {
-                    if len(debug.Line.Text) > 0 {
-                        debug.Line.Text = debug.Line.Text[0:len(debug.Line.Text)-1]
-                    }
-                    select {
-                        case redraw <- true:
-                        default:
-                    }
-                }
+                handleRequest(request)
         }
     }
 
@@ -263,12 +296,16 @@ func (debug *DebugWindow) HandleText(event sdl.Event){
     switch event.GetType() {
         case sdl.TEXTINPUT:
             input := event.(*sdl.TextInputEvent)
-            message := WindowRequestText{
+            message := DebuggerTextAdd{
                 Text: input.GetText(),
             }
 
             debug.Requests <- message
     }
+}
+
+func hasLeftControlKey(event *sdl.KeyboardEvent) bool {
+    return (event.Keysym.Mod & sdl.KMOD_LCTRL) == sdl.KMOD_LCTRL
 }
 
 func (debug *DebugWindow) HandleKey(event sdl.Event){
@@ -278,11 +315,30 @@ func (debug *DebugWindow) HandleKey(event sdl.Event){
             switch key_event.Keysym.Sym {
                 case sdl.K_BACKSPACE:
                     select {
-                        case debug.Requests <- WindowRequestBackspace{}:
+                        case debug.Requests <- DebuggerTextBackspace{}:
                         default:
                     }
-            }
+                case sdl.K_w:
+                    if hasLeftControlKey(key_event) {
+                        select {
+                            case debug.Requests <- DebuggerTextRemoveWord{}:
+                            default:
+                        }
+                    }
+                case sdl.K_u:
+                    if hasLeftControlKey(key_event) {
+                        select {
+                            case debug.Requests <- DebuggerTextClearLine{}:
+                            default:
+                        }
+                    }
+                case sdl.K_RETURN:
+                    select {
+                        case debug.Requests <- DebuggerTextEnter{}:
+                        default:
+                    }
 
+            }
         case sdl.KEYUP:
     }
 }
