@@ -4,6 +4,7 @@ import (
     "sync"
     "context"
     "fmt"
+    "time"
     "log"
     "strings"
     "github.com/kazzmir/nes/cmd/nes/gfx"
@@ -85,7 +86,7 @@ func removeLastWord(line string) string {
     return text
 }
 
-func (debug *DebugWindow) doOpen(quit context.Context) error {
+func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc) error {
     var window *sdl.Window
     var renderer *sdl.Renderer
     var err error
@@ -152,6 +153,7 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
                     sdl.Do(func(){
                         render(int(windowWidth), int(windowHeight), renderer)
                     })
+                    time.Sleep(20 * time.Millisecond)
             }
         }
     }()
@@ -228,6 +230,24 @@ func (debug *DebugWindow) doOpen(quit context.Context) error {
             return
         }
 
+        _, ok = request.(DebuggerTextEnter)
+        if ok {
+            line := debug.Line.Text
+
+            switch line {
+                case "quit":
+                    cancel()
+            }
+
+            debug.Line.Text = ""
+
+            select {
+                case redraw <- true:
+                default:
+            }
+            return
+        }
+
         log.Printf("Unhandled debugger message: %+v", request)
     }
 
@@ -266,46 +286,28 @@ func (debug *DebugWindow) IsWindow(windowId uint32) bool {
     return false
 }
 
-func (debug *DebugWindow) notOpen(quit context.Context){
-    go func(){
-        for {
-            select {
-                case <-quit.Done():
-                    return
-                case request := <-debug.Requests:
-                    window, ok := request.(WindowRequestWindow)
-                    if ok {
-                        window.Response <- nil
-                    }
-            }
-        }
-    }()
-}
-
-func (debug *DebugWindow) Open(){
+func (debug *DebugWindow) Open(mainQuit context.Context){
     debug.opener.Do(func(){
         debug.Wait.Add(1)
         go func(){
             defer debug.Wait.Done()
-            err := debug.doOpen(debug.Quit)
+            err := debug.doOpen(debug.Quit, debug.Cancel)
             if err != nil {
                 log.Printf("Could not open debug window: %v", err)
             }
+
+            quit, cancel := context.WithCancel(mainQuit)
+            debug.Quit = quit
+            debug.Cancel = cancel
+            debug.opener = sync.Once{}
         }()
     })
 
     debug.Requests <- WindowRequestRaise{}
 }
 
-func (debug *DebugWindow) Close(mainQuit context.Context) {
-    go func(){
-        debug.Cancel()
-        debug.Wait.Wait()
-        debug.opener = sync.Once{}
-        quit, cancel := context.WithCancel(mainQuit)
-        debug.Quit = quit
-        debug.Cancel = cancel
-    }()
+func (debug *DebugWindow) Close() {
+    debug.Cancel()
 }
 
 func (debug *DebugWindow) Redraw() {
@@ -332,6 +334,10 @@ func hasLeftControlKey(event *sdl.KeyboardEvent) bool {
 }
 
 func (debug *DebugWindow) HandleKey(event sdl.Event){
+    if !debug.IsOpen {
+        return
+    }
+
     switch event.GetType() {
         case sdl.KEYDOWN:
             key_event := event.(*sdl.KeyboardEvent)

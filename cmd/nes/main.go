@@ -842,7 +842,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                     _, ok = action.(*NesActionDebugger)
                     if ok {
-                        debugWindow.Open()
+                        debugWindow.Open(mainQuit)
                     }
             }
         }
@@ -968,7 +968,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         if useWindowId == mainWindowId {
                             mainCancel()
                         } else if debugWindow.IsWindow(useWindowId) {
-                            debugWindow.Close(mainQuit)
+                            debugWindow.Close()
                         }
                     case sdl.WINDOWEVENT_RESIZED:
                         // log.Printf("Window resized")
