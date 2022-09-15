@@ -2,6 +2,8 @@ package debug
 
 import (
     "log"
+    "sync"
+    "github.com/kazzmir/nes/cmd/nes/gfx"
     nes "github.com/kazzmir/nes/lib"
 )
 
@@ -47,6 +49,7 @@ type Debugger interface {
     Step()
     IsStopped() bool
     Update(*nes.CPUState, nes.InstructionTable)
+    Close()
 }
 
 type DebuggerMode int
@@ -64,6 +67,7 @@ type DefaultDebugger struct {
     BreakpointId uint64
     Cpu *nes.CPUState
     Window *DebugWindow
+    Lock sync.Mutex
 }
 
 func (debugger *DefaultDebugger) Update(cpu *nes.CPUState, table nes.InstructionTable){
@@ -75,6 +79,7 @@ func (debugger *DefaultDebugger) Update(cpu *nes.CPUState, table nes.Instruction
         if err == nil {
             pc := cpu.PC
             debugger.Window.AddInstruction(pc, instruction)
+            debugger.Window.SetCycle(cpu.Cycle)
         }
     }
 }
@@ -88,17 +93,22 @@ func (debugger *DefaultDebugger) ContinueUntilBreak(){
 }
 
 func (debugger *DefaultDebugger) GetBreakpoints() []Breakpoint {
-    return debugger.Breakpoints
+    debugger.Lock.Lock()
+    defer debugger.Lock.Unlock()
+    return gfx.CopyArray(debugger.Breakpoints)
 }
 
 func (debugger *DefaultDebugger) AddPCBreakpoint(pc uint16) Breakpoint {
-    breakpoint := Breakpoint{
-        PC: pc,
-        Id: debugger.BreakpointId,
-        Enabled: true,
-    }
-    debugger.Breakpoints = append(debugger.Breakpoints, breakpoint)
-    debugger.BreakpointId += 1
+    var breakpoint Breakpoint
+    debugger.WithLock(func(){
+        breakpoint = Breakpoint{
+            PC: pc,
+            Id: debugger.BreakpointId,
+            Enabled: true,
+        }
+        debugger.Breakpoints = append(debugger.Breakpoints, breakpoint)
+        debugger.BreakpointId += 1
+    })
     return breakpoint
 }
 
@@ -106,17 +116,25 @@ func (debugger *DefaultDebugger) AddCurrentPCBreakpoint() Breakpoint {
     return debugger.AddPCBreakpoint(debugger.Cpu.PC)
 }
 
+func (debugger *DefaultDebugger) WithLock(fn func()){
+    debugger.Lock.Lock()
+    defer debugger.Lock.Unlock()
+    fn()
+}
+
 func (debugger *DefaultDebugger) RemoveBreakpoint(id uint64) bool {
-    var out []Breakpoint
     found := false
-    for _, breakpoint := range debugger.Breakpoints {
-        if breakpoint.Id != id {
-            out = append(out, breakpoint)
-        } else {
-            found = true
+    debugger.WithLock(func(){
+        var out []Breakpoint
+        for _, breakpoint := range debugger.Breakpoints {
+            if breakpoint.Id != id {
+                out = append(out, breakpoint)
+            } else {
+                found = true
+            }
         }
-    }
-    debugger.Breakpoints = out
+        debugger.Breakpoints = out
+    })
     return found
 }
 
@@ -172,12 +190,21 @@ func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState) bool {
     return true
 }
 
+func (debugger *DefaultDebugger) Close(){
+    if debugger.Window != nil {
+        debugger.Window.SetDebugger(nil)
+    }
+}
+
 func MakeDebugger(cpu *nes.CPUState, window *DebugWindow) Debugger {
-    return &DefaultDebugger{
+    debugger := &DefaultDebugger{
         Commands: make(chan DebugCommand, 5),
         Mode: ModeContinue,
         BreakpointId: 1,
         Cpu: cpu,
         Window: window,
     }
+
+    window.SetDebugger(debugger)
+    return debugger
 }

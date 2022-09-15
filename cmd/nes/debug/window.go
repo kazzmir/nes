@@ -48,6 +48,11 @@ type Line struct {
     Text string
 }
 
+type Instruction struct {
+    PC uint16
+    Instruction nes.Instruction
+}
+
 type DebugWindow struct {
     opener sync.Once
     Quit context.Context
@@ -58,8 +63,10 @@ type DebugWindow struct {
     BigFont *ttf.Font
     SmallFont *ttf.Font
     Line Line
-    Instructions []string
+    Instructions []Instruction
     Lock sync.Mutex
+    Debugger Debugger
+    Cycle uint64
 }
 
 func MakeDebugWindow(mainQuit context.Context, bigFont *ttf.Font, smallFont *ttf.Font) *DebugWindow {
@@ -89,10 +96,23 @@ func removeLastWord(line string) string {
     return text
 }
 
-func (debug *DebugWindow) AddInstruction(pc uint16, instruction nes.Instruction){
-    data := fmt.Sprintf("%X: %s", pc, instruction.String())
+func (debug *DebugWindow) SetCycle(cycle uint64){
     debug.Lock.Lock()
-    debug.Instructions = append(debug.Instructions, data)
+    debug.Cycle = cycle
+    debug.Lock.Unlock()
+}
+
+func (debug *DebugWindow) AddInstruction(pc uint16, instruction nes.Instruction){
+    debug.Lock.Lock()
+    if len(debug.Instructions) > 0 {
+        last := debug.Instructions[len(debug.Instructions) - 1]
+        if last.PC == pc && last.Instruction.Equals(instruction) {
+            // >:E
+            debug.Lock.Unlock()
+            return
+        }
+    }
+    debug.Instructions = append(debug.Instructions, Instruction{PC: pc, Instruction: instruction})
     if len(debug.Instructions) > 100 {
         debug.Instructions = debug.Instructions[len(debug.Instructions) - 100:len(debug.Instructions)]
     }
@@ -102,6 +122,10 @@ func (debug *DebugWindow) AddInstruction(pc uint16, instruction nes.Instruction)
         case debug.Requests <- WindowRequestRedraw{}:
         default:
     }
+}
+
+func (debug *DebugWindow) SetDebugger(debugger Debugger){
+    debug.Debugger = debugger
 }
 
 func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc) error {
@@ -135,6 +159,13 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
         A: 255,
     }
 
+    red := sdl.Color{
+        R: 255,
+        G: 0,
+        B: 0,
+        A: 0,
+    }
+
     render := func(width int, height int, renderer *sdl.Renderer){
         renderer.SetDrawColor(0, 0, 0, 0)
         renderer.Clear()
@@ -149,10 +180,26 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
 
         debug.Lock.Lock()
         instructions := gfx.CopyArray(debug.Instructions)
+        cycle := debug.Cycle
         debug.Lock.Unlock()
 
+        cycleText := fmt.Sprintf("Cycle %v", cycle)
+        gfx.WriteFont(debug.SmallFont, renderer, width - gfx.TextWidth(debug.SmallFont, cycleText) - 1, 1, cycleText, white)
+
+        breakpoints := debug.Debugger.GetBreakpoints()
+
         for i := len(instructions)-1; i >= 0; i -= 1 {
-            gfx.WriteFont(debug.SmallFont, renderer, 1, y, instructions[i], white)
+            color := white
+            for _, breakpoint := range breakpoints {
+                if breakpoint.PC == instructions[i].PC {
+                    color = red
+                    break
+                }
+            }
+
+            data := fmt.Sprintf("%X: %s", instructions[i].PC, instructions[i].Instruction.String())
+
+            gfx.WriteFont(debug.SmallFont, renderer, 1, y, data, color)
             y -= debug.SmallFont.Height() + 1
             if y < debug.BigFont.Height() {
                 break
@@ -273,23 +320,13 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
             switch line {
                 case "quit":
                     cancel()
+                case "s", "step":
+                    debug.Debugger.Step()
+                case "continue":
+                    debug.Debugger.Continue()
             }
 
             debug.Line.Text = ""
-
-            select {
-                case redraw <- true:
-                default:
-            }
-            return
-        }
-
-        instruction, ok := request.(DebuggerAddInstruction)
-        if ok {
-            debug.Instructions = append(debug.Instructions, fmt.Sprintf("%X: %s", instruction.PC, instruction.Instruction.String()))
-            if len(debug.Instructions) > 100 {
-                debug.Instructions = debug.Instructions[len(debug.Instructions) - 100:len(debug.Instructions)]
-            }
 
             select {
                 case redraw <- true:

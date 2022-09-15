@@ -754,6 +754,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         cpu, err := common.SetupCPU(nesFile, debugCpu, debugPpu)
 
         debugger := debug.MakeDebugger(&cpu, debugWindow)
+        defer debugger.Close()
 
         input.Reset()
         combined := common.MakeCombineButtons(input, joystickManager)
