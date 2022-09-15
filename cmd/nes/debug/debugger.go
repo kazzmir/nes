@@ -67,10 +67,13 @@ type DefaultDebugger struct {
 }
 
 func (debugger *DefaultDebugger) Update(cpu *nes.CPUState, table nes.InstructionTable){
-    instruction, err := cpu.Fetch(table)
-    if err == nil {
-        pc := cpu.PC
-        if debugger.Window != nil {
+    if debugger.Window != nil && debugger.Window.IsOpen {
+        /* Warning: fetch calls cpu.LoadMemory that could in theory impact mapper's
+         * if the PC is pointing into mapper memory.
+         */
+        instruction, err := cpu.Fetch(table)
+        if err == nil {
+            pc := cpu.PC
             debugger.Window.AddInstruction(pc, instruction)
         }
     }

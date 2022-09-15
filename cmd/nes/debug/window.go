@@ -44,11 +44,6 @@ type DebuggerTextClearLine struct {
 type DebuggerTextEnter struct {
 }
 
-type DebuggerAddInstruction struct {
-    PC uint16
-    Instruction nes.Instruction
-}
-
 type Line struct {
     Text string
 }
@@ -64,6 +59,7 @@ type DebugWindow struct {
     SmallFont *ttf.Font
     Line Line
     Instructions []string
+    Lock sync.Mutex
 }
 
 func MakeDebugWindow(mainQuit context.Context, bigFont *ttf.Font, smallFont *ttf.Font) *DebugWindow {
@@ -91,6 +87,21 @@ func removeLastWord(line string) string {
     }
     text = text[0:last]
     return text
+}
+
+func (debug *DebugWindow) AddInstruction(pc uint16, instruction nes.Instruction){
+    data := fmt.Sprintf("%X: %s", pc, instruction.String())
+    debug.Lock.Lock()
+    debug.Instructions = append(debug.Instructions, data)
+    if len(debug.Instructions) > 100 {
+        debug.Instructions = debug.Instructions[len(debug.Instructions) - 100:len(debug.Instructions)]
+    }
+    debug.Lock.Unlock()
+
+    select {
+        case debug.Requests <- WindowRequestRedraw{}:
+        default:
+    }
 }
 
 func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc) error {
@@ -136,8 +147,12 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
 
         y = consoleHeight - debug.SmallFont.Height() - 1
 
-        for i := len(debug.Instructions)-1; i >= 0; i -= 1 {
-            gfx.WriteFont(debug.SmallFont, renderer, 1, y, debug.Instructions[i], white)
+        debug.Lock.Lock()
+        instructions := gfx.CopyArray(debug.Instructions)
+        debug.Lock.Unlock()
+
+        for i := len(instructions)-1; i >= 0; i -= 1 {
+            gfx.WriteFont(debug.SmallFont, renderer, 1, y, instructions[i], white)
             y -= debug.SmallFont.Height() + 1
             if y < debug.BigFont.Height() {
                 break
@@ -405,15 +420,4 @@ func (debug *DebugWindow) HandleKey(event sdl.Event){
             }
         case sdl.KEYUP:
     }
-}
-
-func (debug *DebugWindow) AddInstruction(pc uint16, instruction nes.Instruction){
-    if !debug.IsOpen {
-        return
-    }
-    request := DebuggerAddInstruction{
-        PC: pc,
-        Instruction: instruction,
-    }
-    debug.Requests <- request
 }
