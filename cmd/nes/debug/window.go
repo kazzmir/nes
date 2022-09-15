@@ -317,12 +317,17 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
         if ok {
             line := debug.Line.Text
 
+            /* FIXME: if line is empty then repeat the last command */
+
             switch line {
                 case "quit":
                     cancel()
                 case "s", "step":
+                    /* FIXME: handle step N, to step N instructions */
                     debug.Debugger.Step()
-                case "continue":
+                case "n", "next":
+                    debug.Debugger.Next()
+                case "c", "continue":
                     debug.Debugger.Continue()
             }
 

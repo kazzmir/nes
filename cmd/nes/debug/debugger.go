@@ -25,6 +25,7 @@ func makeCommand(name string) DebugCommand {
 
 var DebugCommandStep DebugCommand = makeCommand("step")
 var DebugCommandContinue DebugCommand = makeCommand("continue")
+var DebugCommandNext DebugCommand = makeCommand("next")
 
 // break when the cpu's PC is at a specific value
 // TODO: add conditional breakpoints, and break upon
@@ -47,6 +48,7 @@ type Debugger interface {
     GetBreakpoints() []Breakpoint
     Continue()
     Step()
+    Next()
     IsStopped() bool
     Update(*nes.CPUState, nes.InstructionTable)
     Close()
@@ -57,6 +59,7 @@ type DebuggerMode int
 const (
     ModeStopped DebuggerMode = iota
     ModeStepping
+    ModeNext
     ModeContinue
 )
 
@@ -68,6 +71,7 @@ type DefaultDebugger struct {
     Cpu *nes.CPUState
     Window *DebugWindow
     Lock sync.Mutex
+    LastPc uint16
 }
 
 func (debugger *DefaultDebugger) Update(cpu *nes.CPUState, table nes.InstructionTable){
@@ -156,6 +160,13 @@ func (debugger *DefaultDebugger) Step(){
     }
 }
 
+func (debugger *DefaultDebugger) Next(){
+    select {
+        case debugger.Commands<-DebugCommandNext:
+        default:
+    }
+}
+
 func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState) bool {
     select {
         case command := <-debugger.Commands:
@@ -168,8 +179,21 @@ func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState) bool {
                     log.Printf("[debug] continue")
                     debugger.ContinueUntilBreak()
                     return true
+                case DebugCommandNext:
+                    log.Printf("[debug] next")
+                    debugger.Mode = ModeNext
+                    debugger.LastPc = cpu.PC
             }
         default:
+    }
+
+    if debugger.Mode == ModeNext {
+        if cpu.PC == debugger.LastPc {
+            return true
+        } else {
+            debugger.Mode = ModeStopped
+            return false
+        }
     }
 
     if debugger.Mode == ModeStepping {
