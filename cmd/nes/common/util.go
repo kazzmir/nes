@@ -5,6 +5,7 @@ import (
     "io"
     "fmt"
     "crypto/sha256"
+    "path/filepath"
 )
 
 func FileExists(path string) bool {
@@ -32,3 +33,12 @@ func GetSha256(path string) (string, error){
     return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
+
+func FindFile(path string) string {
+    execRelative := filepath.Join(filepath.Dir(os.Args[0]), path)
+    if FileExists(execRelative) {
+        return execRelative
+    }
+
+    return path
+}
