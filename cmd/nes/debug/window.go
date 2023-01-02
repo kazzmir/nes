@@ -241,106 +241,65 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
         }
     }()
 
+    doRedraw := func(){
+        select {
+            case redraw <- true:
+            default:
+        }
+    }
+
     handleRequest := func(request any){
-        windowRequest, ok := request.(WindowRequestWindow)
-        if ok {
-            windowRequest.Response <- window
-            return
-        }
-
-        _, ok = request.(WindowRequestRaise)
-        if ok {
-            go func(){
-                sdl.Do(func(){
-                    window.Raise()
-                })
-                select {
-                    case redraw <- true:
-                    default:
+        switch request.(type) {
+            case WindowRequestWindow:
+                windowRequest := request.(WindowRequestWindow)
+                windowRequest.Response <- window
+            case WindowRequestRaise:
+                go func(){
+                    sdl.Do(func(){
+                        window.Raise()
+                    })
+                    doRedraw()
+                }()
+            case WindowRequestRedraw:
+                doRedraw()
+            case DebuggerTextAdd:
+                input := request.(DebuggerTextAdd)
+                debug.Line.Text += input.Text
+                doRedraw()
+            case DebuggerTextBackspace:
+                if len(debug.Line.Text) > 0 {
+                    debug.Line.Text = debug.Line.Text[0:len(debug.Line.Text)-1]
                 }
-            }()
-            return
+                doRedraw()
+            case DebuggerTextRemoveWord:
+                debug.Line.Text = removeLastWord(debug.Line.Text)
+                doRedraw()
+            case DebuggerTextClearLine:
+                debug.Line.Text = ""
+                doRedraw()
+            case DebuggerTextEnter:
+                line := debug.Line.Text
+
+                /* FIXME: if line is empty then repeat the last command */
+
+                switch line {
+                    case "quit":
+                        cancel()
+                    case "s", "step":
+                        /* FIXME: handle step N, to step N instructions */
+                        debug.Debugger.Step()
+                    case "n", "next":
+                        debug.Debugger.Next()
+                    case "c", "continue":
+                        debug.Debugger.Continue()
+                }
+
+                debug.Line.Text = ""
+
+                doRedraw()
+            default:
+                log.Printf("Unhandled debugger message: %+v", request)
         }
-
-        _, ok = request.(WindowRequestRedraw)
-        if ok {
-            select {
-                case redraw <- true:
-                default:
-            }
-            return
-        }
-
-        input, ok := request.(DebuggerTextAdd)
-        if ok {
-            debug.Line.Text += input.Text
-            select {
-                case redraw <- true:
-                default:
-            }
-            return
-        }
-
-        _, ok = request.(DebuggerTextBackspace)
-        if ok {
-            if len(debug.Line.Text) > 0 {
-                debug.Line.Text = debug.Line.Text[0:len(debug.Line.Text)-1]
-            }
-            select {
-                case redraw <- true:
-                default:
-            }
-            return
-        }
-
-        _, ok = request.(DebuggerTextRemoveWord)
-        if ok {
-            debug.Line.Text = removeLastWord(debug.Line.Text)
-            select {
-                case redraw <- true:
-                default:
-            }
-            return
-        }
-
-        _, ok = request.(DebuggerTextClearLine)
-        if ok {
-            debug.Line.Text = ""
-            select {
-                case redraw <- true:
-                default:
-            }
-            return
-        }
-
-        _, ok = request.(DebuggerTextEnter)
-        if ok {
-            line := debug.Line.Text
-
-            /* FIXME: if line is empty then repeat the last command */
-
-            switch line {
-                case "quit":
-                    cancel()
-                case "s", "step":
-                    /* FIXME: handle step N, to step N instructions */
-                    debug.Debugger.Step()
-                case "n", "next":
-                    debug.Debugger.Next()
-                case "c", "continue":
-                    debug.Debugger.Continue()
-            }
-
-            debug.Line.Text = ""
-
-            select {
-                case redraw <- true:
-                default:
-            }
-            return
-        }
-
-        log.Printf("Unhandled debugger message: %+v", request)
     }
 
     /* Do not make any sdl.Do() calls in this for loop. If sdl.Do is needed then wrap it in
