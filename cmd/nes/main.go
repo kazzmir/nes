@@ -110,14 +110,12 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                     case <-mainQuit.Done():
                         return
                     case action := <-audioActions:
-                        _, ok := action.(*AudioToggle)
-                        if ok {
-                            enabled = !enabled
-                        }
-
-                        query, ok := action.(*AudioQueryEnabled)
-                        if ok {
-                            query.Response <- enabled
+                        switch action.(type) {
+                            case *AudioToggle:
+                                enabled = !enabled
+                            case *AudioQueryEnabled:
+                                query := action.(*AudioQueryEnabled)
+                                query.Response <- enabled
                         }
                     case samples := <-audio:
                         if !enabled {
@@ -149,9 +147,10 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                     case <-mainQuit.Done():
                         return
                     case action := <-audioActions:
-                        query, ok := action.(*AudioQueryEnabled)
-                        if ok {
-                            query.Response <- false
+                        switch action.(type) {
+                            case *AudioQueryEnabled:
+                                query := action.(*AudioQueryEnabled)
+                                query.Response <- false
                         }
                     case <-audio:
                 }
@@ -820,15 +819,15 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     return
                 case action := <-nesChannel:
                     doRestart := false
-                    load, ok := action.(*NesActionLoad)
-                    if ok {
-                        currentFile = load.File
-                        doRestart = true
-                    }
-
-                    _, ok = action.(*NesActionRestart)
-                    if ok {
-                        doRestart = true
+                    switch action.(type) {
+                        case *NesActionLoad:
+                            load := action.(*NesActionLoad)
+                            currentFile = load.File
+                            doRestart = true
+                        case *NesActionRestart:
+                            doRestart = true
+                        case *NesActionDebugger:
+                            debugWindow.Open(mainQuit)
                     }
 
                     if doRestart && currentFile.Path != "" {
@@ -841,11 +840,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             defer nesWaiter.Done()
                             startNES(nesFile, quit)
                         }(currentFile, nesQuit)
-                    }
-
-                    _, ok = action.(*NesActionDebugger)
-                    if ok {
-                        debugWindow.Open(mainQuit)
                     }
             }
         }
@@ -887,50 +881,37 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 case <-mainQuit.Done():
                     return
                 case action := <-programActionsInput:
-                    _, ok := action.(*common.ProgramToggleSound)
-                    if ok {
-                        audioActionsOutput <- &AudioToggle{}
-                    }
-
-                    query, ok := action.(*common.ProgramQueryAudioState)
-                    if ok {
-                        audioActionsOutput <- &AudioQueryEnabled{Response: query.Response}
-                    }
-
-                    _, ok = action.(*common.ProgramQuit)
-                    if ok {
-                        mainCancel()
-                    }
-
-                    _, ok = action.(*common.ProgramPauseEmulator)
-                    if ok {
-                        select {
-                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause):
-                            default:
-                        }
-                    }
-
-                    _, ok = action.(*common.ProgramUnpauseEmulator)
-                    if ok {
-                        select {
-                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause):
-                            default:
-                        }
-                    }
-
-                    loadRom, ok := action.(*common.ProgramLoadRom)
-                    if ok {
-                        nesFile, err := nes.ParseNesFile(loadRom.Path, true)
-                        if err != nil {
-                            log.Printf("Could not load rom '%v'", path)
-                        } else {
-                            log.Printf("Loaded rom '%v'", loadRom.Path)
-                            nesChannel <- &NesActionLoad{File: nesFile}
+                    switch action.(type) {
+                        case *common.ProgramToggleSound:
+                            audioActionsOutput <- &AudioToggle{}
+                        case *common.ProgramQueryAudioState:
+                            query := action.(*common.ProgramQueryAudioState)
+                            audioActionsOutput <- &AudioQueryEnabled{Response: query.Response}
+                        case *common.ProgramQuit:
+                            mainCancel()
+                        case *common.ProgramPauseEmulator:
                             select {
-                                case emulatorMessages.ReceiveMessages <- "Loaded rom":
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause):
                                 default:
                             }
-                        }
+                        case *common.ProgramUnpauseEmulator:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause):
+                                default:
+                            }
+                        case *common.ProgramLoadRom:
+                            loadRom := action.(*common.ProgramLoadRom)
+                            nesFile, err := nes.ParseNesFile(loadRom.Path, true)
+                            if err != nil {
+                                log.Printf("Could not load rom '%v'", path)
+                            } else {
+                                log.Printf("Loaded rom '%v'", loadRom.Path)
+                                nesChannel <- &NesActionLoad{File: nesFile}
+                                select {
+                                    case emulatorMessages.ReceiveMessages <- "Loaded rom":
+                                    default:
+                                }
+                            }
                     }
             }
         }
