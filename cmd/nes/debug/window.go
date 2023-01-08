@@ -44,6 +44,9 @@ type DebuggerTextClearLine struct {
 type DebuggerTextEnter struct {
 }
 
+type DebuggerTabComplete struct {
+}
+
 type Line struct {
     Text string
 }
@@ -215,7 +218,7 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
         renderer.Present()
     }
     
-    redraw := make(chan bool, 1)
+    redraw := make(chan bool, 2)
     redraw <- true
     defer close(redraw)
 
@@ -297,6 +300,15 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
                 debug.Line.Text = ""
 
                 doRedraw()
+            case DebuggerTabComplete:
+                completions := []string{"quit", "step", "next", "continue"}
+                for _, possible := range completions {
+                    if strings.HasPrefix(possible, debug.Line.Text) {
+                        debug.Line.Text = possible
+                        doRedraw()
+                        break
+                    }
+                }
             default:
                 log.Printf("Unhandled debugger message: %+v", request)
         }
@@ -417,7 +429,11 @@ func (debug *DebugWindow) HandleKey(event sdl.Event){
                         case debug.Requests <- DebuggerTextEnter{}:
                         default:
                     }
-
+                case sdl.K_TAB:
+                    select {
+                        case debug.Requests <- DebuggerTabComplete{}:
+                        default:
+                    }
             }
         case sdl.KEYUP:
     }
