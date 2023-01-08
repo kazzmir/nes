@@ -315,3 +315,33 @@ func DrawEquilateralTriange(renderer *sdl.Renderer, x int, y int, size float64, 
         return nil
     }
 }
+
+type Coordinates struct {
+    UpperLeftX int
+    UpperLeftY int
+}
+
+func (coords Coordinates) X(x int) int {
+    return x + coords.UpperLeftX
+}
+
+func (coords Coordinates) Y(y int) int {
+    return y + coords.UpperLeftY
+}
+
+type GuiRenderer func(coords Coordinates)
+
+/* draw a box that clips everything drawn inside of it by the bounds. the box has a 1px white border around it */
+func Box1(x int, y int, width int, height int, renderer *sdl.Renderer, render GuiRenderer){
+    buffer := 1
+    renderer.SetClipRect(&sdl.Rect{X: int32(x+buffer), Y: int32(y+buffer), W: int32(width-buffer*2), H: int32(height-buffer*2)})
+
+    render(Coordinates{
+        UpperLeftX: x+buffer,
+        UpperLeftY: y+buffer,
+    })
+
+    renderer.SetClipRect(nil)
+    renderer.SetDrawColor(255, 255, 255, 255)
+    renderer.DrawRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(width), H: int32(height)})
+}

@@ -74,6 +74,15 @@ type DefaultDebugger struct {
     LastPc uint16
 }
 
+type Registers struct {
+    A byte
+    X byte
+    Y byte
+    SP byte
+    PC uint16
+    Status byte
+}
+
 func (debugger *DefaultDebugger) Update(cpu *nes.CPUState, table nes.InstructionTable){
     if debugger.Window != nil && debugger.Window.IsOpen {
         /* Warning: fetch calls cpu.LoadMemory that could in theory impact mapper's
@@ -84,6 +93,16 @@ func (debugger *DefaultDebugger) Update(cpu *nes.CPUState, table nes.Instruction
             pc := cpu.PC
             debugger.Window.AddInstruction(pc, instruction)
             debugger.Window.SetCycle(cpu.Cycle)
+            debugger.Window.SetRegisters(Registers{
+                A: cpu.A,
+                X: cpu.X,
+                Y: cpu.Y,
+                SP: cpu.SP,
+                PC: cpu.PC,
+                Status: cpu.Status,
+            })
+
+            debugger.Window.Redraw()
         }
     }
 }

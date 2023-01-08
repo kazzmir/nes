@@ -70,6 +70,7 @@ type DebugWindow struct {
     Lock sync.Mutex
     Debugger Debugger
     Cycle uint64
+    Registers Registers
 }
 
 func MakeDebugWindow(mainQuit context.Context, bigFont *ttf.Font, smallFont *ttf.Font) *DebugWindow {
@@ -102,6 +103,12 @@ func removeLastWord(line string) string {
 func (debug *DebugWindow) SetCycle(cycle uint64){
     debug.Lock.Lock()
     debug.Cycle = cycle
+    debug.Lock.Unlock()
+}
+
+func (debug *DebugWindow) SetRegisters(registers Registers){
+    debug.Lock.Lock()
+    debug.Registers = registers
     debug.Lock.Unlock()
 }
 
@@ -184,10 +191,31 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
         debug.Lock.Lock()
         instructions := gfx.CopyArray(debug.Instructions)
         cycle := debug.Cycle
+        registers := debug.Registers
         debug.Lock.Unlock()
 
         cycleText := fmt.Sprintf("Cycle %v", cycle)
-        gfx.WriteFont(debug.SmallFont, renderer, width - gfx.TextWidth(debug.SmallFont, cycleText) - 1, 1, cycleText, white)
+
+        infoWidth := gfx.TextWidth(debug.SmallFont, cycleText) + 10
+        infoX := width - infoWidth - 5
+        gfx.Box1(infoX, 1, infoWidth, debug.SmallFont.Height() * 8, renderer, func(coords gfx.Coordinates){
+            // gfx.WriteFont(debug.SmallFont, renderer, width - gfx.TextWidth(debug.SmallFont, cycleText) - 1, 1, cycleText, white)
+
+            y := coords.Y(1)
+            gfx.WriteFont(debug.SmallFont, renderer, coords.X(1), y, cycleText, white)
+            y += debug.SmallFont.Height()
+            gfx.WriteFont(debug.SmallFont, renderer, coords.X(1), y, fmt.Sprintf("A: 0x%X", registers.A), white)
+            y += debug.SmallFont.Height()
+            gfx.WriteFont(debug.SmallFont, renderer, coords.X(1), y, fmt.Sprintf("X: 0x%X", registers.X), white)
+            y += debug.SmallFont.Height()
+            gfx.WriteFont(debug.SmallFont, renderer, coords.X(1), y, fmt.Sprintf("Y: 0x%X", registers.Y), white)
+            y += debug.SmallFont.Height()
+            gfx.WriteFont(debug.SmallFont, renderer, coords.X(1), y, fmt.Sprintf("SP: 0x%X", registers.SP), white)
+            y += debug.SmallFont.Height()
+            gfx.WriteFont(debug.SmallFont, renderer, coords.X(1), y, fmt.Sprintf("PC: 0x%X", registers.PC), white)
+            y += debug.SmallFont.Height()
+            gfx.WriteFont(debug.SmallFont, renderer, coords.X(1), y, fmt.Sprintf("Status: 0x%X", registers.Status), white)
+        })
 
         breakpoints := debug.Debugger.GetBreakpoints()
 
