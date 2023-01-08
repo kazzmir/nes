@@ -170,7 +170,7 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
     }
 
     render := func(width int, height int, renderer *sdl.Renderer){
-        renderer.SetDrawColor(0, 0, 0, 0)
+        renderer.SetDrawColor(0, 0, 32, 0)
         renderer.Clear()
 
         y := 1
