@@ -319,6 +319,8 @@ func DrawEquilateralTriange(renderer *sdl.Renderer, x int, y int, size float64, 
 type Coordinates struct {
     UpperLeftX int
     UpperLeftY int
+    Width int
+    Height int
 }
 
 func (coords Coordinates) X(x int) int {
@@ -327,6 +329,14 @@ func (coords Coordinates) X(x int) int {
 
 func (coords Coordinates) Y(y int) int {
     return y + coords.UpperLeftY
+}
+
+func (coords Coordinates) MaxX() int {
+    return coords.Width
+}
+
+func (coords Coordinates) MaxY() int {
+    return coords.Height
 }
 
 type GuiRenderer func(coords Coordinates)
@@ -339,6 +349,8 @@ func Box1(x int, y int, width int, height int, renderer *sdl.Renderer, render Gu
     render(Coordinates{
         UpperLeftX: x+buffer,
         UpperLeftY: y+buffer,
+        Width: width-buffer*2,
+        Height: height-buffer*2,
     })
 
     renderer.SetClipRect(nil)

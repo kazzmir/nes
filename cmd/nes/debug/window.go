@@ -184,6 +184,8 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
         gfx.WriteFont(debug.BigFont, renderer, 1, y, "Debugger", white)
         y += debug.BigFont.Height() + 1
 
+        instructionY := y
+
         consoleHeight := height - debug.SmallFont.Height() - 2
 
         y = consoleHeight - debug.SmallFont.Height() - 1
@@ -198,7 +200,7 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
 
         infoWidth := gfx.TextWidth(debug.SmallFont, cycleText) + 10
         infoX := width - infoWidth - 5
-        gfx.Box1(infoX, 1, infoWidth, debug.SmallFont.Height() * 8, renderer, func(coords gfx.Coordinates){
+        gfx.Box1(infoX, instructionY, infoWidth, debug.SmallFont.Height() * 8, renderer, func(coords gfx.Coordinates){
             // gfx.WriteFont(debug.SmallFont, renderer, width - gfx.TextWidth(debug.SmallFont, cycleText) - 1, 1, cycleText, white)
 
             y := coords.Y(1)
@@ -219,23 +221,29 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
 
         breakpoints := debug.Debugger.GetBreakpoints()
 
-        for i := len(instructions)-1; i >= 0; i -= 1 {
-            color := white
-            for _, breakpoint := range breakpoints {
-                if breakpoint.PC == instructions[i].PC {
-                    color = red
+        instructionBoxHeight := height - instructionY - 50
+        gfx.Box1(4, instructionY, width / 2, instructionBoxHeight, renderer, func(coords gfx.Coordinates){
+            y := coords.MaxY()
+            for i := len(instructions)-1; i >= 0; i -= 1 {
+                color := white
+                for _, breakpoint := range breakpoints {
+                    if breakpoint.PC == instructions[i].PC {
+                        color = red
+                        break
+                    }
+                }
+
+                data := fmt.Sprintf("%X: %s", instructions[i].PC, instructions[i].Instruction.String())
+
+                gfx.WriteFont(debug.SmallFont, renderer, coords.X(1), y, data, color)
+                y -= debug.SmallFont.Height() + 1
+                if y < coords.Y(0) {
                     break
                 }
             }
+        })
 
-            data := fmt.Sprintf("%X: %s", instructions[i].PC, instructions[i].Instruction.String())
-
-            gfx.WriteFont(debug.SmallFont, renderer, 1, y, data, color)
-            y -= debug.SmallFont.Height() + 1
-            if y < debug.BigFont.Height() {
-                break
-            }
-        }
+        y += instructionBoxHeight + 1
 
         renderer.SetDrawColor(255, 255, 255, 255)
         y = consoleHeight
@@ -314,7 +322,7 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
                 /* FIXME: if line is empty then repeat the last command */
 
                 switch line {
-                    case "quit":
+                    case "q", "quit":
                         cancel()
                     case "s", "step":
                         /* FIXME: handle step N, to step N instructions */
