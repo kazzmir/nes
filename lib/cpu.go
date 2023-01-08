@@ -85,7 +85,7 @@ func (instruction *Instruction) String() string {
     out.WriteString(instruction.Name)
     for _, operand := range instruction.Operands {
         out.WriteRune(' ')
-        out.WriteString(fmt.Sprintf("0x%x", operand))
+        out.WriteString(fmt.Sprintf("0x%X", operand))
     }
     return out.String()
 }
