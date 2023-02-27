@@ -71,6 +71,7 @@ type DebugWindow struct {
     Debugger Debugger
     Cycle uint64
     Registers Registers
+    LastCommand string
 }
 
 func MakeDebugWindow(mainQuit context.Context, bigFont *ttf.Font, smallFont *ttf.Font) *DebugWindow {
@@ -326,20 +327,24 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
                 debug.Line.Text = ""
                 doRedraw()
             case DebuggerTextEnter:
-                line := debug.Line.Text
+                if strings.TrimSpace(debug.Line.Text) != "" {
+                    debug.LastCommand = strings.TrimSpace(debug.Line.Text)
+                }
 
-                /* FIXME: if line is empty then repeat the last command */
+                parts := strings.Fields(debug.LastCommand)
 
-                switch line {
-                    case "q", "quit":
-                        cancel()
-                    case "s", "step":
-                        /* FIXME: handle step N, to step N instructions */
-                        debug.Debugger.Step()
-                    case "n", "next":
-                        debug.Debugger.Next()
-                    case "c", "continue":
-                        debug.Debugger.Continue()
+                if len(parts) > 0 {
+                    switch parts[0] {
+                        case "q", "quit":
+                            cancel()
+                        case "s", "step":
+                            /* FIXME: handle step N, to step N instructions */
+                            debug.Debugger.Step()
+                        case "n", "next":
+                            debug.Debugger.Next()
+                        case "c", "continue":
+                            debug.Debugger.Continue()
+                    }
                 }
 
                 debug.Line.Text = ""
