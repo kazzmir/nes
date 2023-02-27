@@ -328,7 +328,7 @@ func (console *Console) run(mainCancel context.CancelFunc, mainQuit context.Cont
                             case "step":
                                 debugger := console.GetDebugger(emulatorActions)
                                 if debugger != nil {
-                                    debugger.Step()
+                                    debugger.Step(1)
                                     layer.AddLine("Step")
                                 } else {
                                     layer.AddLine("No debugger available")

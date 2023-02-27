@@ -7,6 +7,7 @@ import (
     "time"
     "log"
     "strings"
+    "strconv"
     nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/veandco/go-sdl2/sdl"
@@ -338,8 +339,14 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
                         case "q", "quit":
                             cancel()
                         case "s", "step":
-                            /* FIXME: handle step N, to step N instructions */
-                            debug.Debugger.Step()
+                            count := 1
+                            if len(parts) > 1 {
+                                v, err := strconv.Atoi(parts[1])
+                                if err == nil {
+                                    count = v
+                                }
+                            }
+                            debug.Debugger.Step(count)
                         case "n", "next":
                             debug.Debugger.Next()
                         case "c", "continue":

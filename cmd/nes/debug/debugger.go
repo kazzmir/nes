@@ -19,11 +19,19 @@ func (command *DebugCommandSimple) Name() string {
     return command.name
 }
 
+type DebugCommandStep struct {
+    name string
+    count int
+}
+
+func (command *DebugCommandStep) Name() string {
+    return command.name
+}
+
 func makeCommand(name string) DebugCommand {
     return &DebugCommandSimple{name: name}
 }
 
-var DebugCommandStep DebugCommand = makeCommand("step")
 var DebugCommandContinue DebugCommand = makeCommand("continue")
 var DebugCommandNext DebugCommand = makeCommand("next")
 
@@ -47,7 +55,7 @@ type Debugger interface {
     RemoveBreakpoint(id uint64) bool
     GetBreakpoints() []Breakpoint
     Continue()
-    Step()
+    Step(count int)
     Next()
     IsStopped() bool
     Update(*nes.CPUState, nes.InstructionTable)
@@ -72,6 +80,7 @@ type DefaultDebugger struct {
     Window *DebugWindow
     Lock sync.Mutex
     LastPc uint16
+    StepCount int
 }
 
 type Registers struct {
@@ -172,9 +181,9 @@ func (debugger *DefaultDebugger) Continue(){
     }
 }
 
-func (debugger *DefaultDebugger) Step(){
+func (debugger *DefaultDebugger) Step(count int){
     select {
-        case debugger.Commands<-DebugCommandStep:
+    case debugger.Commands<-&DebugCommandStep{name: "step", count: count}:
         default:
     }
 }
@@ -190,10 +199,6 @@ func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState) bool {
     select {
         case command := <-debugger.Commands:
             switch command {
-                case DebugCommandStep:
-                    log.Printf("[debug] step")
-                    debugger.Mode = ModeStepping
-                    return true
                 case DebugCommandContinue:
                     log.Printf("[debug] continue")
                     debugger.ContinueUntilBreak()
@@ -202,6 +207,15 @@ func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState) bool {
                     log.Printf("[debug] next")
                     debugger.Mode = ModeNext
                     debugger.LastPc = cpu.PC
+                default:
+                    switch command.(type) {
+                        case *DebugCommandStep:
+                            log.Printf("[debug] step")
+                            debugger.Mode = ModeStepping
+                            step := command.(*DebugCommandStep)
+                            debugger.StepCount = step.count
+                            return true
+                    }
             }
         default:
     }
@@ -216,7 +230,8 @@ func (debugger *DefaultDebugger) Handle(cpu *nes.CPUState) bool {
     }
 
     if debugger.Mode == ModeStepping {
-        return false
+        debugger.StepCount -= 1
+        return debugger.StepCount > 0
     }
 
     if debugger.Mode == ModeStopped {
