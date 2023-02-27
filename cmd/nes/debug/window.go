@@ -169,6 +169,10 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
         A: 255,
     }
 
+    yellow := sdl.Color{
+        R: 255, G: 255, B: 0, A: 0,
+    }
+
     red := sdl.Color{
         R: 255,
         G: 0,
@@ -226,6 +230,11 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
             y := coords.MaxY()
             for i := len(instructions)-1; i >= 0; i -= 1 {
                 color := white
+
+                if instructions[i].PC == registers.PC {
+                    color = yellow
+                }
+
                 for _, breakpoint := range breakpoints {
                     if breakpoint.PC == instructions[i].PC {
                         color = red
