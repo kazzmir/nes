@@ -6,8 +6,11 @@ import (
     "log"
     "fmt"
     "strings"
+    "strconv"
     "sync"
     "github.com/kazzmir/nes/cmd/nes/common"
+    "github.com/kazzmir/nes/cmd/nes/gfx"
+    "github.com/kazzmir/nes/cmd/nes/debug"
     "github.com/veandco/go-sdl2/sdl"
 )
 
@@ -68,13 +71,13 @@ func (enter EnterMessage) ConsoleMessage() {
 }
 
 type Console struct {
-    RenderManager *common.RenderManager
+    RenderManager *gfx.RenderManager
     State ConsoleState
     Messages chan Message
     ZIndex int
 }
 
-func MakeConsole(zindex int, manager *common.RenderManager, cancel context.CancelFunc, quit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool) *Console {
+func MakeConsole(zindex int, manager *gfx.RenderManager, cancel context.CancelFunc, quit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool) *Console {
     console := Console{
         RenderManager: manager,
         State: StateClosed,
@@ -82,7 +85,7 @@ func MakeConsole(zindex int, manager *common.RenderManager, cancel context.Cance
         ZIndex: zindex,
     }
 
-    go console.Run(cancel, quit, emulatorActions, nesActions, renderNow)
+    go console.run(cancel, quit, emulatorActions, nesActions, renderNow)
 
     return &console
 }
@@ -124,7 +127,7 @@ func (layer *RenderConsoleLayer) SetText(text string){
     layer.Text = text
 }
 
-func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
+func (layer *RenderConsoleLayer) Render(info gfx.RenderInfo) error {
     renderer := info.Renderer
     var alpha uint8 = 200
     renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
@@ -144,16 +147,16 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
 
     yPos := y - info.SmallFont.Height() - 1
 
-    common.WriteFont(info.SmallFont, renderer, 1, yPos, fmt.Sprintf("> %s|", layer.GetText()), white)
+    gfx.WriteFont(info.SmallFont, renderer, 1, yPos, fmt.Sprintf("> %s|", layer.GetText()), white)
 
     layer.Lock.Lock()
     max := len(layer.Lines)
     if max > 30 {
         max = 30
     }
-    lines := common.CopyArray(layer.Lines[len(layer.Lines)-max:len(layer.Lines)])
+    lines := gfx.CopyArray(layer.Lines[len(layer.Lines)-max:len(layer.Lines)])
     layer.Lock.Unlock()
-    common.Reverse(lines)
+    gfx.Reverse(lines)
 
     /* show all previous lines */
     for _, line := range lines {
@@ -161,7 +164,7 @@ func (layer *RenderConsoleLayer) Render(info common.RenderInfo) error {
         if yPos < -info.SmallFont.Height() {
             break
         }
-        common.WriteFont(info.SmallFont, renderer, 1, yPos, line, grey)
+        gfx.WriteFont(info.SmallFont, renderer, 1, yPos, line, grey)
     }
 
     return nil
@@ -173,9 +176,32 @@ exit, quit: quit the program
 clear: clear console text
 info: show emulator info
 reload, restart: reload the current rom
+debug: open debug window
 `
 
-func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool){
+func (console *Console) GetDebugger(emulatorActions chan<- common.EmulatorAction) debug.Debugger {
+    data := make(chan debug.Debugger)
+    response := common.EmulatorActionGetDebugger{
+        Response: data,
+    }
+    select {
+        case emulatorActions<-response:
+            for debugger := range data {
+                return debugger
+            }
+        default:
+    }
+    return nil
+}
+
+func firstString(strings []string) string {
+    if len(strings) > 0 {
+        return strings[0]
+    }
+    return ""
+}
+
+func (console *Console) run(mainCancel context.CancelFunc, mainQuit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, renderNow chan bool){
     normalTime := time.Millisecond * 13
     slowTime := time.Hour * 100
     ticker := time.NewTicker(slowTime)
@@ -195,138 +221,195 @@ func (console *Console) Run(mainCancel context.CancelFunc, mainQuit context.Cont
             case <-mainQuit.Done():
                 return
             case message := <-console.Messages:
-                _, ok := message.(ToggleMessage)
-                if ok {
-                    switch console.State {
-                        case StateOpen, StateOpening:
-                            console.State = StateClosing
-                            ticker.Reset(normalTime)
-                            sdl.Do(sdl.StopTextInput)
-                        case StateClosing, StateClosed:
-                            sdl.Do(sdl.StartTextInput)
-                            ticker.Reset(normalTime)
-                            console.State = StateOpening
-                            console.RenderManager.Replace(console.ZIndex, &layer)
-                    }
-                    select {
-                        case renderNow <-true:
-                        default:
-                    }
-                }
 
-                text, ok := message.(TextInputMessage)
-                if ok {
-                    newText := layer.GetText() + text.Text
-                    if len(newText) > 1024 {
-                        newText = newText[0:1024]
-                    }
-                    layer.SetText(newText)
-                    select {
-                        case renderNow <-true:
-                        default:
-                    }
-                }
+                switch message.(type) {
+                    case ToggleMessage:
+                        switch console.State {
+                            case StateOpen, StateOpening:
+                                console.State = StateClosing
+                                ticker.Reset(normalTime)
+                                // sdl.Do(sdl.StopTextInput)
+                            case StateClosing, StateClosed:
+                                // sdl.Do(sdl.StartTextInput)
+                                ticker.Reset(normalTime)
+                                console.State = StateOpening
+                                console.RenderManager.Replace(console.ZIndex, &layer)
+                        }
+                        select {
+                            case renderNow <-true:
+                            default:
+                        }
+                    case TextInputMessage:
+                        text := message.(TextInputMessage)
+                        newText := layer.GetText() + text.Text
+                        if len(newText) > 1024 {
+                            newText = newText[0:1024]
+                        }
+                        layer.SetText(newText)
+                        select {
+                            case renderNow <-true:
+                            default:
+                        }
+                    case RemoveWordMessage:
+                        text := strings.TrimRight(layer.GetText(), " ")
+                        last := strings.LastIndex(text, " ")
+                        if last == -1 {
+                            last = 0
+                        } else {
+                            last += 1
+                        }
+                        text = text[0:last]
+                        layer.SetText(text)
+                        select {
+                            case renderNow <-true:
+                            default:
+                        }
+                    case ClearLineMessage:
+                        layer.SetText("")
+                        select {
+                            case renderNow <-true:
+                            default:
+                        }
+                    case BackspaceMessage:
+                        text := layer.GetText()
+                        if len(text) > 0 {
+                            text = text[0:len(text)-1]
+                        }
+                        layer.SetText(text)
+                        select {
+                            case renderNow <-true:
+                            default:
+                        }
+                    case EnterMessage:
+                        text := layer.GetText()
 
-                _, ok = message.(RemoveWordMessage)
-                if ok {
-                    text := strings.TrimRight(layer.GetText(), " ")
-                    last := strings.LastIndex(text, " ")
-                    if last == -1 {
-                        last = 0
-                    } else {
-                        last += 1
-                    }
-                    text = text[0:last]
-                    layer.SetText(text)
-                    select {
-                        case renderNow <-true:
-                        default:
-                    }
-                }
+                        args := strings.Split(text, " ")
 
-                _, ok = message.(ClearLineMessage)
-                if ok {
-                    layer.SetText("")
-                    select {
-                        case renderNow <-true:
-                        default:
-                    }
-                }
-
-                _, ok = message.(BackspaceMessage)
-                if ok {
-                    text := layer.GetText()
-                    if len(text) > 0 {
-                        text = text[0:len(text)-1]
-                    }
-                    layer.SetText(text)
-                    select {
-                        case renderNow <-true:
-                        default:
-                    }
-                }
-
-                _, ok = message.(EnterMessage)
-                if ok {
-                    text := layer.GetText()
-
-                    switch strings.ToLower(strings.TrimSpace(text)) {
-                        case "exit", "quit":
-                            mainCancel()
-                        case "clear":
-                            layer.ClearLines()
-                        case "sup":
-                            layer.AddLine("nm, u?")
-                        case "help", "?":
-                            help := strings.Split(helpText, "\n")
-                            for _, line := range help {
-                                if line != "" {
-                                    layer.AddLine(line)
+                        switch strings.ToLower(strings.TrimSpace(firstString(args))) {
+                            case "exit", "quit":
+                                mainCancel()
+                            case "clear":
+                                layer.ClearLines()
+                            case "sup":
+                                layer.AddLine("nm, u?")
+                            case "debug", "debugger":
+                                select {
+                                    case nesActions <- &NesActionDebugger{}:
+                                        layer.AddLine("Opening the debug window..")
+                                    default:
+                                        layer.AddLine("Error: input dropped. Try again")
                                 }
-                            }
-                        case "reload", "restart":
-                            layer.AddLine("reload")
-                            select {
-                                case nesActions <- &NesActionRestart{}:
-                                    layer.AddLine("Reloading..")
-                                default:
-                                    layer.AddLine("Error: input dropped. Try again")
-                            }
-                        case "info":
-                            layer.AddLine("info")
-                            data := make(chan common.EmulatorInfo)
-                            response := common.EmulatorActionGetInfo{
-                                Response: data,
-                            }
-                            select {
-                                case emulatorActions<-response:
-                                    ok := false
-                                    for info := range data {
-                                        ok = true
-                                        layer.AddLine("Emulator Info")
-                                        layer.AddLine(fmt.Sprintf("Cycles: %v", info.Cycles))
-                                        break
+                            case "break":
+                                debugger := console.GetDebugger(emulatorActions)
+                                if debugger != nil {
+                                    if len(args) > 1 {
+                                        if strings.ToLower(args[1]) == "list" {
+                                            layer.AddLine("Breakpoints")
+                                            breakpoints := debugger.GetBreakpoints()
+                                            for _, breakpoint := range breakpoints {
+                                                layer.AddLine(fmt.Sprintf(" %v: enabled=%v 0x%x", breakpoint.Id, breakpoint.Enabled, breakpoint.PC))
+                                            }
+                                        } else {
+                                            pc, err := strconv.ParseInt(args[1], 0, 32)
+                                            if err != nil {
+                                                layer.AddLine(fmt.Sprintf("Invalid address '%v': %v", args[1], err))
+                                            } else {
+                                                breakpoint := debugger.AddPCBreakpoint(uint16(pc))
+                                                layer.AddLine(fmt.Sprintf("Breakpoint %v added at 0x%x", breakpoint.Id, breakpoint.PC))
+                                            }
+                                        }
+                                    } else {
+                                        breakpoint := debugger.AddCurrentPCBreakpoint()
+                                        layer.AddLine(fmt.Sprintf("Breakpoint %v added at 0x%x", breakpoint.Id, breakpoint.PC))
                                     }
-                                    if !ok {
-                                        layer.AddLine("No ROM loaded")
+                                } else {
+                                    layer.AddLine("No debugger available")
+                                }
+                            case "step":
+                                debugger := console.GetDebugger(emulatorActions)
+                                if debugger != nil {
+                                    debugger.Step(1)
+                                    layer.AddLine("Step")
+                                } else {
+                                    layer.AddLine("No debugger available")
+                                }
+                            case "delete":
+                                if len(args) == 2 {
+                                    id, err := strconv.Atoi(args[1])
+                                    if err != nil {
+                                        layer.AddLine(fmt.Sprintf("Bad breakpoint '%v'", args[1]))
+                                    } else {
+                                        debugger := console.GetDebugger(emulatorActions)
+                                        if debugger != nil {
+                                            debugger.RemoveBreakpoint(uint64(id))
+                                            layer.AddLine(fmt.Sprintf("Removed breakpoint %v", id))
+                                        } else {
+                                            layer.AddLine("No debugger available")
+                                        }
                                     }
-                                default:
-                            }
-                        default:
-                            layer.AddLine(text)
-                    }
+                                } else {
+                                    layer.AddLine("Give a breakpoint id to delete")
+                                }
+                            case "continue":
+                                debugger := console.GetDebugger(emulatorActions)
+                                if debugger != nil {
+                                    debugger.Continue()
+                                    layer.AddLine("Continue")
+                                } else {
+                                    layer.AddLine("No debugger available")
+                                }
+                            case "help", "?":
+                                help := strings.Split(helpText, "\n")
+                                for _, line := range help {
+                                    if line != "" {
+                                        layer.AddLine(line)
+                                    }
+                                }
+                            case "reload", "restart":
+                                layer.AddLine("reload")
+                                select {
+                                    case nesActions <- &NesActionRestart{}:
+                                        layer.AddLine("Reloading..")
+                                    default:
+                                        layer.AddLine("Error: input dropped. Try again")
+                                }
+                            case "info":
+                                layer.AddLine("info")
+                                data := make(chan common.EmulatorInfo)
+                                response := common.EmulatorActionGetInfo{
+                                    Response: data,
+                                }
+                                select {
+                                    case emulatorActions<-response:
+                                        ok := false
+                                        for info := range data {
+                                            ok = true
+                                            layer.AddLine("Emulator Info")
+                                            layer.AddLine(fmt.Sprintf("Cycles: %v", info.Cycles))
+                                            layer.AddLine(fmt.Sprintf("PC: 0x%x", info.Pc))
+                                            break
+                                        }
+                                        if !ok {
+                                            layer.AddLine("No ROM loaded")
+                                        }
+                                    default:
+                                }
+                            default:
+                                if strings.TrimSpace(text) != "" {
+                                    layer.AddLine(text)
+                                }
+                        }
 
-                    layer.SetText("")
-                    select {
-                        case renderNow <-true:
-                        default:
-                    }
+                        layer.SetText("")
+                        select {
+                            case renderNow <-true:
+                            default:
+                        }
+                    case IsActiveMessage:
+                        isActive := message.(IsActiveMessage)
+                        isActive.Response <- console.State == StateOpen || console.State == StateOpening
                 }
 
-                isActive, ok := message.(IsActiveMessage)
-                if ok {
-                    isActive.Response <- console.State == StateOpen || console.State == StateOpening
-                }
             case <-ticker.C:
                 switch console.State {
                     case StateOpening:
@@ -406,6 +489,7 @@ func (console *Console) HandleKey(event *sdl.KeyboardEvent, emulatorKeys common.
 }
 
 func (console *Console) Toggle(){
+    log.Printf("toggle console")
     select {
         case console.Messages <- ToggleMessage{}:
         default:

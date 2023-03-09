@@ -31,7 +31,9 @@ import (
     "runtime/pprof"
 
     "github.com/kazzmir/nes/cmd/nes/common"
+    "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/menu"
+    "github.com/kazzmir/nes/cmd/nes/debug"
 
     // rdebug "runtime/debug"
 )
@@ -108,14 +110,12 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                     case <-mainQuit.Done():
                         return
                     case action := <-audioActions:
-                        _, ok := action.(*AudioToggle)
-                        if ok {
-                            enabled = !enabled
-                        }
-
-                        query, ok := action.(*AudioQueryEnabled)
-                        if ok {
-                            query.Response <- enabled
+                        switch action.(type) {
+                            case *AudioToggle:
+                                enabled = !enabled
+                            case *AudioQueryEnabled:
+                                query := action.(*AudioQueryEnabled)
+                                query.Response <- enabled
                         }
                     case samples := <-audio:
                         if !enabled {
@@ -147,9 +147,10 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                     case <-mainQuit.Done():
                         return
                     case action := <-audioActions:
-                        query, ok := action.(*AudioQueryEnabled)
-                        if ok {
-                            query.Response <- false
+                        switch action.(type) {
+                            case *AudioQueryEnabled:
+                                query := action.(*AudioQueryEnabled)
+                                query.Response <- false
                         }
                     case <-audio:
                 }
@@ -159,7 +160,7 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
 }
 
 /* must be called in a sdl.Do */
-func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat common.PixelFormat, renderer *sdl.Renderer) error {
+func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat gfx.PixelFormat, renderer *sdl.Renderer) error {
 
     pixels := C.CBytes(raw_pixels)
     defer C.free(pixels)
@@ -209,6 +210,9 @@ func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat com
 type NesAction interface {
 }
 
+type NesActionDebugger struct {
+}
+
 type NesActionLoad struct {
     File nes.NESFile
 }
@@ -222,11 +226,11 @@ type EmulatorMessage struct {
 }
 
 type DefaultRenderLayer struct {
-    RenderFunc func(common.RenderInfo) error
+    RenderFunc func(gfx.RenderInfo) error
     Index int
 }
 
-func (layer *DefaultRenderLayer) Render(info common.RenderInfo) error {
+func (layer *DefaultRenderLayer) Render(info gfx.RenderInfo) error {
     return layer.RenderFunc(info)
 }
 
@@ -246,13 +250,13 @@ func (layer *EmulatorMessageLayer) ZIndex() int {
     return layer.Index
 }
 
-func (layer *EmulatorMessageLayer) Render(renderInfo common.RenderInfo) error {
+func (layer *EmulatorMessageLayer) Render(renderInfo gfx.RenderInfo) error {
     windowWidth, windowHeight := renderInfo.Window.GetSize()
 
     font := renderInfo.SmallFont
 
     layer.Lock.Lock()
-    messages := common.CopyArray(layer.emulatorMessages)
+    messages := gfx.CopyArray(layer.emulatorMessages)
     layer.Lock.Unlock()
 
     y := int(windowHeight) - font.Height() - 1
@@ -275,7 +279,7 @@ func (layer *EmulatorMessageLayer) Render(renderInfo common.RenderInfo) error {
             }
             white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
             // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
-            common.WriteFont(font, renderInfo.Renderer, x, y, message.Message, white)
+            gfx.WriteFont(font, renderInfo.Renderer, x, y, message.Message, white)
             y -= font.Height() + 2
         }
     }
@@ -330,7 +334,7 @@ func (layer *OverlayMessageLayer) ZIndex() int {
     return layer.Index
 }
 
-func (layer *OverlayMessageLayer) Render(info common.RenderInfo) error {
+func (layer *OverlayMessageLayer) Render(info gfx.RenderInfo) error {
     width, height := info.Window.GetSize()
 
     font := info.Font
@@ -338,14 +342,44 @@ func (layer *OverlayMessageLayer) Render(info common.RenderInfo) error {
 
     black := sdl.Color{R: 0, G: 0, B: 0, A: 200}
     white := sdl.Color{R: 255, G: 255, B: 255, A: 200}
-    messageLength := common.TextWidth(font, layer.Message)
+    messageLength := gfx.TextWidth(font, layer.Message)
     x := int(width)/2 - messageLength / 2
     y := int(height)/2
     renderer.SetDrawColor(black.R, black.G, black.B, black.A)
     renderer.FillRect(&sdl.Rect{X: int32(x - 10), Y: int32(y - 10), W: int32(messageLength + 10 + 5), H: int32(font.Height() + 10 + 5)})
 
-    common.WriteFont(font, renderer, x, y, layer.Message, white)
+    gfx.WriteFont(font, renderer, x, y, layer.Message, white)
     return nil
+}
+
+func getWindowIdFromEvent(event sdl.Event) uint32 {
+    switch event.GetType() {
+        case sdl.TEXTEDITING:
+            text_event, ok := event.(*sdl.TextEditingEvent)
+            if ok {
+                return text_event.WindowID
+            }
+        case sdl.TEXTINPUT:
+            text_input, ok := event.(*sdl.TextInputEvent)
+            if ok {
+                return text_input.WindowID
+            }
+        case sdl.WINDOWEVENT:
+            window_event, ok := event.(*sdl.WindowEvent)
+            if ok {
+                return window_event.WindowID
+            }
+        case sdl.KEYDOWN, sdl.KEYUP:
+            keyboard_event, ok := event.(*sdl.KeyboardEvent)
+            if ok {
+                return keyboard_event.WindowID
+            }
+    }
+
+    log.Printf("Warning: unknown event type: %v", event.GetType())
+
+    /* FIXME: what is the invalid window id */
+    return 0
 }
 
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
@@ -357,7 +391,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     doMenu := make(chan bool, 5)
     renderOverlayUpdate := make(chan string, 5)
 
-    var renderManager common.RenderManager
+    var renderManager gfx.RenderManager
 
     if path != "" {
         log.Printf("Opening NES file '%v'", path)
@@ -535,6 +569,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     if i == 0 {
                         log.Printf("Shutting down due to signal")
                         mainCancel()
+                        go func(){
+                            time.Sleep(2 * time.Second)
+                            log.Printf("Bailing..")
+                            os.Exit(1)
+                        }()
                     } else {
                         log.Printf("Hard kill")
                         os.Exit(1)
@@ -546,7 +585,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     toDraw := make(chan nes.VirtualScreen, 1)
     bufferReady := make(chan nes.VirtualScreen, 1)
 
-    pixelFormat := common.FindPixelFormat()
+    pixelFormat := gfx.FindPixelFormat()
 
     log.Printf("Using pixel format %v\n", sdl.GetPixelFormatName(uint(pixelFormat)))
 
@@ -557,13 +596,15 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     defer ttf.Quit()
 
-    font, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "data/DejaVuSans.ttf"), 20)
+    fontPath := common.FindFile("data/DejaVuSans.ttf")
+
+    font, err := ttf.OpenFont(fontPath, 20)
     if err != nil {
         return err
     }
     defer font.Close()
 
-    smallFont, err := ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "data/DejaVuSans.ttf"), 15)
+    smallFont, err := ttf.OpenFont(fontPath, 15)
     if err != nil {
         return err
     }
@@ -578,7 +619,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     joystickManager := common.NewJoystickManager()
     defer joystickManager.Close()
 
-    sdl.Do(sdl.StopTextInput)
+    // sdl.Do(sdl.StopTextInput)
+    sdl.Do(sdl.StartTextInput)
 
     // var joystickInput nes.HostInput
     /*
@@ -637,7 +679,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             renderer.SetDrawColor(0, 0, 0, 0)
             renderer.Clear()
 
-            err := renderManager.RenderAll(common.RenderInfo{
+            err := renderManager.RenderAll(gfx.RenderInfo{
                 Renderer: renderer,
                 Font: font,
                 SmallFont: smallFont,
@@ -707,14 +749,19 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         Keys: &emulatorKeys,
     }
 
+    debugWindow := debug.MakeDebugWindow(mainQuit, font, smallFont)
+
     startNES := func(nesFile nes.NESFile, quit context.Context){
         cpu, err := common.SetupCPU(nesFile, debugCpu, debugPpu)
+
+        debugger := debug.MakeDebugger(&cpu, debugWindow)
+        defer debugger.Close()
 
         input.Reset()
         combined := common.MakeCombineButtons(input, joystickManager)
         cpu.Input = nes.MakeInput(&combined)
 
-        renderNes := func(info common.RenderInfo) error {
+        renderNes := func(info gfx.RenderInfo) error {
             return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, info.Renderer)
         }
 
@@ -741,7 +788,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 default:
             }
             log.Printf("Run NES")
-            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1)
+            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1, debugger)
             if err != nil {
                 if err == common.MaxCyclesReached {
                 } else {
@@ -772,15 +819,15 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     return
                 case action := <-nesChannel:
                     doRestart := false
-                    load, ok := action.(*NesActionLoad)
-                    if ok {
-                        currentFile = load.File
-                        doRestart = true
-                    }
-
-                    _, ok = action.(*NesActionRestart)
-                    if ok {
-                        doRestart = true
+                    switch action.(type) {
+                        case *NesActionLoad:
+                            load := action.(*NesActionLoad)
+                            currentFile = load.File
+                            doRestart = true
+                        case *NesActionRestart:
+                            doRestart = true
+                        case *NesActionDebugger:
+                            debugWindow.Open(mainQuit)
                     }
 
                     if doRestart && currentFile.Path != "" {
@@ -834,50 +881,37 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 case <-mainQuit.Done():
                     return
                 case action := <-programActionsInput:
-                    _, ok := action.(*common.ProgramToggleSound)
-                    if ok {
-                        audioActionsOutput <- &AudioToggle{}
-                    }
-
-                    query, ok := action.(*common.ProgramQueryAudioState)
-                    if ok {
-                        audioActionsOutput <- &AudioQueryEnabled{Response: query.Response}
-                    }
-
-                    _, ok = action.(*common.ProgramQuit)
-                    if ok {
-                        mainCancel()
-                    }
-
-                    _, ok = action.(*common.ProgramPauseEmulator)
-                    if ok {
-                        select {
-                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause):
-                            default:
-                        }
-                    }
-
-                    _, ok = action.(*common.ProgramUnpauseEmulator)
-                    if ok {
-                        select {
-                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause):
-                            default:
-                        }
-                    }
-
-                    loadRom, ok := action.(*common.ProgramLoadRom)
-                    if ok {
-                        nesFile, err := nes.ParseNesFile(loadRom.Path, true)
-                        if err != nil {
-                            log.Printf("Could not load rom '%v'", path)
-                        } else {
-                            log.Printf("Loaded rom '%v'", loadRom.Path)
-                            nesChannel <- &NesActionLoad{File: nesFile}
+                    switch action.(type) {
+                        case *common.ProgramToggleSound:
+                            audioActionsOutput <- &AudioToggle{}
+                        case *common.ProgramQueryAudioState:
+                            query := action.(*common.ProgramQueryAudioState)
+                            audioActionsOutput <- &AudioQueryEnabled{Response: query.Response}
+                        case *common.ProgramQuit:
+                            mainCancel()
+                        case *common.ProgramPauseEmulator:
                             select {
-                                case emulatorMessages.ReceiveMessages <- "Loaded rom":
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause):
                                 default:
                             }
-                        }
+                        case *common.ProgramUnpauseEmulator:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause):
+                                default:
+                            }
+                        case *common.ProgramLoadRom:
+                            loadRom := action.(*common.ProgramLoadRom)
+                            nesFile, err := nes.ParseNesFile(loadRom.Path, true)
+                            if err != nil {
+                                log.Printf("Could not load rom '%v'", path)
+                            } else {
+                                log.Printf("Loaded rom '%v'", loadRom.Path)
+                                nesChannel <- &NesActionLoad{File: nesFile}
+                                select {
+                                    case emulatorMessages.ReceiveMessages <- "Loaded rom":
+                                    default:
+                                }
+                            }
                     }
             }
         }
@@ -890,52 +924,78 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     console := MakeConsole(6, &renderManager, mainCancel, mainQuit, emulatorActionsOutput, nesChannel, renderNow)
 
-    eventFunction := func(){
-        event := sdl.WaitEventTimeout(1)
-        if event != nil {
-            // log.Printf("Event %+v\n", event)
-            switch event.GetType() {
-                case sdl.QUIT: mainCancel()
-                case sdl.WINDOWEVENT:
-                    window_event := event.(*sdl.WindowEvent)
-                    switch window_event.Event {
-                        case sdl.WINDOWEVENT_EXPOSED:
+    mainWindowId, err := window.GetID()
+    if err != nil {
+        log.Printf("Could not get main window id: %v", err)
+        return err
+    }
+
+    events := make(chan sdl.Event, 20)
+
+    handleOneEvent := func(event sdl.Event){
+        switch event.GetType() {
+            case sdl.QUIT: mainCancel()
+            case sdl.WINDOWEVENT:
+                window_event := event.(*sdl.WindowEvent)
+                useWindowId := getWindowIdFromEvent(window_event)
+                switch window_event.Event {
+                    case sdl.WINDOWEVENT_EXPOSED:
+                        if useWindowId == mainWindowId {
                             select {
                                 case renderNow <- true:
                                 default:
                             }
-                        case sdl.WINDOWEVENT_RESIZED:
-                            // log.Printf("Window resized")
+                        } else if debugWindow.IsWindow(useWindowId) {
+                            debugWindow.Redraw()
+                        }
+                    case sdl.WINDOWEVENT_CLOSE:
+                        if useWindowId == mainWindowId {
+                            mainCancel()
+                        } else if debugWindow.IsWindow(useWindowId) {
+                            debugWindow.Close()
+                        }
+                    case sdl.WINDOWEVENT_RESIZED:
+                        // log.Printf("Window resized")
 
-                    }
+                }
 
-                    /*
-                    width, height := window.GetSize()
-                    / * Not great but tolerate not updating the system when the window changes * /
-                    select {
-                        case windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}:
-                        default:
-                            log.Printf("Warning: dropping a window event")
-                    }
-                    */
-                case sdl.TEXTINPUT, sdl.TEXTEDITING:
-                    console.HandleText(event)
-                case sdl.DROPFILE:
-                    drop_event := event.(*sdl.DropEvent)
-                    switch drop_event.Type {
-                        case sdl.DROPFILE:
-                            // log.Printf("drop file '%v'\n", drop_event.File)
-                            programActionsOutput <- &common.ProgramLoadRom{Path: drop_event.File}
-                        case sdl.DROPBEGIN:
-                            log.Printf("drop begin '%v'\n", drop_event.File)
-                        case sdl.DROPCOMPLETE:
-                            log.Printf("drop complete '%v'\n", drop_event.File)
-                        case sdl.DROPTEXT:
-                            log.Printf("drop text '%v'\n", drop_event.File)
-                    }
+                /*
+                width, height := window.GetSize()
+                / * Not great but tolerate not updating the system when the window changes * /
+                select {
+                    case windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}:
+                    default:
+                        log.Printf("Warning: dropping a window event")
+                }
+                */
+            case sdl.TEXTINPUT, sdl.TEXTEDITING:
+                useWindowId := getWindowIdFromEvent(event)
 
-                case sdl.KEYDOWN:
-                    keyboard_event := event.(*sdl.KeyboardEvent)
+                if useWindowId == mainWindowId {
+                    if console.IsActive() {
+                        console.HandleText(event)
+                    }
+                } else if debugWindow.IsWindow(useWindowId) {
+                    debugWindow.HandleText(event)
+                }
+            case sdl.DROPFILE:
+                drop_event := event.(*sdl.DropEvent)
+                switch drop_event.Type {
+                    case sdl.DROPFILE:
+                        // log.Printf("drop file '%v'\n", drop_event.File)
+                        programActionsOutput <- &common.ProgramLoadRom{Path: drop_event.File}
+                    case sdl.DROPBEGIN:
+                        log.Printf("drop begin '%v'\n", drop_event.File)
+                    case sdl.DROPCOMPLETE:
+                        log.Printf("drop complete '%v'\n", drop_event.File)
+                    case sdl.DROPTEXT:
+                        log.Printf("drop text '%v'\n", drop_event.File)
+                }
+
+            case sdl.KEYDOWN:
+                keyboard_event := event.(*sdl.KeyboardEvent)
+                useWindowId := getWindowIdFromEvent(event)
+                if useWindowId == mainWindowId {
                     // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
                     quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
 
@@ -953,6 +1013,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         return
                     }
 
+                    /* Pass input to nes */
                     input.HandleEvent(keyboard_event)
 
                     switch keyboard_event.Keysym.Sym {
@@ -1038,8 +1099,13 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                                 default:
                             }
                     }
-                case sdl.KEYUP:
-                    keyboard_event := event.(*sdl.KeyboardEvent)
+                } else if debugWindow.IsWindow(useWindowId) {
+                    debugWindow.HandleKey(event)
+                }
+            case sdl.KEYUP:
+                keyboard_event := event.(*sdl.KeyboardEvent)
+                useWindowId := getWindowIdFromEvent(keyboard_event)
+                if useWindowId == mainWindowId {
                     input.HandleEvent(keyboard_event)
                     code := keyboard_event.Keysym.Sym
                     if code == emulatorKeys.Turbo || code == emulatorKeys.Pause {
@@ -1048,13 +1114,43 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             default:
                         }
                     }
-                case sdl.JOYBUTTONDOWN, sdl.JOYBUTTONUP, sdl.JOYAXISMOTION:
-                    action := joystickManager.HandleEvent(event)
-                    select {
-                        case emulatorActionsOutput <- action:
-                        default:
-                    }
+                } else if debugWindow.IsWindow(useWindowId) {
+                    debugWindow.HandleKey(event)
+                }
+            case sdl.JOYBUTTONDOWN, sdl.JOYBUTTONUP, sdl.JOYAXISMOTION:
+                action := joystickManager.HandleEvent(event)
+                select {
+                    case emulatorActionsOutput <- action:
+                    default:
+                }
+        }
+    }
+
+    /* Process events */
+    go func(){
+        for {
+            select {
+                case <-mainQuit.Done():
+                    return
+                case event := <-events:
+                    handleOneEvent(event)
             }
+        }
+    }()
+
+    /* This function executes in a sdl.Do context */
+    eventFunction := func(){
+        event := sdl.WaitEventTimeout(1)
+        if event != nil {
+            // log.Printf("Event %+v\n", event)
+            events <- event
+            /*
+            select {
+                case events <- event:
+                default:
+                    log.Printf("Dropping event %+v", event)
+            }
+            */
         }
     }
 

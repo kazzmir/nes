@@ -1,4 +1,4 @@
-package common
+package gfx
 
 import (
     "bytes"
@@ -13,34 +13,6 @@ import (
 )
 
 type RenderFunction func(*sdl.Renderer) error
-
-type WindowSize struct {
-    X int
-    Y int
-}
-
-type ProgramActions interface {
-}
-
-type ProgramToggleSound struct {
-}
-
-type ProgramQuit struct {
-}
-
-type ProgramPauseEmulator struct {
-}
-
-type ProgramUnpauseEmulator struct {
-}
-
-type ProgramQueryAudioState struct {
-    Response chan bool
-}
-
-type ProgramLoadRom struct {
-    Path string
-}
 
 type PixelFormat uint32
 
@@ -342,4 +314,46 @@ func DrawEquilateralTriange(renderer *sdl.Renderer, x int, y int, size float64, 
     } else {
         return nil
     }
+}
+
+type Coordinates struct {
+    UpperLeftX int
+    UpperLeftY int
+    Width int
+    Height int
+}
+
+func (coords Coordinates) X(x int) int {
+    return x + coords.UpperLeftX
+}
+
+func (coords Coordinates) Y(y int) int {
+    return y + coords.UpperLeftY
+}
+
+func (coords Coordinates) MaxX() int {
+    return coords.Width
+}
+
+func (coords Coordinates) MaxY() int {
+    return coords.Height
+}
+
+type GuiRenderer func(coords Coordinates)
+
+/* draw a box that clips everything drawn inside of it by the bounds. the box has a 1px white border around it */
+func Box1(x int, y int, width int, height int, renderer *sdl.Renderer, render GuiRenderer){
+    buffer := 1
+    renderer.SetClipRect(&sdl.Rect{X: int32(x+buffer), Y: int32(y+buffer), W: int32(width-buffer*2), H: int32(height-buffer*2)})
+
+    render(Coordinates{
+        UpperLeftX: x+buffer,
+        UpperLeftY: y+buffer,
+        Width: width-buffer*2,
+        Height: height-buffer*2,
+    })
+
+    renderer.SetClipRect(nil)
+    renderer.SetDrawColor(255, 255, 255, 255)
+    renderer.DrawRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(width), H: int32(height)})
 }
