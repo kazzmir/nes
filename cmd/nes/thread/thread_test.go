@@ -4,6 +4,7 @@ import (
     "testing"
     "context"
     "time"
+    _ "fmt"
 )
 
 func TestBasic(test *testing.T){
@@ -61,4 +62,34 @@ func TestCancel(test *testing.T){
         test.Fatalf("Expected x to be 1 but was %v", x)
     }
 
+}
+
+func TestSubGroup(test *testing.T){
+    quit, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    group := NewThreadGroup(quit)
+
+    x := 0
+
+    group1 := group.SubGroup()
+    group1.Spawn(func(){
+        defer func(){
+            x = 3
+        }()
+        for {
+            select {
+                case <-group1.Done():
+                    return
+            }
+        }
+    })
+
+    time.Sleep(1 * time.Millisecond)
+    group.Cancel()
+    group.Wait()
+
+    if x != 3 {
+        test.Fatalf("Expected x to be 3 but was %v", x)
+    }
 }

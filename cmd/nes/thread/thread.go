@@ -9,7 +9,6 @@ type ThreadGroup struct {
     wait sync.WaitGroup
     quit context.Context
     cancel context.CancelFunc
-    parent *ThreadGroup
 }
 
 type ThreadFuncCancel func(quit context.Context, cancel context.CancelFunc)
@@ -30,8 +29,13 @@ func NewThreadGroup(parent context.Context) *ThreadGroup {
  */
 func (group *ThreadGroup) SubGroup() *ThreadGroup {
     out := NewThreadGroup(group.quit)
-    out.parent = group
+
     group.wait.Add(1)
+    go func(){
+        <-out.quit.Done()
+        out.wait.Wait()
+        defer group.wait.Done()
+    }()
     
     return out
 }
@@ -72,7 +76,5 @@ func (group *ThreadGroup) Done() <-chan struct{} {
 
 func (group *ThreadGroup) Wait(){
     group.wait.Wait()
-    if group.parent != nil {
-        group.parent.Done()
-    }
+    group.cancel()
 }
