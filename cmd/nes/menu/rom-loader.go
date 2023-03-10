@@ -28,6 +28,7 @@ import (
     "github.com/kazzmir/nes/cmd/nes/menu/filterlist"
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/gfx"
+    "github.com/kazzmir/nes/cmd/nes/thread"
     nes "github.com/kazzmir/nes/lib"
 )
 
@@ -384,27 +385,22 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     loaderQuit, loaderCancel := context.WithCancel(mainQuit)
     _ = loaderCancel
 
-    var wait sync.WaitGroup
-    var generatorWait sync.WaitGroup
-
     generatorChannel := make(chan func(), 500)
 
+    generatorGroup := thread.NewThreadGroup(loaderQuit)
+    romGroup := thread.NewThreadGroup(loaderQuit)
+
     for i := 0; i < 4; i++ {
-        generatorWait.Add(1)
-        go func(){
-            defer generatorWait.Done()
+        generatorGroup.Spawn(func(){
             for generator := range generatorChannel {
                 generator()
             }
-        }()
+        })
     }
 
     /* Have 4 go routines running roms */
     for i := 0; i < 4; i++ {
-        wait.Add(1)
-        go func(){
-            defer wait.Done()
-
+        romGroup.Spawn(func(){
             for possibleRom := range possibleRoms {
                 nesFile, err := nes.ParseNesFile(possibleRom.Path, false)
                 if err != nil {
@@ -427,7 +423,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
 
                 select {
                     case romLoaderState.NewRom <- add:
-                    case <-loaderQuit.Done():
+                    case <-romGroup.Done():
                         return
                 }
 
@@ -440,11 +436,11 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
 
                 select {
                     case generatorChannel <- generator:
-                    case <-loaderQuit.Done():
+                    case <-romGroup.Done():
                         return
                 }
             }
-        }()
+        })
     }
 
     var romId RomId
@@ -472,11 +468,11 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     })
 
     close(possibleRoms)
-    wait.Wait()
+    romGroup.Wait()
     /* Wait till the writers of the generatorChannel have stopped */
 
     close(generatorChannel)
-    generatorWait.Wait()
+    generatorGroup.Wait()
 
     log.Printf("Rom loader done")
 

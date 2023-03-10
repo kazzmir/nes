@@ -1,4 +1,4 @@
-package main
+package thread
 
 import (
     "sync"
@@ -76,5 +76,11 @@ func (group *ThreadGroup) Done() <-chan struct{} {
 
 func (group *ThreadGroup) Wait(){
     group.wait.Wait()
+    // calling cancel here ensures the parent group will be notified about this group
     group.cancel()
+}
+
+func (group *ThreadGroup) CancelAndWait() {
+    group.cancel()
+    group.wait.Wait()
 }
