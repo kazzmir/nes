@@ -270,7 +270,9 @@ func (layer *EmulatorMessageLayer) Render(renderInfo gfx.RenderInfo) error {
             white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
             red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
 
-            color := gfx.Glow(red, white, 1500, uint64(remaining / time.Millisecond))
+            N := 800
+
+            color := gfx.InterpolateColor(red, white, N, N - int((remaining - time.Millisecond*500) / time.Millisecond))
 
             if remaining < time.Millisecond * 500 {
                 alpha = int(255 * float64(remaining) / (float64(time.Millisecond) * 500))

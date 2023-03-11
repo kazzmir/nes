@@ -271,6 +271,14 @@ func interpolate(v1 float32, v2 float32, period float32, clock uint64) float32 {
     return v1 + float32(p)
 }
 
+func interpolate2(v1 float32, v2 float32, radians float64) float32 {
+    distance := v2 - v1
+
+    p := math.Sin(radians) * float64(distance)
+
+    return v1 + float32(p)
+}
+
 func clamp(v float32, low float32, high float32) float32 {
     if v < low {
         v = low
@@ -279,6 +287,31 @@ func clamp(v float32, low float32, high float32) float32 {
         v = high
     }
     return v
+}
+
+/* smoothly interpolate from start to end given a maximum of steps. if step > steps, then the color
+ * will just be the end color.
+ */
+func InterpolateColor(start sdl.Color, end sdl.Color, steps int, step int) sdl.Color {
+    if step <= 0 {
+        return start
+    }
+    if step >= steps {
+        return end
+    }
+
+    // sin(step/steps*90*pi/180)
+    startH, startS, startV := rgb2hsv(start)
+    endH, endS, endV := rgb2hsv(end)
+
+    radians := float64(step) / float64(steps) * 90 * math.Pi / 180
+
+    h := interpolate2(startH, endH, radians)
+    s := interpolate2(startS, endS, radians)
+    v := interpolate2(startV, endV, radians)
+
+    r, g, b := hsv2rgb(h, s, v)
+    return sdl.Color{R: uint8(clamp(r*255, 0, 255)), G: uint8(clamp(g*255, 0, 255)), B: uint8(clamp(b*255, 0, 255)), A: 255}
 }
 
 /* smoothly interpolate between two colors. clock should be a monotonically increasing value.
