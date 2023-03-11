@@ -267,6 +267,13 @@ func (layer *EmulatorMessageLayer) Render(renderInfo gfx.RenderInfo) error {
             x := int(windowWidth) - 100
             remaining := message.DeathTime.Sub(now)
             alpha := 255
+            white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+            red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
+
+            N := 800
+
+            color := gfx.InterpolateColor(red, white, N, N - int((remaining - time.Millisecond*500) / time.Millisecond))
+
             if remaining < time.Millisecond * 500 {
                 alpha = int(255 * float64(remaining) / (float64(time.Millisecond) * 500))
                 if alpha > 255 {
@@ -276,10 +283,13 @@ func (layer *EmulatorMessageLayer) Render(renderInfo gfx.RenderInfo) error {
                 if alpha < 1 {
                     alpha = 1
                 }
+
+                color = white
             }
-            white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
+            color.A = uint8(alpha)
+            // white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
             // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
-            gfx.WriteFont(font, renderInfo.Renderer, x, y, message.Message, white)
+            gfx.WriteFont(font, renderInfo.Renderer, x, y, message.Message, color)
             y -= font.Height() + 2
         }
     }
