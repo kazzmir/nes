@@ -5,6 +5,7 @@ import (
     "fmt"
     "log"
     "io"
+    "strings"
 )
 
 /* opcode references
@@ -720,10 +721,14 @@ type Input struct {
     Buttons []bool
     NextRead byte
     Host HostInput
+
+    LastButtons []bool
+    RecordInput bool
 }
 
 func (input *Input) Reset() {
     mapping := input.Host.Get()
+    copy(input.LastButtons, input.Buttons)
     input.Buttons[ButtonIndexA] = mapping[ButtonIndexA]
     input.Buttons[ButtonIndexB] = mapping[ButtonIndexB]
     input.Buttons[ButtonIndexSelect] = mapping[ButtonIndexSelect]
@@ -748,6 +753,38 @@ func MakeInput(host HostInput) *Input {
         Buttons: make([]bool, 8),
         NextRead: 0,
         Host: host,
+        LastButtons: make([]bool, 8),
+    }
+}
+
+func buttonName(button Button) string {
+    switch button {
+        case ButtonIndexA: return "A"
+        case ButtonIndexB: return "B"
+        case ButtonIndexSelect: return "Select"
+        case ButtonIndexStart: return "Start"
+        case ButtonIndexUp: return "Up"
+        case ButtonIndexDown: return "Down"
+        case ButtonIndexLeft: return "Left"
+        case ButtonIndexRight: return "Right"
+    }
+
+    return "?"
+}
+
+func showInputDifference(cycles uint64, last []bool, latest []bool){
+    difference := false
+    var out strings.Builder
+    out.WriteString(fmt.Sprintf("%v: ", cycles))
+    for i := 0; i < len(last); i++ {
+        if last[i] != latest[i] {
+            difference = true
+            out.WriteString(fmt.Sprintf("%v=%v ", buttonName(Button(i)), latest[i]))
+        }
+    }
+
+    if difference {
+        fmt.Println(out.String())
     }
 }
 
@@ -1181,6 +1218,9 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             return
         case INPUT_POLL:
             cpu.Input.Reset()
+            if cpu.Input.RecordInput {
+                showInputDifference(cpu.Cycle, cpu.Input.LastButtons, cpu.Input.Buttons)
+            }
             return
         case OAMDMA:
             if cpu.Debug > 0 {

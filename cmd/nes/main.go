@@ -392,7 +392,7 @@ func getWindowIdFromEvent(event sdl.Event) uint32 {
     return 0
 }
 
-func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
+func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool) error {
     randomSeed := time.Now().UnixNano()
 
     rand.Seed(randomSeed)
@@ -770,6 +770,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         input.Reset()
         combined := common.MakeCombineButtons(input, joystickManager)
         cpu.Input = nes.MakeInput(&combined)
+
+        if recordInput {
+            cpu.Input.RecordInput = true
+        }
 
         renderNes := func(info gfx.RenderInfo) error {
             return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, info.Renderer)
@@ -1209,6 +1213,7 @@ type Arguments struct {
     MemoryProfile bool
     Record bool
     DesiredFps int
+    RecordKeys bool
 }
 
 func parseArguments() (Arguments, error) {
@@ -1217,6 +1222,7 @@ func parseArguments() (Arguments, error) {
     arguments.CpuProfile = true
     arguments.MemoryProfile = true
     arguments.DesiredFps = 60
+    arguments.RecordKeys = true
 
     for argIndex := 1; argIndex < len(os.Args); argIndex++ {
         arg := os.Args[argIndex]
@@ -1230,9 +1236,10 @@ Options:
   -debug=cpu, --debug=cpu: enable cpu debug output
   -debug=ppu, --debug=ppu: enable ppu debug output
   -size, --size #: start the window at a multiple of the nes screen size of 320x200 (default 3)
-  -record: enable recording to an mp4 when the rom loads
+  -record: enable video recording to an mp4 when the rom loads
   -fps #: set a desired frame rate
   -cycles, --cycles #: limit the emulator to only run for some number of cycles
+  -record-input: record key presses
 `)
             case "-debug", "--debug":
                 arguments.Debug = true
@@ -1240,6 +1247,8 @@ Options:
                 arguments.DebugCpu = true
             case "-debug=ppu", "--debug=ppu":
                 arguments.DebugPpu = true
+            case "-record-input":
+                arguments.RecordKeys = true
             case "-size", "--size":
                 var err error
                 argIndex += 1
@@ -1319,7 +1328,7 @@ func main(){
 
     if nes.IsNESFile(arguments.NESPath) {
         sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
+            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }
@@ -1334,7 +1343,7 @@ func main(){
     } else {
         /* Open up the loading menu immediately */
         sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
+            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }
