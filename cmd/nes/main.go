@@ -16,6 +16,7 @@ import (
     "path/filepath"
     "math/rand"
     "strings"
+    "bufio"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/util"
@@ -396,9 +397,49 @@ func getWindowIdFromEvent(event sdl.Event) uint32 {
 type ReplayKeysInput struct {
     Cpu *nes.CPUState
     File *os.File
+    Scanner *bufio.Scanner
+    Buttons nes.ButtonMapping
+
+    NextCycle uint64
+    NextChange map[nes.Button]bool
+}
+
+func parseReplayLine(line string) (uint64, map[nes.Button]bool) {
+    var cycle uint64
+    mapping := make(map[nes.Button]bool)
+
+    /* 2442067: Start=true Select=true ... */
+
+    parts := strings.Split(line, ":")
+    if len(parts) != 2 {
+        /* invalid line */
+        return 0, mapping
+    }
+    cycle, err := strconv.ParseUint(parts[0], 10, 64)
+    if err != nil {
+        cycle = 0
+    }
+
+    /* split buttons, and parse each one into its button value and bool value */
+    for _, buttonPart := range strings.Fields(parts[1]) {
+        buttonParts := strings.Split(buttonPart, "=")
+        if len(buttonParts) != 2 {
+            continue
+        }
+        button := nes.NameToButton(buttonParts[0])
+        value, err := strconv.ParseBool(buttonParts[1])
+        if err != nil {
+            continue
+        }
+
+        mapping[button] = value
+    }
+
+    return cycle, mapping
 }
 
 func (replay *ReplayKeysInput) Get() nes.ButtonMapping {
+    /*
     mapping := make(nes.ButtonMapping)
 
     mapping[nes.ButtonIndexA] = false
@@ -411,6 +452,39 @@ func (replay *ReplayKeysInput) Get() nes.ButtonMapping {
     mapping[nes.ButtonIndexRight] = false
 
     return mapping
+    */
+
+    currentCycle := replay.Cpu.Cycle
+    /* keep reading lines from the replay file and apply the changes to replay.Buttons
+     * until we reach the current cycle
+     */
+
+    for replay.NextCycle <= currentCycle {
+        if replay.NextChange != nil {
+            // log.Printf("Cycle: %v Replay input %v\n", currentCycle, replay.NextCycle)
+            for button, value := range replay.NextChange {
+                // log.Printf("  change %v to %v\n", nes.ButtonName(button), value)
+                replay.Buttons[button] = value
+            }
+        }
+
+        if replay.Scanner.Scan() {
+            line := replay.Scanner.Text()
+            replay.NextCycle, replay.NextChange = parseReplayLine(line)
+        } else {
+            /* ran out of lines of input */
+            replay.NextChange = nil
+            break
+        }
+    }
+
+    /*
+    for button, value := range replay.Buttons {
+        log.Printf(" replay button %v: %v", nes.ButtonName(button), value)
+    }
+    */
+
+    return replay.Buttons
 }
 
 func (replay *ReplayKeysInput) Close() {
@@ -426,6 +500,8 @@ func makeReplayKeys(cpu *nes.CPUState, replayKeysPath string) (*ReplayKeysInput,
     return &ReplayKeysInput{
         Cpu: cpu,
         File: file,
+        Buttons: make(nes.ButtonMapping),
+        Scanner: bufio.NewScanner(file),
     }, nil
 }
 

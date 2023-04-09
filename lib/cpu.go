@@ -762,6 +762,22 @@ func MakeInput(host HostInput) *Input {
     }
 }
 
+func NameToButton(name string) Button {
+    switch name {
+        case "A": return ButtonIndexA
+        case "B": return ButtonIndexB
+        case "Select": return ButtonIndexSelect
+        case "Start": return ButtonIndexStart
+        case "Up": return ButtonIndexUp
+        case "Down": return ButtonIndexDown
+        case "Left": return ButtonIndexLeft
+        case "Right": return ButtonIndexRight
+    }
+
+    /* FIXME: return unknown? */
+    return ButtonIndexA
+}
+
 func ButtonName(button Button) string {
     switch button {
         case ButtonIndexA: return "A"
