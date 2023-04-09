@@ -779,7 +779,19 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             /* closed when the nes simulation is done */
             defer close(inputData)
             go func(){
+                output, err := os.Create("input.txt")
+                if err != nil {
+                    log.Printf("Could not open input.txt: %v", err)
+                    output = nil
+                } else {
+                    defer output.Close()
+                }
                 for data := range inputData {
+                    /* still have to read the channel to avoid blocking */
+                    if output == nil {
+                        continue
+                    }
+
                     difference := false
                     var out strings.Builder
                     out.WriteString(fmt.Sprintf("%v: ", data.Cycle))
@@ -788,7 +800,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         out.WriteString(fmt.Sprintf("%v=%v ", nes.ButtonName(k), v))
                     }
                     if difference {
-                        log.Println(out.String())
+                        output.WriteString(out.String() + "\n")
                     }
                 }
             }()
