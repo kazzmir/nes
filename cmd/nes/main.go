@@ -779,11 +779,13 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             /* closed when the nes simulation is done */
             defer close(inputData)
             go func(){
-                output, err := os.Create("input.txt")
+                filename := fmt.Sprintf("%v-%v-input.txt", filepath.Base(nesFile.Path), time.Now().Unix())
+                output, err := os.Create(filename)
                 if err != nil {
                     log.Printf("Could not open input.txt: %v", err)
                     output = nil
                 } else {
+                    log.Printf("Saving output to %v", filename)
                     defer output.Close()
                 }
                 for data := range inputData {
