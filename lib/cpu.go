@@ -5,7 +5,6 @@ import (
     "fmt"
     "log"
     "io"
-    "strings"
 )
 
 /* opcode references
@@ -693,6 +692,11 @@ func dump_instructions(instructions []byte){
     }
 }
 
+type RecordInput struct {
+    Cycle uint64
+    Difference map[Button]bool
+}
+
 type Button int
 const (
     ButtonIndexA Button = 0
@@ -724,6 +728,7 @@ type Input struct {
 
     LastButtons []bool
     RecordInput bool
+    RecordedInput chan RecordInput
 }
 
 func (input *Input) Reset() {
@@ -757,7 +762,7 @@ func MakeInput(host HostInput) *Input {
     }
 }
 
-func buttonName(button Button) string {
+func ButtonName(button Button) string {
     switch button {
         case ButtonIndexA: return "A"
         case ButtonIndexB: return "B"
@@ -772,6 +777,7 @@ func buttonName(button Button) string {
     return "?"
 }
 
+/*
 func showInputDifference(cycles uint64, last []bool, latest []bool){
     difference := false
     var out strings.Builder
@@ -787,6 +793,7 @@ func showInputDifference(cycles uint64, last []bool, latest []bool){
         fmt.Println(out.String())
     }
 }
+*/
 
 type CPUState struct {
     A byte `json:"a"`
@@ -1219,7 +1226,19 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
         case INPUT_POLL:
             cpu.Input.Reset()
             if cpu.Input.RecordInput {
-                showInputDifference(cpu.Cycle, cpu.Input.LastButtons, cpu.Input.Buttons)
+                // showInputDifference(cpu.Cycle, cpu.Input.LastButtons, cpu.Input.Buttons)
+                out := make(map[Button]bool)
+                for i := 0; i < len(cpu.Input.LastButtons); i++ {
+                    if cpu.Input.LastButtons[i] != cpu.Input.Buttons[i] {
+                        out[Button(i)] = cpu.Input.Buttons[i]
+                    }
+                }
+                if len(out) > 0 {
+                    cpu.Input.RecordedInput <- RecordInput{
+                        Cycle: cpu.Cycle,
+                        Difference: out,
+                    }
+                }
             }
             return
         case OAMDMA:

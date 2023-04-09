@@ -15,6 +15,7 @@ import (
     "os/signal"
     "path/filepath"
     "math/rand"
+    "strings"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/util"
@@ -773,6 +774,26 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
         if recordInput {
             cpu.Input.RecordInput = true
+
+            inputData := make(chan nes.RecordInput, 3)
+            /* closed when the nes simulation is done */
+            defer close(inputData)
+            go func(){
+                for data := range inputData {
+                    difference := false
+                    var out strings.Builder
+                    out.WriteString(fmt.Sprintf("%v: ", data.Cycle))
+                    for k, v := range data.Difference {
+                        difference = true
+                        out.WriteString(fmt.Sprintf("%v=%v ", nes.ButtonName(k), v))
+                    }
+                    if difference {
+                        log.Println(out.String())
+                    }
+                }
+            }()
+
+            cpu.Input.RecordedInput = inputData
         }
 
         renderNes := func(info gfx.RenderInfo) error {
