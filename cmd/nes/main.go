@@ -15,6 +15,8 @@ import (
     "os/signal"
     "path/filepath"
     "math/rand"
+    "strings"
+    "bufio"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/util"
@@ -392,7 +394,118 @@ func getWindowIdFromEvent(event sdl.Event) uint32 {
     return 0
 }
 
-func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int) error {
+type ReplayKeysInput struct {
+    Cpu *nes.CPUState
+    File *os.File
+    Scanner *bufio.Scanner
+    Buttons nes.ButtonMapping
+
+    NextCycle uint64
+    NextChange map[nes.Button]bool
+}
+
+func parseReplayLine(line string) (uint64, map[nes.Button]bool) {
+    var cycle uint64
+    mapping := make(map[nes.Button]bool)
+
+    /* 2442067: Start=true Select=true ... */
+
+    parts := strings.Split(line, ":")
+    if len(parts) != 2 {
+        /* invalid line */
+        return 0, mapping
+    }
+    cycle, err := strconv.ParseUint(parts[0], 10, 64)
+    if err != nil {
+        cycle = 0
+    }
+
+    /* split buttons, and parse each one into its button value and bool value */
+    for _, buttonPart := range strings.Fields(parts[1]) {
+        buttonParts := strings.Split(buttonPart, "=")
+        if len(buttonParts) != 2 {
+            continue
+        }
+        button := nes.NameToButton(buttonParts[0])
+        value, err := strconv.ParseBool(buttonParts[1])
+        if err != nil {
+            continue
+        }
+
+        mapping[button] = value
+    }
+
+    return cycle, mapping
+}
+
+func (replay *ReplayKeysInput) Get() nes.ButtonMapping {
+    /*
+    mapping := make(nes.ButtonMapping)
+
+    mapping[nes.ButtonIndexA] = false
+    mapping[nes.ButtonIndexB] = false
+    mapping[nes.ButtonIndexSelect] = false
+    mapping[nes.ButtonIndexStart] = false
+    mapping[nes.ButtonIndexUp] = false
+    mapping[nes.ButtonIndexDown] = false
+    mapping[nes.ButtonIndexLeft] = false
+    mapping[nes.ButtonIndexRight] = false
+
+    return mapping
+    */
+
+    currentCycle := replay.Cpu.Cycle
+    /* keep reading lines from the replay file and apply the changes to replay.Buttons
+     * until we reach the current cycle
+     */
+
+    for replay.NextCycle <= currentCycle {
+        if replay.NextChange != nil {
+            // log.Printf("Cycle: %v Replay input %v\n", currentCycle, replay.NextCycle)
+            for button, value := range replay.NextChange {
+                // log.Printf("  change %v to %v\n", nes.ButtonName(button), value)
+                replay.Buttons[button] = value
+            }
+        }
+
+        if replay.Scanner.Scan() {
+            line := replay.Scanner.Text()
+            replay.NextCycle, replay.NextChange = parseReplayLine(line)
+        } else {
+            /* ran out of lines of input */
+            replay.NextChange = nil
+            break
+        }
+    }
+
+    /*
+    for button, value := range replay.Buttons {
+        log.Printf(" replay button %v: %v", nes.ButtonName(button), value)
+    }
+    */
+
+    return replay.Buttons
+}
+
+func (replay *ReplayKeysInput) Close() {
+    replay.File.Close()
+}
+
+func makeReplayKeys(cpu *nes.CPUState, replayKeysPath string) (*ReplayKeysInput, error) {
+    file, err := os.Open(replayKeysPath)
+    if err != nil {
+        return nil, err
+    }
+
+    return &ReplayKeysInput{
+        Cpu: cpu,
+        File: file,
+        Buttons: make(nes.ButtonMapping),
+        Scanner: bufio.NewScanner(file),
+    }, nil
+}
+
+func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
     randomSeed := time.Now().UnixNano()
 
     rand.Seed(randomSeed)
@@ -768,8 +881,52 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         defer debugger.Close()
 
         input.Reset()
-        combined := common.MakeCombineButtons(input, joystickManager)
-        cpu.Input = nes.MakeInput(&combined)
+        if replayKeys != "" {
+            replay, err := makeReplayKeys(&cpu, replayKeys)
+            if err != nil {
+                log.Printf("Warning: could not open replay file: %v", err)
+                mainCancel()
+                return
+            } else {
+                defer replay.Close()
+                cpu.Input = nes.MakeInput(replay)
+            }
+        } else {
+            combined := common.MakeCombineButtons(input, joystickManager)
+            cpu.Input = nes.MakeInput(&combined)
+        }
+
+        if recordInput {
+            filename := fmt.Sprintf("%v-%v-input.txt", filepath.Base(nesFile.Path), time.Now().Unix())
+            output, err := os.Create(filename)
+            if err != nil {
+                log.Printf("Error: Could not save input buttons to file %v: %v", filename, err)
+            } else {
+                log.Printf("Saving output to %v", filename)
+
+                inputData := make(chan nes.RecordInput, 3)
+                /* closed when the nes simulation is done */
+                defer close(inputData)
+                go func(){
+                    defer output.Close()
+                    for data := range inputData {
+                        difference := false
+                        var out strings.Builder
+                        out.WriteString(fmt.Sprintf("%v: ", data.Cycle))
+                        for k, v := range data.Difference {
+                            difference = true
+                            out.WriteString(fmt.Sprintf("%v=%v ", nes.ButtonName(k), v))
+                        }
+                        if difference {
+                            output.WriteString(out.String() + "\n")
+                        }
+                    }
+                }()
+
+                cpu.Input.RecordedInput = inputData
+                cpu.Input.RecordInput = true
+            }
+        }
 
         renderNes := func(info gfx.RenderInfo) error {
             return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, info.Renderer)
@@ -1209,14 +1366,18 @@ type Arguments struct {
     MemoryProfile bool
     Record bool
     DesiredFps int
+    RecordKeys bool
+    ReplayKeys string // set to a file to replay keys from, or empty if replay is not desired
 }
 
 func parseArguments() (Arguments, error) {
     var arguments Arguments
     arguments.WindowSizeMultiple = 3
-    arguments.CpuProfile = true
-    arguments.MemoryProfile = true
+    arguments.CpuProfile = false
+    arguments.MemoryProfile = false
     arguments.DesiredFps = 60
+    arguments.RecordKeys = false
+    arguments.ReplayKeys = ""
 
     for argIndex := 1; argIndex < len(os.Args); argIndex++ {
         arg := os.Args[argIndex]
@@ -1230,9 +1391,11 @@ Options:
   -debug=cpu, --debug=cpu: enable cpu debug output
   -debug=ppu, --debug=ppu: enable ppu debug output
   -size, --size #: start the window at a multiple of the nes screen size of 320x200 (default 3)
-  -record: enable recording to an mp4 when the rom loads
+  -record: enable video recording to an mp4 when the rom loads
   -fps #: set a desired frame rate
   -cycles, --cycles #: limit the emulator to only run for some number of cycles
+  -record-input: record key presses
+  -replay-input <input file>: replay key presses. A rom must also be specified
 `)
             case "-debug", "--debug":
                 arguments.Debug = true
@@ -1240,6 +1403,14 @@ Options:
                 arguments.DebugCpu = true
             case "-debug=ppu", "--debug=ppu":
                 arguments.DebugPpu = true
+            case "-record-input":
+                arguments.RecordKeys = true
+            case "-replay-input":
+                argIndex += 1
+                if argIndex >= len(os.Args) {
+                    return arguments, fmt.Errorf("Expected a filename for -replay-input")
+                }
+                arguments.ReplayKeys = os.Args[argIndex]
             case "-size", "--size":
                 var err error
                 argIndex += 1
@@ -1284,6 +1455,14 @@ Options:
         }
     }
 
+    if arguments.ReplayKeys != "" && arguments.NESPath == "" {
+        return arguments, fmt.Errorf("A rom must be specified when replaying keys")
+    }
+
+    if arguments.ReplayKeys != "" && arguments.RecordKeys {
+        return arguments, fmt.Errorf("Cannot record and replay keys at the same time")
+    }
+
     return arguments, nil
 }
 
@@ -1292,7 +1471,7 @@ func main(){
 
     arguments, err := parseArguments()
     if err != nil {
-        fmt.Printf("%v", err)
+        fmt.Printf("%v\n", err)
         return
     }
 
@@ -1319,7 +1498,7 @@ func main(){
 
     if nes.IsNESFile(arguments.NESPath) {
         sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
+            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }
@@ -1334,7 +1513,7 @@ func main(){
     } else {
         /* Open up the loading menu immediately */
         sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps)
+            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
             if err != nil {
                 log.Printf("Error: %v\n", err)
             }

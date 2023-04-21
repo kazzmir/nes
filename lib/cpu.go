@@ -692,6 +692,11 @@ func dump_instructions(instructions []byte){
     }
 }
 
+type RecordInput struct {
+    Cycle uint64
+    Difference map[Button]bool
+}
+
 type Button int
 const (
     ButtonIndexA Button = 0
@@ -720,10 +725,15 @@ type Input struct {
     Buttons []bool
     NextRead byte
     Host HostInput
+
+    LastButtons []bool
+    RecordInput bool
+    RecordedInput chan RecordInput
 }
 
 func (input *Input) Reset() {
     mapping := input.Host.Get()
+    copy(input.LastButtons, input.Buttons)
     input.Buttons[ButtonIndexA] = mapping[ButtonIndexA]
     input.Buttons[ButtonIndexB] = mapping[ButtonIndexB]
     input.Buttons[ButtonIndexSelect] = mapping[ButtonIndexSelect]
@@ -748,8 +758,58 @@ func MakeInput(host HostInput) *Input {
         Buttons: make([]bool, 8),
         NextRead: 0,
         Host: host,
+        LastButtons: make([]bool, 8),
     }
 }
+
+func NameToButton(name string) Button {
+    switch name {
+        case "A": return ButtonIndexA
+        case "B": return ButtonIndexB
+        case "Select": return ButtonIndexSelect
+        case "Start": return ButtonIndexStart
+        case "Up": return ButtonIndexUp
+        case "Down": return ButtonIndexDown
+        case "Left": return ButtonIndexLeft
+        case "Right": return ButtonIndexRight
+    }
+
+    /* FIXME: return unknown? */
+    return ButtonIndexA
+}
+
+func ButtonName(button Button) string {
+    switch button {
+        case ButtonIndexA: return "A"
+        case ButtonIndexB: return "B"
+        case ButtonIndexSelect: return "Select"
+        case ButtonIndexStart: return "Start"
+        case ButtonIndexUp: return "Up"
+        case ButtonIndexDown: return "Down"
+        case ButtonIndexLeft: return "Left"
+        case ButtonIndexRight: return "Right"
+    }
+
+    return "?"
+}
+
+/*
+func showInputDifference(cycles uint64, last []bool, latest []bool){
+    difference := false
+    var out strings.Builder
+    out.WriteString(fmt.Sprintf("%v: ", cycles))
+    for i := 0; i < len(last); i++ {
+        if last[i] != latest[i] {
+            difference = true
+            out.WriteString(fmt.Sprintf("%v=%v ", buttonName(Button(i)), latest[i]))
+        }
+    }
+
+    if difference {
+        fmt.Println(out.String())
+    }
+}
+*/
 
 type CPUState struct {
     A byte `json:"a"`
@@ -1181,6 +1241,21 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             return
         case INPUT_POLL:
             cpu.Input.Reset()
+            if cpu.Input.RecordInput {
+                // showInputDifference(cpu.Cycle, cpu.Input.LastButtons, cpu.Input.Buttons)
+                out := make(map[Button]bool)
+                for i := 0; i < len(cpu.Input.LastButtons); i++ {
+                    if cpu.Input.LastButtons[i] != cpu.Input.Buttons[i] {
+                        out[Button(i)] = cpu.Input.Buttons[i]
+                    }
+                }
+                if len(out) > 0 {
+                    cpu.Input.RecordedInput <- RecordInput{
+                        Cycle: cpu.Cycle,
+                        Difference: out,
+                    }
+                }
+            }
             return
         case OAMDMA:
             if cpu.Debug > 0 {
