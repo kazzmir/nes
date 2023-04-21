@@ -897,41 +897,35 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         }
 
         if recordInput {
-            cpu.Input.RecordInput = true
+            filename := fmt.Sprintf("%v-%v-input.txt", filepath.Base(nesFile.Path), time.Now().Unix())
+            output, err := os.Create(filename)
+            if err != nil {
+                log.Printf("Error: Could not save input buttons to file %v: %v", filename, err)
+            } else {
+                log.Printf("Saving output to %v", filename)
 
-            inputData := make(chan nes.RecordInput, 3)
-            /* closed when the nes simulation is done */
-            defer close(inputData)
-            go func(){
-                filename := fmt.Sprintf("%v-%v-input.txt", filepath.Base(nesFile.Path), time.Now().Unix())
-                output, err := os.Create(filename)
-                if err != nil {
-                    log.Printf("Could not open input.txt: %v", err)
-                    output = nil
-                } else {
-                    log.Printf("Saving output to %v", filename)
+                inputData := make(chan nes.RecordInput, 3)
+                /* closed when the nes simulation is done */
+                defer close(inputData)
+                go func(){
                     defer output.Close()
-                }
-                for data := range inputData {
-                    /* still have to read the channel to avoid blocking */
-                    if output == nil {
-                        continue
+                    for data := range inputData {
+                        difference := false
+                        var out strings.Builder
+                        out.WriteString(fmt.Sprintf("%v: ", data.Cycle))
+                        for k, v := range data.Difference {
+                            difference = true
+                            out.WriteString(fmt.Sprintf("%v=%v ", nes.ButtonName(k), v))
+                        }
+                        if difference {
+                            output.WriteString(out.String() + "\n")
+                        }
                     }
+                }()
 
-                    difference := false
-                    var out strings.Builder
-                    out.WriteString(fmt.Sprintf("%v: ", data.Cycle))
-                    for k, v := range data.Difference {
-                        difference = true
-                        out.WriteString(fmt.Sprintf("%v=%v ", nes.ButtonName(k), v))
-                    }
-                    if difference {
-                        output.WriteString(out.String() + "\n")
-                    }
-                }
-            }()
-
-            cpu.Input.RecordedInput = inputData
+                cpu.Input.RecordedInput = inputData
+                cpu.Input.RecordInput = true
+            }
         }
 
         renderNes := func(info gfx.RenderInfo) error {
@@ -1379,8 +1373,8 @@ type Arguments struct {
 func parseArguments() (Arguments, error) {
     var arguments Arguments
     arguments.WindowSizeMultiple = 3
-    arguments.CpuProfile = true
-    arguments.MemoryProfile = true
+    arguments.CpuProfile = false
+    arguments.MemoryProfile = false
     arguments.DesiredFps = 60
     arguments.RecordKeys = false
     arguments.ReplayKeys = ""
