@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/fatih/color v1.15.0
 	github.com/jroimartin/gocui v0.5.0
-	github.com/veandco/go-sdl2 v0.4.34
+	github.com/veandco/go-sdl2 v0.4.35
 	golang.org/x/image v0.7.0
 )
 
