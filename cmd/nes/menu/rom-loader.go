@@ -6,7 +6,6 @@ package menu
 import "C"
 import (
     "sync"
-    "image"
     "context"
     "log"
     "path/filepath"
@@ -71,7 +70,7 @@ type RomLoaderState struct {
     AddFrame chan RomLoaderFrame
     Lock sync.Mutex
 
-    Arrow image.Image
+    Arrow imagelib.Image
     ArrowId TextureId
 
     /* Keep track of which tile to start with when rendering the rows
@@ -242,8 +241,8 @@ func getCachedThumbnails(loaderQuit context.Context, romId RomId, path string, a
 }
 
 /* FIXME: stole this from test/screenshot/screenshot.go */
-func convertToPng(screen nes.VirtualScreen) image.Image {
-    out := image.NewRGBA(image.Rect(0, 0, screen.Width, screen.Height))
+func convertToPng(screen nes.VirtualScreen) imagelib.Image {
+    out := imagelib.NewRGBA(imagelib.Rect(0, 0, screen.Width, screen.Height))
 
     for x := 0; x < screen.Width; x++ {
         for y := 0; y < screen.Height; y++ {

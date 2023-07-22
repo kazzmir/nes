@@ -1413,5 +1413,5 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
 
     /* Only set NMI to true if the bit 7 of PPUCTRL is set */
     nmi := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
-    return nmi && (oldNMI == false), didDraw
+    return nmi && !oldNMI, didDraw
 }

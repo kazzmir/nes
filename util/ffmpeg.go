@@ -63,7 +63,7 @@ func isAlive(process *os.Process) bool {
     if pid != process.Pid {
         return true
     }
-    return status.Exited() == false
+    return !status.Exited()
 }
 
 /* send a series of signals to a process hoping to kill it. if none of the signals
@@ -195,7 +195,7 @@ func EncodeMp3(mp3out string, mainQuit context.Context, sampleRate int, audioOut
         /* ffmpeg will normally close on its own if its input is closed */
         audio_writer.Close()
         waitForProcessDefault(ffmpeg_process.Process)
-        log.Printf("Recording has ended. Saved '%v' for %v size %v", mp3out, time.Now().Sub(startTime), niceSize(mp3out))
+        log.Printf("Recording has ended. Saved '%v' for %v size %v", mp3out, time.Since(startTime), niceSize(mp3out))
     }()
 
     go func(){
@@ -356,7 +356,7 @@ func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sam
         video_writer.Close()
         audio_writer.Close()
         waitForProcessDefault(ffmpeg_process.Process)
-        log.Printf("Recording has ended. Saved '%v', length=%v size=%v", mp4Path, time.Now().Sub(startTime), niceSize(mp4Path))
+        log.Printf("Recording has ended. Saved '%v', length=%v size=%v", mp4Path, time.Since(startTime), niceSize(mp4Path))
     }()
 
     go func(){

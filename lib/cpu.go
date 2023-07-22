@@ -700,13 +700,13 @@ type RecordInput struct {
 type Button int
 const (
     ButtonIndexA Button = 0
-    ButtonIndexB = 1
-    ButtonIndexSelect = 2
-    ButtonIndexStart = 3
-    ButtonIndexUp = 4
-    ButtonIndexDown = 5
-    ButtonIndexLeft = 6
-    ButtonIndexRight = 7
+    ButtonIndexB Button = 1
+    ButtonIndexSelect Button = 2
+    ButtonIndexStart Button = 3
+    ButtonIndexUp Button = 4
+    ButtonIndexDown Button = 5
+    ButtonIndexLeft Button = 6
+    ButtonIndexRight Button = 7
 )
 
 func AllButtons() []Button {
@@ -1012,14 +1012,14 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
 /* Special PPU memory-mapped locations */
 const (
     PPUCTRL uint16 = 0x2000
-    PPUMASK = 0x2001
-    PPUSTATUS = 0x2002
-    OAMADDR = 0x2003
-    OAMDATA = 0x2004
-    PPUSCROLL = 0x2005
-    PPUADDR = 0x2006
-    PPUDATA = 0x2007
-    OAMDMA = 0x4014
+    PPUMASK uint16 = 0x2001
+    PPUSTATUS uint16 = 0x2002
+    OAMADDR uint16 = 0x2003
+    OAMDATA uint16 = 0x2004
+    PPUSCROLL uint16 = 0x2005
+    PPUADDR uint16 = 0x2006
+    PPUDATA uint16 = 0x2007
+    OAMDMA uint16 = 0x4014
 )
 
 /* APU memory-mapped locations */

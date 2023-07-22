@@ -865,6 +865,7 @@ func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManager 
     return func(renderer *sdl.Renderer) error {
         startX := 50
         _, y, err := menu.Buttons.Render(startX, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
+        // FIXME: handle err
 
         x := startX
         y += font.Height() * 3
@@ -2185,6 +2186,7 @@ func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, buttonManag
         y += font.Height() * 3
 
         _, _, err = renderLines(renderer, x, y, smallFont, menu.ExtraInfo)
+        // FIXME: handle err
 
         if menu.IsChoosing() {
             yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}

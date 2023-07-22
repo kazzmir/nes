@@ -844,8 +844,6 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
 
             mapper.WramEnabled = (value >> 7) & 0x1 == 0x1
             mapper.WramWrite = (value >> 6) & 0x1 == 0
-
-            break
         case 0xc000:
             mapper.IrqReload = value
         case 0xc001:
