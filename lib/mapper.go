@@ -375,6 +375,12 @@ func (mapper *Mapper1) Read(address uint16) byte {
     const pageSize32k = 0x8000
     const pageSize16k = 0x4000
 
+    /* For SUROM (dragon warrior 4), the 5th bit of a chr register is used as the 5th bit of the prg register.
+     * FCEUX only uses chr register 0, even though the mmc documentation says that both chr reg 0 and chr reg 1
+     * supply a 5th bit to prg.
+     */
+    hijackedPrgBit := int(mapper.ChrRegister0 & 0x10)
+
     switch mapper.PrgBankMode {
         /* P=0, read in 32k mode */
         case 0, 1:
@@ -382,17 +388,19 @@ func (mapper *Mapper1) Read(address uint16) byte {
         /* P=1, S=0, read in 16k mode where 0x8000 is mapped to 0, and 0xc000 is mapped to the program bank */
         case 2:
             if address < 0xc000 {
-                return mapper.ReadBank(pageSize16k, 0 + int(mapper.ChrRegister0 & 0x10), baseAddress)
+                /* hijacked prg bit applies to fixed pages as well */
+                return mapper.ReadBank(pageSize16k, 0 + hijackedPrgBit, baseAddress)
             }
 
-            return mapper.ReadBank(pageSize16k, int(mapper.PrgBank) + int(mapper.ChrRegister0 & 0x10), address - 0xc000)
+            return mapper.ReadBank(pageSize16k, int(mapper.PrgBank) + hijackedPrgBit, address - 0xc000)
         /* P=1, S=1, read in 16k mode where 0x8000 is mapped to the program bank, and 0xc000 is mapped to page 0xf */
         case 3:
             if address < 0xc000 {
-                return mapper.ReadBank(pageSize16k, int(mapper.PrgBank) + int(mapper.ChrRegister0 & 0x10), baseAddress)
+                return mapper.ReadBank(pageSize16k, int(mapper.PrgBank) + hijackedPrgBit, baseAddress)
             }
 
-            return mapper.ReadBank(pageSize16k, 0xf + int(mapper.ChrRegister0 & 0x10), address - 0xc000)
+            /* hijacked prg bit applies to fixed pages as well */
+            return mapper.ReadBank(pageSize16k, 0xf + hijackedPrgBit, address - 0xc000)
     }
 
     return 0
