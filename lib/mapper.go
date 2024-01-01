@@ -331,10 +331,13 @@ func (mapper *Mapper1) ReadBank(pageSize uint16, bank int, offset uint16) byte {
 
     final := uint32(offset) + base
 
+    /*
     if final >= uint32(len(mapper.BankMemory)) {
         log.Printf("Warning: mapper1: cannot read memory at 0x%x maximum is 0x%x", final, len(mapper.BankMemory))
         return 0
     }
+    */
+    final = final % uint32(len(mapper.BankMemory))
 
     return mapper.BankMemory[final]
 }
@@ -361,21 +364,30 @@ func (mapper *Mapper1) Read(address uint16) byte {
 
     baseAddress := address - uint16(0x8000)
 
+    const pageSize32k = 0x8000
+    const pageSize16k = 0x4000
+
     switch mapper.PrgBankMode {
+        /* P=0, read in 32k mode */
         case 0, 1:
-            return mapper.ReadBank(0x8000, int(mapper.PrgBank >> 1), baseAddress)
+            return mapper.ReadBank(pageSize32k, int(mapper.PrgBank >> 1), baseAddress)
+        /* P=1, S=0, read in 16k mode where 0x8000 is mapped to 0, and 0xc000 is mapped to the program bank */
         case 2:
             if address < 0xc000 {
-                return mapper.ReadBank(0x4000, 0, baseAddress)
+                return mapper.ReadBank(pageSize16k, 0, baseAddress)
             }
 
-            return mapper.ReadBank(0x4000, int(mapper.PrgBank), address - 0xc000)
+            return mapper.ReadBank(pageSize16k, int(mapper.PrgBank), address - 0xc000)
+        /* P=1, S=1, read in 16k mode where 0x8000 is mapped to the program bank, and 0xc000 is mapped to page 0xf */
         case 3:
             if address < 0xc000 {
-                return mapper.ReadBank(0x4000, int(mapper.PrgBank), baseAddress)
+                return mapper.ReadBank(pageSize16k, int(mapper.PrgBank), baseAddress)
             }
 
-            return mapper.ReadBank(0x4000, mapper.Last4kBank, address - 0xc000)
+            /* The MMC1 documentation says to map 0xc000-0xffff to page 0xf, but for blaster master
+             * the last valid page is 8, so we use the last valid page instead
+             */
+            return mapper.ReadBank(pageSize16k, 0xf, address - 0xc000)
     }
 
     return 0
