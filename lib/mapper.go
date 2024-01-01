@@ -309,6 +309,9 @@ type Mapper1 struct {
     ChrBankMode byte `json:"chrbankmode"`
     PrgBank byte `json:"prgbank"`
 
+    ChrRegister0 byte `json:"chrregister0"`
+    ChrRegister1 byte `json:"chrregister1"`
+
     /* FIXME: this might get mapped from the bank memory, not sure */
     PRGRam []byte `json:"prgram"`
 }
@@ -337,6 +340,9 @@ func (mapper *Mapper1) ReadBank(pageSize uint16, bank int, offset uint16) byte {
         return 0
     }
     */
+
+    /* blaster master reads addresses higher than available memory, so we wrap around */
+
     final = final % uint32(len(mapper.BankMemory))
 
     return mapper.BankMemory[final]
@@ -352,6 +358,8 @@ func (mapper *Mapper1) Copy() Mapper {
         Mirror: mapper.Mirror,
         PrgBankMode: mapper.PrgBankMode,
         ChrBankMode: mapper.ChrBankMode,
+        ChrRegister0: mapper.ChrRegister0,
+        ChrRegister1: mapper.ChrRegister1,
         PrgBank: mapper.PrgBank,
         PRGRam: copySlice(mapper.PRGRam),
     }
@@ -374,20 +382,17 @@ func (mapper *Mapper1) Read(address uint16) byte {
         /* P=1, S=0, read in 16k mode where 0x8000 is mapped to 0, and 0xc000 is mapped to the program bank */
         case 2:
             if address < 0xc000 {
-                return mapper.ReadBank(pageSize16k, 0, baseAddress)
+                return mapper.ReadBank(pageSize16k, 0 + int(mapper.ChrRegister0 & 0x10), baseAddress)
             }
 
-            return mapper.ReadBank(pageSize16k, int(mapper.PrgBank), address - 0xc000)
+            return mapper.ReadBank(pageSize16k, int(mapper.PrgBank) + int(mapper.ChrRegister0 & 0x10), address - 0xc000)
         /* P=1, S=1, read in 16k mode where 0x8000 is mapped to the program bank, and 0xc000 is mapped to page 0xf */
         case 3:
             if address < 0xc000 {
-                return mapper.ReadBank(pageSize16k, int(mapper.PrgBank), baseAddress)
+                return mapper.ReadBank(pageSize16k, int(mapper.PrgBank) + int(mapper.ChrRegister0 & 0x10), baseAddress)
             }
 
-            /* The MMC1 documentation says to map 0xc000-0xffff to page 0xf, but for blaster master
-             * the last valid page is 8, so we use the last valid page instead
-             */
-            return mapper.ReadBank(pageSize16k, 0xf, address - 0xc000)
+            return mapper.ReadBank(pageSize16k, 0xf + int(mapper.ChrRegister0 & 0x10), address - 0xc000)
     }
 
     return 0
@@ -445,6 +450,8 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                         cpu.PPU.SetHorizontalMirror()
                 }
             } else if address >= 0xa000 && address <= 0xbfff {
+                mapper.ChrRegister0 = mapper.Register
+
                 /* chr bank 0 */
                 if mapper.ChrBankMode == 1 {
                     /* FIXME: base could be 0xf000, so base + 0x1000 could be 0
@@ -473,6 +480,8 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                     }
                 }
             } else if address >= 0xc000 && address <= 0xdfff {
+                mapper.ChrRegister1 = mapper.Register
+
                 /* chr bank 1 */
                 if mapper.ChrBankMode == 1 {
                     base := uint32(mapper.Register) * 0x1000
@@ -511,6 +520,8 @@ func MakeMapper1(bankMemory []byte, chrMemory []byte) Mapper {
         Mirror: 0,
         PrgBankMode: 3,
         ChrBankMode: 0,
+        ChrRegister0: 0,
+        ChrRegister1: 0,
         PRGRam: make([]byte, 0x8000 - 0x6000),
         Last4kBank: pages-1,
     }
