@@ -1,10 +1,13 @@
-.PHONY: nes nsf test nestest apu-test make-screenshot
+.PHONY: nes nsf test nestest apu-test make-screenshot mapper
 
 nes:
 	time go build ./cmd/nes
 
 nsf:
 	go build ./cmd/nsf
+
+mapper:
+	go build ./cmd/mapper
 
 test:
 	go test ./lib/... ./cmd/...
