@@ -5,7 +5,7 @@ go 1.22
 require (
 	github.com/fatih/color v1.17.0
 	github.com/jroimartin/gocui v0.5.0
-	github.com/veandco/go-sdl2 v0.4.39
+	github.com/veandco/go-sdl2 v0.4.40
 	golang.org/x/image v0.16.0
 )
 
