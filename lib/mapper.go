@@ -309,6 +309,9 @@ type Mapper1 struct {
     ChrBankMode byte `json:"chrbankmode"`
     PrgBank byte `json:"prgbank"`
 
+    ChrRegister0 byte `json:"chrregister0"`
+    ChrRegister1 byte `json:"chrregister1"`
+
     /* FIXME: this might get mapped from the bank memory, not sure */
     PRGRam []byte `json:"prgram"`
 }
@@ -331,10 +334,16 @@ func (mapper *Mapper1) ReadBank(pageSize uint16, bank int, offset uint16) byte {
 
     final := uint32(offset) + base
 
+    /*
     if final >= uint32(len(mapper.BankMemory)) {
         log.Printf("Warning: mapper1: cannot read memory at 0x%x maximum is 0x%x", final, len(mapper.BankMemory))
         return 0
     }
+    */
+
+    /* blaster master reads addresses higher than available memory, so we wrap around */
+
+    final = final % uint32(len(mapper.BankMemory))
 
     return mapper.BankMemory[final]
 }
@@ -349,6 +358,8 @@ func (mapper *Mapper1) Copy() Mapper {
         Mirror: mapper.Mirror,
         PrgBankMode: mapper.PrgBankMode,
         ChrBankMode: mapper.ChrBankMode,
+        ChrRegister0: mapper.ChrRegister0,
+        ChrRegister1: mapper.ChrRegister1,
         PrgBank: mapper.PrgBank,
         PRGRam: copySlice(mapper.PRGRam),
     }
@@ -361,21 +372,35 @@ func (mapper *Mapper1) Read(address uint16) byte {
 
     baseAddress := address - uint16(0x8000)
 
+    const pageSize32k = 0x8000
+    const pageSize16k = 0x4000
+
+    /* For SUROM (dragon warrior 4), the 5th bit of a chr register is used as the 5th bit of the prg register.
+     * FCEUX only uses chr register 0, even though the mmc documentation says that both chr reg 0 and chr reg 1
+     * supply a 5th bit to prg.
+     */
+    hijackedPrgBit := int(mapper.ChrRegister0 & 0x10)
+
     switch mapper.PrgBankMode {
+        /* P=0, read in 32k mode */
         case 0, 1:
-            return mapper.ReadBank(0x8000, int(mapper.PrgBank >> 1), baseAddress)
+            return mapper.ReadBank(pageSize32k, int(mapper.PrgBank >> 1), baseAddress)
+        /* P=1, S=0, read in 16k mode where 0x8000 is mapped to 0, and 0xc000 is mapped to the program bank */
         case 2:
             if address < 0xc000 {
-                return mapper.ReadBank(0x4000, 0, baseAddress)
+                /* hijacked prg bit applies to fixed pages as well */
+                return mapper.ReadBank(pageSize16k, 0 + hijackedPrgBit, baseAddress)
             }
 
-            return mapper.ReadBank(0x4000, int(mapper.PrgBank), address - 0xc000)
+            return mapper.ReadBank(pageSize16k, int(mapper.PrgBank) + hijackedPrgBit, address - 0xc000)
+        /* P=1, S=1, read in 16k mode where 0x8000 is mapped to the program bank, and 0xc000 is mapped to page 0xf */
         case 3:
             if address < 0xc000 {
-                return mapper.ReadBank(0x4000, int(mapper.PrgBank), baseAddress)
+                return mapper.ReadBank(pageSize16k, int(mapper.PrgBank) + hijackedPrgBit, baseAddress)
             }
 
-            return mapper.ReadBank(0x4000, mapper.Last4kBank, address - 0xc000)
+            /* hijacked prg bit applies to fixed pages as well */
+            return mapper.ReadBank(pageSize16k, 0xf + hijackedPrgBit, address - 0xc000)
     }
 
     return 0
@@ -433,6 +458,8 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                         cpu.PPU.SetHorizontalMirror()
                 }
             } else if address >= 0xa000 && address <= 0xbfff {
+                mapper.ChrRegister0 = mapper.Register
+
                 /* chr bank 0 */
                 if mapper.ChrBankMode == 1 {
                     /* FIXME: base could be 0xf000, so base + 0x1000 could be 0
@@ -461,6 +488,8 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                     }
                 }
             } else if address >= 0xc000 && address <= 0xdfff {
+                mapper.ChrRegister1 = mapper.Register
+
                 /* chr bank 1 */
                 if mapper.ChrBankMode == 1 {
                     base := uint32(mapper.Register) * 0x1000
@@ -499,6 +528,8 @@ func MakeMapper1(bankMemory []byte, chrMemory []byte) Mapper {
         Mirror: 0,
         PrgBankMode: 3,
         ChrBankMode: 0,
+        ChrRegister0: 0,
+        ChrRegister1: 0,
         PRGRam: make([]byte, 0x8000 - 0x6000),
         Last4kBank: pages-1,
     }
