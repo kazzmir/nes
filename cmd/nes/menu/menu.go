@@ -2047,7 +2047,7 @@ type ChangeKeyMenu struct {
     Buttons MenuButtons
     ExtraInfo string
     Beep *mix.Music
-    Chooser *ChooseButton
+    // Chooser *ChooseButton
     Choosing bool
     ChoosingKey string
     ChoosingButton *StaticFixedWidthButton
@@ -2268,7 +2268,6 @@ func (choose *ChooseButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
-
 func (choose *ChooseButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
     if choose.IsEnabled() {
 
@@ -2318,7 +2317,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
         items = append(items, fmt.Sprintf("%v: %v", key.Name, sdl.GetKeyName(key.Code)))
     }
 
-    chooseButton := &ChooseButton{Items: items}
+    // chooseButton := &ChooseButton{Items: items}
 
     chooseDone, chooseCancel := context.WithCancel(menu.quit)
 
@@ -2332,7 +2331,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
         Beep: menu.Beep,
         ChooseDone: chooseDone,
         ChooseCancel: chooseCancel,
-        Chooser: chooseButton,
+        // Chooser: chooseButton,
         Choosing: false,
         Keys: keys,
     }
@@ -2609,6 +2608,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
             _ = err
             renderer.SetDrawColor(32, 0, 0, 210)
             renderer.FillRect(nil)
+
             return nil
         }
 
