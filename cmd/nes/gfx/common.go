@@ -335,7 +335,7 @@ func Glow(start sdl.Color, end sdl.Color, speed float32, clock uint64) sdl.Color
     return sdl.Color{R: uint8(clamp(r*255, 0, 255)), G: uint8(clamp(g*255, 0, 255)), B: uint8(clamp(b*255, 0, 255)), A: 255}
 }
 
-func CreateEquilateralTriangleSurface(x1 int, y1 int, x2 int, y2 int, x3 int, y3 int, color sdl.Color) (*sdl.Surface, error) {
+func RasterizeTriangle(x1 int, y1 int, x2 int, y2 int, x3 int, y3 int, color sdl.Color) (*sdl.Surface, error) {
     // normalize points first
     minX := min(x1, x2, x3)
     minY := min(y1, y2, y3)
@@ -415,7 +415,7 @@ func DrawEquilateralTriange(renderer *sdl.Renderer, x int, y int, size float64, 
     x3 := float64(x) + math.Cos((angle + 90) * math.Pi / 180) * size
     y3 := float64(y) - math.Sin((angle + 90) * math.Pi / 180) * size
 
-    surface, err := CreateEquilateralTriangleSurface(int(x1), int(y1), int(x2), int(y2), int(x3), int(y3), color)
+    surface, err := RasterizeTriangle(int(x1), int(y1), int(x2), int(y2), int(x3), int(y3), color)
     if err != nil {
         return err
     }
