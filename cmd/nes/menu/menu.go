@@ -2047,7 +2047,7 @@ type ChangeKeyMenu struct {
     Buttons MenuButtons
     ExtraInfo string
     Beep *mix.Music
-    Chooser *ChooseButton
+    // Chooser *ChooseButton
     Choosing bool
     ChoosingKey string
     ChoosingButton *StaticFixedWidthButton
@@ -2331,7 +2331,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
         Beep: menu.Beep,
         ChooseDone: chooseDone,
         ChooseCancel: chooseCancel,
-        Chooser: chooseButton,
+        // Chooser: chooseButton,
         Choosing: false,
         Keys: keys,
     }
