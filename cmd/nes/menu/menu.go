@@ -2317,7 +2317,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
         items = append(items, fmt.Sprintf("%v: %v", key.Name, sdl.GetKeyName(key.Code)))
     }
 
-    chooseButton := &ChooseButton{Items: items}
+    // chooseButton := &ChooseButton{Items: items}
 
     chooseDone, chooseCancel := context.WithCancel(menu.quit)
 
@@ -2602,16 +2602,12 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
         var snow []Snow
 
-        var angle float64 = 0
         /* Draw a reddish overlay on the screen */
         baseRenderer := func(renderer *sdl.Renderer) error {
             err := renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
             _ = err
             renderer.SetDrawColor(32, 0, 0, 210)
             renderer.FillRect(nil)
-
-            gfx.DrawEquilateralTriange(renderer, 200, 400, 20, angle, sdl.Color{R: 255, G: 0, B: 0, A: 255})
-            angle += 1
 
             return nil
         }
