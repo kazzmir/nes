@@ -350,7 +350,7 @@ func RasterizeTriangle(x1 int, y1 int, x2 int, y2 int, x3 int, y3 int, color sdl
     height := max(y1, y2, y3) - min(y1, y2, y3)
 
     surface, err := sdl.CreateRGBSurfaceWithFormat(0, int32(width), int32(height), 8 * 4, sdl.PIXELFORMAT_RGBA8888)
-    surface.FillRect(nil, sdl.Color{R: 0, G: 255, B: 0, A: 255}.Uint32())
+    // surface.FillRect(nil, sdl.Color{R: 0, G: 255, B: 0, A: 255}.Uint32())
 
     surface.Lock()
     defer surface.Unlock()
@@ -400,7 +400,6 @@ func RasterizeTriangle(x1 int, y1 int, x2 int, y2 int, x3 int, y3 int, color sdl
             }
         }
     }
-
 
     return surface, err
 }
