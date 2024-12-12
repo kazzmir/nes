@@ -2268,7 +2268,6 @@ func (choose *ChooseButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
-
 func (choose *ChooseButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
     if choose.IsEnabled() {
 
@@ -2603,12 +2602,17 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
 
         var snow []Snow
 
+        var angle float64 = 0
         /* Draw a reddish overlay on the screen */
         baseRenderer := func(renderer *sdl.Renderer) error {
             err := renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
             _ = err
             renderer.SetDrawColor(32, 0, 0, 210)
             renderer.FillRect(nil)
+
+            gfx.DrawEquilateralTriange(renderer, 200, 400, 20, angle, sdl.Color{R: 255, G: 0, B: 0, A: 255})
+            angle += 1
+
             return nil
         }
 
