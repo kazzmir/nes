@@ -75,6 +75,9 @@ type RomLoaderState struct {
     Arrow imagelib.Image
     ArrowId TextureId
 
+    CurrentScan string
+    CurrentScanLock sync.Mutex
+
     /* Keep track of which tile to start with when rendering the rows
      * in the loading screen, and the last tile to render.
      * min <= indexof(selectedrom) <= max
@@ -91,6 +94,23 @@ type RomLoaderState struct {
     SelectedRomKey string
 
     Layout TileLayout
+}
+
+func (loader *RomLoaderState) CurrentScanDescription(maxWidth int) string {
+    loader.CurrentScanLock.Lock()
+    defer loader.CurrentScanLock.Unlock()
+
+    maxLength := maxWidth
+
+    if loader.CurrentScan == "" {
+        return "Scan complete"
+    } else {
+        if len(loader.CurrentScan) > maxLength {
+            return "Scanning: " + loader.CurrentScan[0:maxLength] + "..."
+        } else {
+            return "Scanning: " + loader.CurrentScan
+        }
+    }
 }
 
 type PossibleRom struct {
@@ -450,6 +470,10 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
             return fmt.Errorf("quitting")
         }
 
+        romLoaderState.CurrentScanLock.Lock()
+        romLoaderState.CurrentScan = path
+        romLoaderState.CurrentScanLock.Unlock()
+
         if nes.IsNESFile(path){
             romId += 1
             // log.Printf("Possible nes file %v", path)
@@ -467,6 +491,10 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
 
         return nil
     })
+
+    romLoaderState.CurrentScanLock.Lock()
+    romLoaderState.CurrentScan = ""
+    romLoaderState.CurrentScanLock.Unlock()
 
     close(possibleRoms)
     romGroup.Wait()
@@ -797,7 +825,8 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font
     green := sdl.Color{R: 0, G: 255, B: 0, A: 255}
 
     showTiles := loader.GetFilteredRoms()
-    gfx.WriteFont(font, renderer, 1, 1, fmt.Sprintf("Press enter to load a rom. Roms found %v (%v filtered)", loader.RomIdsAndPaths.Size(), len(showTiles)), white)
+
+    gfx.WriteFont(font, renderer, 1, 1, fmt.Sprintf("Press enter to load a rom. Roms found %v (%v filtered). %v", loader.RomIdsAndPaths.Size(), len(showTiles), loader.CurrentScanDescription((maxWidth / gfx.TextWidth(font, "A")) - 40)), white)
 
     layout := loader.TileLayout()
 
