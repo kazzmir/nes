@@ -534,6 +534,9 @@ func loadTTF(path string, size int) (*ttf.Font, error) {
         rwops.Close()
         return nil, err
     } else {
+        // the memory must exist longer than the rwops. we can't add a finalizer directly to the rwops
+        // because it is not a golang object, but rather allocated by sdl directly using malloc()
+        // instead we add the finalizer to the font, which is going to close the rwops anyway
         runtime.SetFinalizer(out, func(font *ttf.Font){
             memory = nil
         })
@@ -766,9 +769,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         return fmt.Errorf("Unable to load font size 15: %v", err)
     }
     defer smallFont.Close()
-
-    log.Printf("Regular font height: %v A length: %v", font.Height(), gfx.TextWidth(font, "A"))
-    log.Printf("Small font height: %v A length: %v", smallFont.Height(), gfx.TextWidth(smallFont, "A"))
 
     log.Printf("Found joysticks: %v\n", sdl.NumJoysticks())
     for i := 0; i < sdl.NumJoysticks(); i++ {
