@@ -14,7 +14,6 @@ import (
     "os"
     "os/signal"
     "io"
-    "io/ioutil"
     "path/filepath"
     "math/rand"
     "strings"
@@ -508,9 +507,16 @@ func makeReplayKeys(cpu *nes.CPUState, replayKeysPath string) (*ReplayKeysInput,
     }, nil
 }
 
-func loadTTF(file io.Reader, size int) (*ttf.Font, error) {
+func loadTTF(path string, size int) (*ttf.Font, error) {
+    file, err := data.OpenFile(path)
+    if err != nil {
+        return nil, err
+    }
+
+    defer file.Close()
+
     // make rwops, use OpenFontRW, close rwops
-    memory, err := ioutil.ReadAll(file)
+    memory, err := io.ReadAll(file)
     if err != nil {
         return nil, err
     }
@@ -522,7 +528,13 @@ func loadTTF(file io.Reader, size int) (*ttf.Font, error) {
 
     // defer rwops.Close()
 
-    return ttf.OpenFontRW(rwops, 0, size)
+    out, err := ttf.OpenFontRW(rwops, 1, size)
+    if err != nil {
+        rwops.Close()
+        return nil, err
+    } else {
+        return out, nil
+    }
 }
 
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
@@ -621,7 +633,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     */
 
     if err != nil {
-        return err
+        return fmt.Errorf("Unable to create SDL window: %v", err)
     }
 
     defer sdl.Do(func(){
@@ -734,27 +746,24 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     err = ttf.Init()
     if err != nil {
-        return err
+        return fmt.Errorf("Unable to initialize ttf: %v", err)
     }
 
     defer ttf.Quit()
 
-    fontFile, err := data.OpenFile("DejaVuSans.ttf")
+    font, err := loadTTF("DejaVuSans.ttf", 20)
     if err != nil {
-        return err
-    }
-
-    font, err := loadTTF(fontFile, 20)
-    if err != nil {
-        return err
+        return fmt.Errorf("Unable to load font size 20: %v", err)
     }
     defer font.Close()
 
-    smallFont, err := loadTTF(fontFile, 15)
+    smallFont, err := loadTTF("DejaVuSans.ttf", 15)
     if err != nil {
-        return err
+        return fmt.Errorf("Unable to load font size 15: %v", err)
     }
     defer smallFont.Close()
+
+    log.Printf("Small font height: %v A length: %v", smallFont.Height(), gfx.TextWidth(smallFont, "A"))
 
     log.Printf("Found joysticks: %v\n", sdl.NumJoysticks())
     for i := 0; i < sdl.NumJoysticks(); i++ {

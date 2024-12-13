@@ -2,13 +2,13 @@ package data
 
 import (
     "embed"
-    "io"
+    "io/fs"
     "path/filepath"
 )
 
 //go:embed data/*
-var fs embed.FS
+var dataFS embed.FS
 
-func OpenFile(path string) (io.Reader, error) {
-    return fs.Open(filepath.Join("data", path))
+func OpenFile(path string) (fs.File, error) {
+    return dataFS.Open(filepath.Join("data", path))
 }

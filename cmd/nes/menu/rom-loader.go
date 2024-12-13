@@ -782,6 +782,9 @@ func maxTextWidth(font *ttf.Font, maxWidth int) int {
     }
 
     size := gfx.TextWidth(font, "A")
+    if size == 0 {
+        size = 1
+    }
     return maxWidth / size
 }
 
