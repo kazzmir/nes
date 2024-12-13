@@ -113,16 +113,12 @@ type NESFile struct {
     Path string
 }
 
-func ParseNesFile(path string, debug bool) (NESFile, error) {
-    file, err := os.Open(path)
-    if err != nil {
-        return NESFile{}, err
-    }
-
-    defer file.Close()
-
+// reader - where the data for the nes file comes from
+// debug - enable extra debugging while reading
+// name - name of the rom
+func ParseNes(reader io.Reader, debug bool, name string) (NESFile, error) {
     header := make([]byte, 16)
-    _, err = io.ReadFull(file, header)
+    _, err := io.ReadFull(reader, header)
     if err != nil {
         return NESFile{}, err
     }
@@ -170,7 +166,7 @@ func ParseNesFile(path string, debug bool) (NESFile, error) {
 
     if hasTrainer {
         trainer := make([]byte, 512)
-        _, err = io.ReadFull(file, trainer)
+        _, err = io.ReadFull(reader, trainer)
         if err != nil {
             return NESFile{}, err
         }
@@ -181,13 +177,13 @@ func ParseNesFile(path string, debug bool) (NESFile, error) {
 
     programRom := make([]byte, prgRomSize)
 
-    _, err = io.ReadFull(file, programRom)
+    _, err = io.ReadFull(reader, programRom)
     if err != nil {
         return NESFile{}, fmt.Errorf("Could not read program rom size 0x%xkB: %v", prgRomSize >> 10, err)
     }
 
     characterRom := make([]byte, chrRomSize)
-    _, err = io.ReadFull(file, characterRom)
+    _, err = io.ReadFull(reader, characterRom)
     if err != nil {
         return NESFile{}, fmt.Errorf("Could not read character rom size 0x%xkB: %v", chrRomSize >> 10, err)
     }
@@ -198,7 +194,18 @@ func ParseNesFile(path string, debug bool) (NESFile, error) {
         Mapper: uint32(mapper),
         HorizontalMirror: horizontalMirror,
         VerticalMirror: verticalMirror,
-        Path: path,
+        Path: name,
     }, nil
+}
+
+func ParseNesFile(path string, debug bool) (NESFile, error) {
+    file, err := os.Open(path)
+    if err != nil {
+        return NESFile{}, err
+    }
+
+    defer file.Close()
+
+    return ParseNes(file, debug, path)
 }
 
