@@ -384,7 +384,7 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
         }
     }
 
-    return nil
+    // return nil
 }
 
 func (debug *DebugWindow) IsWindow(windowId uint32) bool {

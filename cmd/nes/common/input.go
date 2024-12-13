@@ -300,28 +300,30 @@ type SDLJoystickButtons struct {
     Name string
 }
 
-type IControlPad SDLJoystickButtons
+type IControlPad struct {
+    joystick *SDLJoystickButtons
+}
 
 func MakeIControlPadInput(index int) (IControlPad, error){
     joystick, err := OpenJoystick(index)
-    return IControlPad(joystick), err
+    return IControlPad{joystick: &joystick}, err
 }
 
 func (icontrolpad *IControlPad) Close(){
-    icontrolpad.joystick.Close()
+    icontrolpad.joystick.joystick.Close()
 }
 
 func (icontrolpad *IControlPad) Get() nes.ButtonMapping {
     mapping := make(nes.ButtonMapping)
 
-    mapping[nes.ButtonIndexA] = icontrolpad.joystick.Button(12) == 1
-    mapping[nes.ButtonIndexB] = icontrolpad.joystick.Button(13) == 1
-    mapping[nes.ButtonIndexSelect] = icontrolpad.joystick.Button(8) == 1
-    mapping[nes.ButtonIndexStart] = icontrolpad.joystick.Button(9) == 1
-    mapping[nes.ButtonIndexUp] =  icontrolpad.joystick.Button(0) == 1
-    mapping[nes.ButtonIndexDown] = icontrolpad.joystick.Button(3) == 1
-    mapping[nes.ButtonIndexLeft] = icontrolpad.joystick.Button(2) == 1
-    mapping[nes.ButtonIndexRight] =  icontrolpad.joystick.Button(1) == 1
+    mapping[nes.ButtonIndexA] = icontrolpad.joystick.joystick.Button(12) == 1
+    mapping[nes.ButtonIndexB] = icontrolpad.joystick.joystick.Button(13) == 1
+    mapping[nes.ButtonIndexSelect] = icontrolpad.joystick.joystick.Button(8) == 1
+    mapping[nes.ButtonIndexStart] = icontrolpad.joystick.joystick.Button(9) == 1
+    mapping[nes.ButtonIndexUp] =  icontrolpad.joystick.joystick.Button(0) == 1
+    mapping[nes.ButtonIndexDown] = icontrolpad.joystick.joystick.Button(3) == 1
+    mapping[nes.ButtonIndexLeft] = icontrolpad.joystick.joystick.Button(2) == 1
+    mapping[nes.ButtonIndexRight] =  icontrolpad.joystick.joystick.Button(1) == 1
 
     return mapping
 }
