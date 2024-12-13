@@ -16,7 +16,7 @@ import (
     "fmt"
     "sort"
     "time"
-    "io/ioutil"
+    "io/fs"
     "strings"
 
     imagelib "image"
@@ -198,7 +198,7 @@ func getCachedThumbnails(loaderQuit context.Context, romId RomId, path string, a
 
     meta := filepath.Join(cachePath, "metadata")
 
-    programSha, err := ioutil.ReadFile(meta)
+    programSha, err := os.ReadFile(meta)
     if err != nil {
         // log.Printf("cached-thumbnail: could not read metadata")
         return false
@@ -445,7 +445,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     }
 
     var romId RomId
-    err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+    err := filepath.WalkDir(".", func(path string, dir fs.DirEntry, err error) error {
         if mainQuit.Err() != nil {
             return fmt.Errorf("quitting")
         }
