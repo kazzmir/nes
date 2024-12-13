@@ -13,6 +13,8 @@ import (
     "strconv"
     "os"
     "os/signal"
+    "io"
+    "io/ioutil"
     "path/filepath"
     "math/rand"
     "strings"
@@ -36,6 +38,7 @@ import (
     "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/menu"
     "github.com/kazzmir/nes/cmd/nes/debug"
+    "github.com/kazzmir/nes/data"
 
     // rdebug "runtime/debug"
 )
@@ -505,6 +508,23 @@ func makeReplayKeys(cpu *nes.CPUState, replayKeysPath string) (*ReplayKeysInput,
     }, nil
 }
 
+func loadTTF(file io.Reader, size int) (*ttf.Font, error) {
+    // make rwops, use OpenFontRW, close rwops
+    memory, err := ioutil.ReadAll(file)
+    if err != nil {
+        return nil, err
+    }
+
+    rwops, err := sdl.RWFromMem(memory)
+    if err != nil {
+        return nil, err
+    }
+
+    // defer rwops.Close()
+
+    return ttf.OpenFontRW(rwops, 0, size)
+}
+
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
     randomSeed := time.Now().UnixNano()
 
@@ -719,15 +739,18 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     defer ttf.Quit()
 
-    fontPath := common.FindFile("data/DejaVuSans.ttf")
+    fontFile, err := data.OpenFile("DejaVuSans.ttf")
+    if err != nil {
+        return err
+    }
 
-    font, err := ttf.OpenFont(fontPath, 20)
+    font, err := loadTTF(fontFile, 20)
     if err != nil {
         return err
     }
     defer font.Close()
 
-    smallFont, err := ttf.OpenFont(fontPath, 15)
+    smallFont, err := loadTTF(fontFile, 15)
     if err != nil {
         return err
     }

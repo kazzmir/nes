@@ -436,11 +436,14 @@ func (manager *ButtonManager) GetButtonTextureId(textureManager *TextureManager,
 func MakeMenu(mainQuit context.Context, font *ttf.Font) Menu {
     quit, cancel := context.WithCancel(mainQuit)
     menuInput := make(chan MenuInput, 5)
+    /*
     beep, err := mix.LoadMUS(common.FindFile("data/beep.ogg"))
     if err != nil {
         log.Printf("Could not load data/beep.ogg: %v\n", err)
         beep = nil
     }
+    */
+    var beep *mix.Music = nil
     return Menu{
         active: false,
         quit: quit,
