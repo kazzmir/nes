@@ -1,6 +1,7 @@
 package gfx
 
 import (
+    "log"
     "bytes"
     "sort"
     "sync"
@@ -45,6 +46,7 @@ func TextWidth(font *ttf.Font, text string) int {
     /* FIXME: this feels a bit inefficient, maybe find a better way that doesn't require fully rendering the text */
     surface, err := font.RenderUTF8Solid(text, sdl.Color{R: 255, G: 255, B: 255, A: 255})
     if err != nil {
+        log.Printf("Unable to render font text '%v': %v", text, err)
         return 0
     }
 

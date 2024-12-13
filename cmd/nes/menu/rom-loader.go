@@ -12,6 +12,7 @@ import (
     "os"
     "math"
     "math/rand"
+    "image"
     "fmt"
     "sort"
     "time"
@@ -28,6 +29,7 @@ import (
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/thread"
+    "github.com/kazzmir/nes/data"
     nes "github.com/kazzmir/nes/lib"
 )
 
@@ -780,6 +782,9 @@ func maxTextWidth(font *ttf.Font, maxWidth int) int {
     }
 
     size := gfx.TextWidth(font, "A")
+    if size == 0 {
+        size = 1
+    }
     return maxWidth / size
 }
 
@@ -983,8 +988,17 @@ func (loader *RomLoaderState) AddRomFrame(frame RomLoaderFrame) {
     info.Frames = append(info.Frames, frame.Frame)
 }
 
+func loadArrowPicture() (image.Image, error) {
+    reader, err := data.OpenFile("arrow.png")
+    if err != nil {
+        return nil, err
+    }
+
+    return png.Decode(reader)
+}
+
 func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int, arrowId TextureId) *RomLoaderState {
-    arrow, err := loadPng("data/arrow.png")
+    arrow, err := loadArrowPicture()
     if err != nil {
         log.Printf("Could not load arrow image: %v", err)
         arrow = nil

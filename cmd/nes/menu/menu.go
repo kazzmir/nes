@@ -7,6 +7,8 @@ import "C"
 import (
     "context"
 
+    "io"
+    "runtime"
     "os"
     "fmt"
     "math"
@@ -27,6 +29,7 @@ import (
 
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/gfx"
+    "github.com/kazzmir/nes/data"
     nes "github.com/kazzmir/nes/lib"
 
     "github.com/veandco/go-sdl2/sdl"
@@ -433,14 +436,45 @@ func (manager *ButtonManager) GetButtonTextureId(textureManager *TextureManager,
     return id
 }
 
+func loadBeep() (*mix.Music, error) {
+    file, err := data.OpenFile("beep.ogg")
+    if err != nil {
+        return nil, err
+    }
+
+    memory, err := io.ReadAll(file)
+    if err != nil {
+        return nil, err
+    }
+
+    rwops, err := sdl.RWFromMem(memory)
+    if err != nil {
+        return nil, err
+    }
+
+    music, err := mix.LoadMUSRW(rwops, 1)
+    if err != nil {
+        rwops.Close()
+        return nil, err
+    }
+
+    runtime.SetFinalizer(music, func(music *mix.Music){
+        memory = nil
+    })
+
+    return music, nil
+}
+
 func MakeMenu(mainQuit context.Context, font *ttf.Font) Menu {
     quit, cancel := context.WithCancel(mainQuit)
     menuInput := make(chan MenuInput, 5)
-    beep, err := mix.LoadMUS(common.FindFile("data/beep.ogg"))
+
+    beep, err := loadBeep()
     if err != nil {
         log.Printf("Could not load data/beep.ogg: %v\n", err)
         beep = nil
     }
+
     return Menu{
         active: false,
         quit: quit,

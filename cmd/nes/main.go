@@ -13,6 +13,7 @@ import (
     "strconv"
     "os"
     "os/signal"
+    "io"
     "path/filepath"
     "math/rand"
     "strings"
@@ -31,11 +32,13 @@ import (
     "sync"
     "context"
     "runtime/pprof"
+    "runtime"
 
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/menu"
     "github.com/kazzmir/nes/cmd/nes/debug"
+    "github.com/kazzmir/nes/data"
 
     // rdebug "runtime/debug"
 )
@@ -505,6 +508,42 @@ func makeReplayKeys(cpu *nes.CPUState, replayKeysPath string) (*ReplayKeysInput,
     }, nil
 }
 
+func loadTTF(path string, size int) (*ttf.Font, error) {
+    file, err := data.OpenFile(path)
+    if err != nil {
+        return nil, err
+    }
+
+    defer file.Close()
+
+    // make rwops, use OpenFontRW, close rwops
+    memory, err := io.ReadAll(file)
+    if err != nil {
+        return nil, err
+    }
+
+    rwops, err := sdl.RWFromMem(memory)
+    if err != nil {
+        return nil, err
+    }
+
+    // defer rwops.Close()
+
+    out, err := ttf.OpenFontRW(rwops, 1, size)
+    if err != nil {
+        rwops.Close()
+        return nil, err
+    } else {
+        // the memory must exist longer than the rwops. we can't add a finalizer directly to the rwops
+        // because it is not a golang object, but rather allocated by sdl directly using malloc()
+        // instead we add the finalizer to the font, which is going to close the rwops anyway
+        runtime.SetFinalizer(out, func(font *ttf.Font){
+            memory = nil
+        })
+        return out, nil
+    }
+}
+
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
     randomSeed := time.Now().UnixNano()
 
@@ -601,7 +640,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     */
 
     if err != nil {
-        return err
+        return fmt.Errorf("Unable to create SDL window: %v", err)
     }
 
     defer sdl.Do(func(){
@@ -714,22 +753,20 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     err = ttf.Init()
     if err != nil {
-        return err
+        return fmt.Errorf("Unable to initialize ttf: %v", err)
     }
 
     defer ttf.Quit()
 
-    fontPath := common.FindFile("data/DejaVuSans.ttf")
-
-    font, err := ttf.OpenFont(fontPath, 20)
+    font, err := loadTTF("DejaVuSans.ttf", 20)
     if err != nil {
-        return err
+        return fmt.Errorf("Unable to load font size 20: %v", err)
     }
     defer font.Close()
 
-    smallFont, err := ttf.OpenFont(fontPath, 15)
+    smallFont, err := loadTTF("DejaVuSans.ttf", 15)
     if err != nil {
-        return err
+        return fmt.Errorf("Unable to load font size 15: %v", err)
     }
     defer smallFont.Close()
 
