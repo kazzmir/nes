@@ -17,7 +17,7 @@ func readAllInstructions(reader *InstructionReader) ([]Instruction, error) {
         out = append(out, instruction)
     }
 
-    return out, nil
+    // return out, nil
 }
 
 func checkInstructions(test *testing.T, instructions []Instruction, kinds []InstructionType) {

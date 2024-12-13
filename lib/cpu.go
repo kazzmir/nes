@@ -1005,8 +1005,8 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
     */
 
     /* FIXME: return an error? */
-    log.Printf("Warning: loading unmapped memory at 0x%x\n", address)
-    return 0
+    // log.Printf("Warning: loading unmapped memory at 0x%x\n", address)
+    // return 0
 }
 
 /* Special PPU memory-mapped locations */
@@ -1105,7 +1105,7 @@ func (cpu *CPUState) GetMemoryPage(address uint16) []byte {
     }
     */
 
-    return nil
+    // return nil
 }
 
 func (cpu *CPUState) StoreMemory(address uint16, value byte) {
