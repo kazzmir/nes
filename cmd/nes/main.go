@@ -32,6 +32,7 @@ import (
     "sync"
     "context"
     "runtime/pprof"
+    "runtime"
 
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/gfx"
@@ -533,6 +534,9 @@ func loadTTF(path string, size int) (*ttf.Font, error) {
         rwops.Close()
         return nil, err
     } else {
+        runtime.SetFinalizer(out, func(font *ttf.Font){
+            memory = nil
+        })
         return out, nil
     }
 }
@@ -763,6 +767,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
     defer smallFont.Close()
 
+    log.Printf("Regular font height: %v A length: %v", font.Height(), gfx.TextWidth(font, "A"))
     log.Printf("Small font height: %v A length: %v", smallFont.Height(), gfx.TextWidth(smallFont, "A"))
 
     log.Printf("Found joysticks: %v\n", sdl.NumJoysticks())
