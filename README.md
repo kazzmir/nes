@@ -1,5 +1,8 @@
 An NES emulator written in Go.
 
+[![Build Linux](https://github.com/kazzmir/nes/actions/workflows/build-linux.yml/badge.svg?branch=master)](https://github.com/kazzmir/nes/actions/workflows/build-linux.yml)
+[![Build Macos M1](https://github.com/kazzmir/nes/actions/workflows/build-macos-m1.yml/badge.svg?branch=master)](https://github.com/kazzmir/nes/actions/workflows/build-macos-m1.yml)
+
 Resources:
 
 * Nes Development Wiki http://wiki.nesdev.org/w/index.php/Nesdev_Wiki
