@@ -19,4 +19,4 @@ do
 done
 
 echo "Copying x86_64-w64-mingw32 directories to /usr"
-sudo find . -name "x86_64-w64-mingw32" -type d -exec cp -r {} /usr
+sudo find . -name "x86_64-w64-mingw32" -type d -exec cp -r {} /usr \;
