@@ -1,0 +1,32 @@
+name: Build Macos M1
+
+on: push
+
+jobs:
+  build:
+    name: Build code
+    runs-on: macos-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up go
+        uses: actions/setup-go@v5
+
+      - name: Install brew dependencies
+        run: |
+          brew install sdl2 sdl2_mixer sdl2_ttf
+
+      - name: Install go dependencies
+        run: |
+          go get ./...
+          go mod tidy
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build ./cmd/nes
