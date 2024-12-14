@@ -6,7 +6,7 @@ ttf_url=https://github.com/libsdl-org/SDL_ttf/releases/download/release-2.22.0/S
 mixer_url=https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-mingw.tar.gz
 sdl_url=https://github.com/libsdl-org/SDL/releases/download/release-2.30.10/SDL2-devel-2.30.10-mingw.tar.gz
 
-apt install -y mingw-w64
+sudo apt install -y mingw-w64
 
 rm -rf sdl_libs
 mkdir sdl_libs
