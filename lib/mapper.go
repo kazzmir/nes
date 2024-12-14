@@ -791,7 +791,7 @@ func (mapper *Mapper4) Read(address uint16) byte {
             return 0
     }
 
-    return 0
+    // return 0
 }
 
 func (mapper *Mapper4) CharacterBlock(length uint32, page byte) []byte {
@@ -1040,7 +1040,7 @@ func (mapper *Mapper9) Read(address uint16) byte {
         return mapper.ReadBank(address - 0xe000, mapper.Pages-1)
     }
 
-    return 0
+    // return 0
 }
 
 func (mapper *Mapper9) CharacterBlock(pageSize uint16, register byte) []byte {

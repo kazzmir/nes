@@ -1,0 +1,33 @@
+name: Build Linux
+
+on: push
+
+jobs:
+  build:
+    name: Build code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up go
+        uses: actions/setup-go@v5
+
+      - name: Install ubuntu dependencies
+        run: |
+          sudo apt-get -y update
+          sudo apt-get -y install libsdl2-dev libsdl2-ttf-dev libsdl2-mixer-dev
+
+      - name: Install go dependencies
+        run: |
+          go get ./...
+          go mod tidy
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build ./cmd/nes

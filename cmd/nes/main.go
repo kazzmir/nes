@@ -1048,7 +1048,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
         }
 
-        nesWaiter.Wait()
+        // nesWaiter.Wait()
     }()
 
     recordQuit, recordCancel := context.WithCancel(mainQuit)
@@ -1057,6 +1057,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         if err != nil {
             log.Printf("Error: could not record: %v", err)
         }
+        defer recordCancel()
     } else {
         recordCancel()
     }
@@ -1259,6 +1260,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                                     default:
                                 }
                             } else {
+                                recordCancel()
+
                                 recordQuit, recordCancel = context.WithCancel(mainQuit)
                                 err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
                                 if err != nil {

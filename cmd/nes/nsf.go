@@ -333,6 +333,8 @@ func RunNSF(path string) error {
                     }
             }
         }
+
+        playCancel()
     }()
 
     audioDevice, err := setupAudio(AudioSampleRate)
