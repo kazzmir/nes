@@ -8,6 +8,7 @@ import (
     "context"
 
     "io"
+    "io/fs"
     "runtime"
     "os"
     "fmt"
@@ -2463,10 +2464,10 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
                 return main
             },
             SelectRom: func(){
-                rom, ok := romLoaderState.GetSelectedRom()
+                romName, romFile, ok := romLoaderState.GetSelectedRom()
                 if ok {
                     menu.cancel()
-                    programActions <- &common.ProgramLoadRom{Path: rom}
+                    programActions <- &common.ProgramLoadRom{Name: romName, File: romFile}
                 }
             },
             Quit: loadRomQuit,
@@ -2559,7 +2560,10 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                     switch drop_event.Type {
                         case sdl.DROPFILE:
                             menu.cancel()
-                            programActions <- &common.ProgramLoadRom{Path: drop_event.File}
+                            open := func() (fs.File, error) {
+                                return os.Open(drop_event.File)
+                            }
+                            programActions <- &common.ProgramLoadRom{Name: drop_event.File, File: open}
                         case sdl.DROPBEGIN:
                             log.Printf("drop begin '%v'\n", drop_event.File)
                         case sdl.DROPCOMPLETE:

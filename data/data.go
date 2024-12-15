@@ -11,3 +11,6 @@ var dataFS embed.FS
 func OpenFile(path string) (fs.File, error) {
     return dataFS.Open("data/" + path)
 }
+
+//go:embed roms/*
+var RomsFS embed.FS
