@@ -116,12 +116,12 @@ func LoadNSF(path string) (NSFFile, error) {
     _ = totalSongs
     _ = startingSong
 
-    programData := make([]byte, 0x10000 - uint32(loadAddress))
-    read, err := io.ReadFull(file, programData)
+    programData, err := io.ReadAll(file)
+
     if err != nil {
-        log.Printf("Could only read 0x%x bytes", read)
+        log.Printf("Unable to read NSF data", err)
     } else {
-        log.Printf("Read 0x%x program bytes", read)
+        log.Printf("Read 0x%x bytes of music data", len(programData))
     }
 
     return NSFFile{
