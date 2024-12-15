@@ -2,7 +2,6 @@ package main
 
 import (
     "log"
-    "path/filepath"
     "os"
     "fmt"
     "context"
@@ -143,7 +142,7 @@ func RunNSF(path string) error {
     /* FIXME: choose a font somehow if this one is not found */
     var font *ttf.Font
     sdl.Do(func(){
-        font, err = ttf.OpenFont(filepath.Join(filepath.Dir(os.Args[0]), "data/DejaVuSans.ttf"), 20)
+        font, err = loadTTF("DejaVuSans.ttf", 20)
     })
     if err != nil {
         return err
