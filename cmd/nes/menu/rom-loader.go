@@ -309,7 +309,7 @@ func saveCachedFrame(count int, cachedSha256 string, path string, screen nes.Vir
     return png.Encode(out, image)
 }
 
-func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomId, path string, addFrame chan<- RomLoaderFrame, doCache bool){
+func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomId, path string, makeFile common.MakeFile, addFrame chan<- RomLoaderFrame, doCache bool){
     if loaderQuit.Err() != nil {
         return
     }
@@ -333,9 +333,15 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
     var err error
     cachedSha := ""
     if doCache {
-        cachedSha, err = common.GetSha256(path)
-        if err != nil {
-            log.Printf("Could not get sha of '%v': %v", path, err)
+        open, err := makeFile()
+        if err == nil {
+            cachedSha, err = common.GetSha256From(open)
+            if err != nil {
+                log.Printf("Could not get sha of '%v': %v", path, err)
+                cachedSha = "x"
+            }
+            open.Close()
+        } else {
             cachedSha = "x"
         }
     }
@@ -461,7 +467,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
                 /* Run the actual frame generation in a separate goroutine */
                 generator := func(){
                     if !getCachedThumbnails(loaderQuit, romId, add.Path, romLoaderState.AddFrame) {
-                        generateThumbnails(loaderQuit, cpu, romId, add.Path, romLoaderState.AddFrame, true)
+                        generateThumbnails(loaderQuit, cpu, romId, add.Path, possibleRom.File, romLoaderState.AddFrame, true)
                     }
                 }
 
@@ -475,7 +481,41 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     }
 
     var romId RomId
-    err := filepath.WalkDir(".", func(path string, dir fs.DirEntry, err error) error {
+
+    err := fs.WalkDir(data.RomsFS, ".", func(path string, dir fs.DirEntry, err error) error {
+        if mainQuit.Err() != nil {
+            return fmt.Errorf("quitting")
+        }
+
+        if dir.IsDir() {
+            return nil
+        }
+
+        romLoaderState.CurrentScanLock.Lock()
+        romLoaderState.CurrentScan = path
+        romLoaderState.CurrentScanLock.Unlock()
+
+        romId += 1
+        // log.Printf("Possible nes file %v", path)
+        open := func() (fs.File, error){
+            return data.RomsFS.Open(path)
+        }
+        rom := PossibleRom{
+            Path: "<embedded>/" + path,
+            RomId: romId,
+            File: open,
+        }
+
+        select {
+            case possibleRoms <- rom:
+            case <-mainQuit.Done():
+                return fmt.Errorf("quitting")
+        }
+
+        return nil
+    })
+
+    err = filepath.WalkDir(".", func(path string, dir fs.DirEntry, err error) error {
         if mainQuit.Err() != nil {
             return fmt.Errorf("quitting")
         }
