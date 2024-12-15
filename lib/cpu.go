@@ -1267,7 +1267,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             return
     }
 
-    if address >= 0x6000 {
+    if address >= 0x6000 || (cpu.Mapper.Mapper != nil && cpu.Mapper.Mapper.IsNSF() && address >= 0x5ff6 && address < 0x6000) {
         err := cpu.Mapper.Mapper.Write(cpu, address, value)
         if err != nil {
             log.Printf("Warning: writing to mapper memory: %v", err)

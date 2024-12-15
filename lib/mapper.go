@@ -63,6 +63,8 @@ type Mapper interface {
     // Return an error that describes any difference to another mapper, or nil if
     // there are no differences
     Compare(Mapper) error
+    // nsf mapper
+    IsNSF() bool
 }
 
 type MapperState struct {
@@ -221,6 +223,10 @@ type Mapper0 struct {
     BankMemory []byte `json:"bank"`
 }
 
+func (mapper *Mapper0) IsNSF() bool {
+    return false
+}
+
 func (mapper *Mapper0) Compare(other Mapper) error {
     him, ok := other.(*Mapper0)
     if !ok {
@@ -314,6 +320,10 @@ type Mapper1 struct {
 
     /* FIXME: this might get mapped from the bank memory, not sure */
     PRGRam []byte `json:"prgram"`
+}
+
+func (mapper *Mapper1) IsNSF() bool {
+    return false
 }
 
 func (mapper *Mapper1) Kind() int {
@@ -542,6 +552,10 @@ type Mapper2 struct {
     Bank byte `json:"bank"`
 }
 
+func (mapper *Mapper2) IsNSF() bool {
+    return false
+}
+
 func (mapper *Mapper2) Compare(other Mapper) error {
     him, ok := other.(*Mapper2)
     if !ok {
@@ -628,6 +642,10 @@ type Mapper3 struct {
     BankMemory []byte `json:"bankmemory"`
 }
 
+func (mapper *Mapper3) IsNSF() bool {
+    return false
+}
+
 func (mapper *Mapper3) Copy() Mapper {
     return &Mapper3{
         ProgramRom: copySlice(mapper.ProgramRom),
@@ -696,6 +714,10 @@ type Mapper4 struct {
 
     ChrRegister [6]byte `json:"chrregister"`
     PrgRegister [2]byte `json:"prgregister"`
+}
+
+func (mapper *Mapper4) IsNSF() bool {
+    return false
 }
 
 func (mapper *Mapper4) Kind() int {
@@ -921,6 +943,10 @@ type Mapper7 struct {
     Mirror int `json:"mirror"` // 0=1ScA, 1=1ScB
 }
 
+func (mapper *Mapper7) IsNSF() bool {
+    return false
+}
+
 func (mapper *Mapper7) Compare(other Mapper) error {
     return fmt.Errorf("mapper7 compare unimplemented")
 }
@@ -1000,6 +1026,10 @@ type Mapper9 struct {
 
     PrgRegister byte `json:"prg"`
     ChrRegister [4]byte `json:"chr"`
+}
+
+func (mapper *Mapper9) IsNSF() bool {
+    return false
 }
 
 func (mapper *Mapper9) Compare(other Mapper) error {
