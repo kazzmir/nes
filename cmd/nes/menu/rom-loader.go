@@ -430,6 +430,8 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
                     log.Printf("Unable to open file %v: %v", possibleRom.Path, err)
                     continue
                 }
+                defer openFile.Close()
+
                 nesFile, err := nes.ParseNes(openFile, false, possibleRom.Path)
                 if err != nil {
                     log.Printf("Unable to parse nes file %v: %v", possibleRom.Path, err)

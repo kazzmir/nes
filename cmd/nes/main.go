@@ -1115,6 +1115,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             }
 
                             nesFile, err := nes.ParseNes(file, true, loadRom.Name)
+                            file.Close()
                             if err != nil {
                                 log.Printf("Could not load rom '%v'", path)
                             } else {
