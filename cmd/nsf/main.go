@@ -44,6 +44,7 @@ const (
     PlayerNext5Track = iota
     PlayerPreviousTrack
     PlayerPrevious5Track
+    PlayerRestartTrack
     PlayerQuit
     PlayerTogglePause
 )
@@ -99,6 +100,7 @@ func terminalGui(quit context.Context, cancel context.CancelFunc, nsfPath string
         fmt.Fprintf(keyView, "^ or k: skip 5 tracks ahead\n")
         fmt.Fprintf(keyView, "< or h: previous track\n")
         fmt.Fprintf(keyView, "v or j: skip 5 tracks back\n")
+        fmt.Fprintf(keyView, "r: restart current track\n")
         fmt.Fprintf(keyView, "space: pause/unpause\n")
         fmt.Fprintf(keyView, "esc/ctrl-c/q: quit\n")
 
@@ -177,6 +179,11 @@ func terminalGui(quit context.Context, cancel context.CancelFunc, nsfPath string
     }
 
     err = bindAction('h', PlayerPreviousTrack)
+    if err != nil {
+        return nil, err
+    }
+
+    err = bindAction('r', PlayerRestartTrack)
     if err != nil {
         return nil, err
     }
@@ -324,6 +331,12 @@ func run(nsfPath string) error {
                         trackDelta = 1
                     case PlayerNext5Track:
                         trackDelta = 5
+                    case PlayerRestartTrack:
+                        paused = false
+                        playCancel()
+                        playQuit, playCancel = runPlayer(track, nsfActions)
+                        updateTrack <- track
+
                     case PlayerTogglePause:
                         paused = !paused
                         nsfActions <- nes.NSFActionTogglePause
