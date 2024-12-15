@@ -432,10 +432,12 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
         cancel()
     }()
 
+    var encodeErr error
     waiter.Add(1)
     go func(){
         defer waiter.Done()
-        util.EncodeMp3(mp3out, quit, int(sampleRate), audioOut)
+        encodeErr = util.EncodeMp3(mp3out, quit, int(sampleRate), audioOut)
+        cancel()
     }()
 
     log.Printf("Rendering track %v of %v to '%v' for %d:%02d", track+1, filepath.Base(nsfPath), mp3out, renderTime/60, renderTime % 60)
@@ -444,7 +446,11 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
 
     waiter.Wait()
 
-    return err
+    if encodeErr != nil {
+        return fmt.Errorf("Encoding error: %v", encodeErr)
+    } else {
+        return err
+    }
 }
 
 func showInfo(path string){
