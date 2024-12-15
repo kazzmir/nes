@@ -6,6 +6,7 @@ import (
     "io"
     "os"
     "log"
+    "math"
     "context"
     "time"
     "errors"
@@ -22,6 +23,7 @@ type NSFFile struct {
     Artist string
     Copyright string
     Data []byte
+    InitialBanks []byte
 }
 
 func isNSF(header []byte) bool {
@@ -90,7 +92,6 @@ func LoadNSF(path string) (NSFFile, error) {
     _ = nsf2Reserved
     _ = nsf2MetaData
 
-    _ = bankValues
     _ = palSpeed
     _ = palOrNtsc
     _ = extraSoundChip
@@ -132,6 +133,7 @@ func LoadNSF(path string) (NSFFile, error) {
         StartingSong: startingSong,
         NTSCSpeed: ntscSpeed,
         Data: programData,
+        InitialBanks: bankValues,
 
         SongName: string(songName),
         Artist: string(artist),
@@ -141,10 +143,25 @@ func LoadNSF(path string) (NSFFile, error) {
 
 type NSFMapper struct {
     Data []byte
+    // bank switching. The value in bank[0] relates to the addresses read from the first bank, bank[1] second bank, etc
+    InitialBanks []byte
+    Banks []byte
     LoadAddress uint16
 }
 
 func (mapper *NSFMapper) Write(cpu *CPUState, address uint16, value byte) error {
+    // 5ff6 and 5ff7 are also bank switched
+
+    // bank switching addresses
+    if address >= 0x5ff8 && address <= 0x5fff {
+        // normalize to 0
+        bank := address - 0x5ff8
+
+        // should probably binary-& the value with the maximum bank number
+        mapper.Banks[bank] = value
+        return nil
+    }
+
     return fmt.Errorf("nsf mapper write unimplemented")
 }
 
@@ -156,7 +173,12 @@ func (mapper *NSFMapper) Read(address uint16) byte {
     if use < 0 {
         return 0
     }
-    return mapper.Data[use]
+
+    bankIndex := use / 0x1000
+    offset := use % 0x1000
+    bankAddress := mapper.Banks[bankIndex]
+
+    return mapper.Data[int(bankAddress) * 0x1000 + int(offset)]
 }
 
 func (mapper *NSFMapper) IsIRQAsserted() bool {
@@ -176,10 +198,11 @@ func (mapper *NSFMapper) Kind() int {
     return -1
 }
 
-func MakeNSFMapper(data []byte, loadAddress uint16) Mapper {
+func MakeNSFMapper(data []byte, loadAddress uint16, banks []byte) Mapper {
     return &NSFMapper{
         Data: data,
         LoadAddress: loadAddress,
+        Banks: banks,
     }
 }
 
@@ -200,7 +223,7 @@ var MaxCyclesReached error = errors.New("maximum cycles reached")
 /* https://wiki.nesdev.org/w/index.php/NSF */
 func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
     cpu := StartupState()
-    cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress))
+    cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, int(math.Ceil(float64(len(nsf.Data)) / 0x1000)))))
     cpu.Input = MakeInput(&NoInput{})
 
     cpu.A = track
