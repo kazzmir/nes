@@ -120,7 +120,7 @@ func LoadNSF(path string) (NSFFile, error) {
     programData, err := io.ReadAll(file)
 
     if err != nil {
-        log.Printf("Unable to read NSF data", err)
+        log.Printf("Unable to read NSF data: %v", err)
     } else {
         log.Printf("Read 0x%x bytes of music data", len(programData))
     }
@@ -144,9 +144,12 @@ func LoadNSF(path string) (NSFFile, error) {
 type NSFMapper struct {
     Data []byte
     // bank switching. The value in bank[0] relates to the addresses read from the first bank, bank[1] second bank, etc
-    InitialBanks []byte
     Banks []byte
     LoadAddress uint16
+}
+
+func (mapper *NSFMapper) IsNSF() bool {
+    return true
 }
 
 func (mapper *NSFMapper) Write(cpu *CPUState, address uint16, value byte) error {
@@ -157,12 +160,16 @@ func (mapper *NSFMapper) Write(cpu *CPUState, address uint16, value byte) error 
         // normalize to 0
         bank := address - 0x5ff8
 
-        // should probably binary-& the value with the maximum bank number
-        mapper.Banks[bank] = value
+        // log.Printf("Set bank %v to %v", bank, value)
+
+        if int(bank) < len(mapper.Banks) {
+            // should probably binary-& the value with the maximum bank number
+            mapper.Banks[bank] = value
+        }
         return nil
     }
 
-    return fmt.Errorf("nsf mapper write unimplemented")
+    return fmt.Errorf("nsf mapper write unimplemented for 0x%x=0x%x", address, value)
 }
 
 func (mapper *NSFMapper) Read(address uint16) byte {
@@ -178,7 +185,10 @@ func (mapper *NSFMapper) Read(address uint16) byte {
     offset := use % 0x1000
     bankAddress := mapper.Banks[bankIndex]
 
-    return mapper.Data[int(bankAddress) * 0x1000 + int(offset)]
+    convertedAddress := int(bankAddress) * 0x1000 + int(offset)
+    // log.Printf("Read address 0x%x -> 0x%x", address, int(bankAddress) * 0x1000 + int(offset))
+
+    return mapper.Data[convertedAddress]
 }
 
 func (mapper *NSFMapper) IsIRQAsserted() bool {
@@ -226,7 +236,7 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
     cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, int(math.Ceil(float64(len(nsf.Data)) / 0x1000)))))
     cpu.Input = MakeInput(&NoInput{})
 
-    cpu.A = track
+    // cpu.A = track
     cpu.X = 0 // ntsc or pal
 
     /* jsr INIT
@@ -240,12 +250,33 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
      */
     initJSR := uint16(0)
 
+    // set up bank switching values
+    for bank := range (0x6000 - 0x5ff8) {
+        cpu.StoreMemory(initJSR, Instruction_LDA_immediate)
+        cpu.StoreMemory(initJSR + 1, nsf.InitialBanks[bank])
+        initJSR += 2
+
+        address := 0x5ff8 + bank
+
+        cpu.StoreMemory(initJSR, Instruction_STA_absolute)
+        cpu.StoreMemory(initJSR + 1, byte(address & 0xff))
+        cpu.StoreMemory(initJSR + 2, byte(address >> 8))
+        initJSR += 3
+    }
+
+    // set A register to the track number
+    cpu.StoreMemory(initJSR, Instruction_LDA_immediate)
+    cpu.StoreMemory(initJSR + 1, track)
+    initJSR += 2
+
     cpu.StoreMemory(initJSR, Instruction_JSR)
     cpu.StoreMemory(initJSR + 1, byte(nsf.InitAddress & 0xff))
     cpu.StoreMemory(initJSR + 2, byte(nsf.InitAddress >> 8))
 
+    initJSR += 3
+
     /* the address of the jsr instruction that jumps to the $play address */
-    var playJSR uint16 = initJSR + 3
+    var playJSR uint16 = initJSR
     cpu.StoreMemory(playJSR, Instruction_JSR)
     cpu.StoreMemory(playJSR + 1, byte(nsf.PlayAddress & 0xff))
     cpu.StoreMemory(playJSR + 2, byte(nsf.PlayAddress >> 8))
