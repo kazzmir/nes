@@ -100,7 +100,7 @@ func terminalGui(quit context.Context, cancel context.CancelFunc, nsfPath string
         fmt.Fprintf(keyView, "< or h: previous track\n")
         fmt.Fprintf(keyView, "v or j: skip 5 tracks back\n")
         fmt.Fprintf(keyView, "space: pause/unpause\n")
-        fmt.Fprintf(keyView, "esc or ctrl-c: quit\n")
+        fmt.Fprintf(keyView, "esc/ctrl-c/q: quit\n")
 
         viewUpdates := make(chan RenderState, 3)
 
@@ -161,6 +161,8 @@ func terminalGui(quit context.Context, cancel context.CancelFunc, nsfPath string
             return nil, err
         }
     }
+
+    gui.SetKeybinding("", 'q', gocui.ModNone, guiQuit)
 
     bindAction := func(key interface{}, action PlayerAction) error {
         return gui.SetKeybinding("", key, gocui.ModNone, func(gui *gocui.Gui, view *gocui.View) error {
