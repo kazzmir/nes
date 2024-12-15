@@ -141,10 +141,21 @@ func LoadNSF(path string) (NSFFile, error) {
     }, nil
 }
 
+func (nsf *NSFFile) UseBankSwitch() bool {
+    for _, value := range nsf.InitialBanks {
+        if value > 0 {
+            return true
+        }
+    }
+
+    return false
+}
+
 type NSFMapper struct {
     Data []byte
     // bank switching. The value in bank[0] relates to the addresses read from the first bank, bank[1] second bank, etc
     Banks []byte
+    UseBankSwitch bool
     LoadAddress uint16
 }
 
@@ -165,6 +176,7 @@ func (mapper *NSFMapper) Write(cpu *CPUState, address uint16, value byte) error 
         if int(bank) < len(mapper.Banks) {
             // should probably binary-& the value with the maximum bank number
             mapper.Banks[bank] = value
+            mapper.UseBankSwitch = true
         }
         return nil
     }
@@ -181,14 +193,17 @@ func (mapper *NSFMapper) Read(address uint16) byte {
         return 0
     }
 
-    bankIndex := use / 0x1000
-    offset := use % 0x1000
-    bankAddress := mapper.Banks[bankIndex]
+    if mapper.UseBankSwitch {
+        bankIndex := use / 0x1000
+        offset := use % 0x1000
+        bankAddress := mapper.Banks[bankIndex]
+        convertedAddress := int(bankAddress) * 0x1000 + int(offset)
+        // log.Printf("Read address 0x%x -> 0x%x", address, int(bankAddress) * 0x1000 + int(offset))
 
-    convertedAddress := int(bankAddress) * 0x1000 + int(offset)
-    // log.Printf("Read address 0x%x -> 0x%x", address, int(bankAddress) * 0x1000 + int(offset))
-
-    return mapper.Data[convertedAddress]
+        return mapper.Data[convertedAddress]
+    } else {
+        return mapper.Data[use]
+    }
 }
 
 func (mapper *NSFMapper) IsIRQAsserted() bool {
@@ -250,18 +265,20 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
      */
     initJSR := uint16(0)
 
-    // set up bank switching values
-    for bank := range (0x6000 - 0x5ff8) {
-        cpu.StoreMemory(initJSR, Instruction_LDA_immediate)
-        cpu.StoreMemory(initJSR + 1, nsf.InitialBanks[bank])
-        initJSR += 2
+    if nsf.UseBankSwitch() {
+        // set up bank switching values
+        for bank := range (0x6000 - 0x5ff8) {
+            cpu.StoreMemory(initJSR, Instruction_LDA_immediate)
+            cpu.StoreMemory(initJSR + 1, nsf.InitialBanks[bank])
+            initJSR += 2
 
-        address := 0x5ff8 + bank
+            address := 0x5ff8 + bank
 
-        cpu.StoreMemory(initJSR, Instruction_STA_absolute)
-        cpu.StoreMemory(initJSR + 1, byte(address & 0xff))
-        cpu.StoreMemory(initJSR + 2, byte(address >> 8))
-        initJSR += 3
+            cpu.StoreMemory(initJSR, Instruction_STA_absolute)
+            cpu.StoreMemory(initJSR + 1, byte(address & 0xff))
+            cpu.StoreMemory(initJSR + 2, byte(address >> 8))
+            initJSR += 3
+        }
     }
 
     // set A register to the track number
