@@ -7,6 +7,7 @@ import (
     "time"
     "sync"
     "path/filepath"
+    "io/fs"
     "os"
     "fmt"
     "compress/gzip"
@@ -39,8 +40,11 @@ type ProgramQueryAudioState struct {
     Response chan bool
 }
 
+type MakeFile func() (fs.File, error)
+
 type ProgramLoadRom struct {
-    Path string
+    File MakeFile
+    Name string
 }
 
 type AudioResponse int

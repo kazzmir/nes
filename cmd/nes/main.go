@@ -14,6 +14,7 @@ import (
     "os"
     "os/signal"
     "io"
+    "io/fs"
     "path/filepath"
     "math/rand"
     "strings"
@@ -1106,11 +1107,18 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             }
                         case *common.ProgramLoadRom:
                             loadRom := action.(*common.ProgramLoadRom)
-                            nesFile, err := nes.ParseNesFile(loadRom.Path, true)
+                            file, err := loadRom.File()
+
+                            if err != nil {
+                                log.Printf("Could not load rom '%v'", loadRom.Name)
+                                break
+                            }
+
+                            nesFile, err := nes.ParseNes(file, true, loadRom.Name)
                             if err != nil {
                                 log.Printf("Could not load rom '%v'", path)
                             } else {
-                                log.Printf("Loaded rom '%v'", loadRom.Path)
+                                log.Printf("Loaded rom '%v'", loadRom.Name)
                                 nesChannel <- &NesActionLoad{File: nesFile}
                                 select {
                                     case emulatorMessages.ReceiveMessages <- "Loaded rom":
@@ -1188,7 +1196,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 switch drop_event.Type {
                     case sdl.DROPFILE:
                         // log.Printf("drop file '%v'\n", drop_event.File)
-                        programActionsOutput <- &common.ProgramLoadRom{Path: drop_event.File}
+                        open := func() (fs.File, error){
+                            return os.Open(drop_event.File)
+                        }
+                        programActionsOutput <- &common.ProgramLoadRom{Name: drop_event.File, File: open}
                     case sdl.DROPBEGIN:
                         log.Printf("drop begin '%v'\n", drop_event.File)
                     case sdl.DROPCOMPLETE:

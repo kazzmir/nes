@@ -38,6 +38,7 @@ type RomId uint64
 type RomLoaderAdd struct {
     Id RomId
     Path string
+    File common.MakeFile
 }
 
 type RomLoaderFrame struct {
@@ -115,6 +116,7 @@ func (loader *RomLoaderState) CurrentScanDescription(maxWidth int) string {
 
 type PossibleRom struct {
     Path string
+    File common.MakeFile
     RomId RomId
 }
 
@@ -423,7 +425,12 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     for i := 0; i < 4; i++ {
         romGroup.Spawn(func(){
             for possibleRom := range possibleRoms {
-                nesFile, err := nes.ParseNesFile(possibleRom.Path, false)
+                openFile, err := possibleRom.File()
+                if err != nil {
+                    log.Printf("Unable to open file %v: %v", possibleRom.Path, err)
+                    continue
+                }
+                nesFile, err := nes.ParseNes(openFile, false, possibleRom.Path)
                 if err != nil {
                     log.Printf("Unable to parse nes file %v: %v", possibleRom.Path, err)
                     continue
@@ -440,6 +447,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
                 add := RomLoaderAdd{
                     Id: romId,
                     Path: possibleRom.Path,
+                    File: possibleRom.File,
                 }
 
                 select {
@@ -477,9 +485,13 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
         if nes.IsNESFile(path){
             romId += 1
             // log.Printf("Possible nes file %v", path)
+            open := func() (fs.File, error){
+                return os.Open(path)
+            }
             rom := PossibleRom{
                 Path: path,
                 RomId: romId,
+                File: open,
             }
 
             select {
@@ -529,17 +541,17 @@ func (loader *RomLoaderState) GetSelectedRomInfo() (*RomLoaderInfo, bool) {
     return nil, false
 }
 
-func (loader *RomLoaderState) GetSelectedRom() (string, bool) {
+func (loader *RomLoaderState) GetSelectedRom() (string, common.MakeFile, bool) {
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
 
     if loader.SelectedRomKey != "" {
         roms := loader.RomIdsAndPaths.All()
         index := loader.FindSortedIdIndex(roms, loader.SelectedRomKey)
-        return roms[index].Path, true
+        return roms[index].Path, roms[index].File, true
     }
 
-    return "", false
+    return "", nil, false
 }
 
 func (loader *RomLoaderState) moveSelection(count int){
@@ -680,6 +692,7 @@ func (data SortRomIds) Less(left, right int) bool {
 type RomIdAndPath struct {
     Id RomId
     Path string
+    File common.MakeFile
 }
 
 func (info *RomIdAndPath) Less(other *RomIdAndPath) bool {
@@ -992,7 +1005,7 @@ func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
         distanceToMin = selectedIndex - loader.MinRenderIndex
     }
 
-    newRomIdAndPath := RomIdAndPath{Id: rom.Id, Path: rom.Path}
+    newRomIdAndPath := RomIdAndPath{Id: rom.Id, Path: rom.Path, File: rom.File}
     loader.RomIdsAndPaths.Add(&newRomIdAndPath)
 
     if loader.SelectedRomKey == "" {
