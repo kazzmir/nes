@@ -24,6 +24,7 @@ type NSFFile struct {
     Copyright string
     Data []byte
     InitialBanks []byte
+    ExtraSoundChip byte
 }
 
 func isNSF(header []byte) bool {
@@ -94,7 +95,6 @@ func LoadNSF(path string) (NSFFile, error) {
 
     _ = palSpeed
     _ = palOrNtsc
-    _ = extraSoundChip
 
     /*
     log.Printf("Version %v", version)
@@ -134,6 +134,7 @@ func LoadNSF(path string) (NSFFile, error) {
         NTSCSpeed: ntscSpeed,
         Data: programData,
         InitialBanks: bankValues,
+        ExtraSoundChip: extraSoundChip,
 
         SongName: string(songName),
         Artist: string(artist),
@@ -157,6 +158,8 @@ type NSFMapper struct {
     Banks []byte
     UseBankSwitch bool
     LoadAddress uint16
+
+    VRC6 *VRC6Audio
 }
 
 func (mapper *NSFMapper) IsNSF() bool {
@@ -178,6 +181,10 @@ func (mapper *NSFMapper) Write(cpu *CPUState, address uint16, value byte) error 
             mapper.Banks[bank] = value
             mapper.UseBankSwitch = true
         }
+        return nil
+    }
+
+    if mapper.VRC6 != nil && mapper.VRC6.HandleWrite(address, value) {
         return nil
     }
 
@@ -223,11 +230,18 @@ func (mapper *NSFMapper) Kind() int {
     return -1
 }
 
-func MakeNSFMapper(data []byte, loadAddress uint16, banks []byte) Mapper {
+func MakeNSFMapper(data []byte, loadAddress uint16, banks []byte, extraSoundChip byte) Mapper {
+    var vrc6 *VRC6Audio
+
+    if extraSoundChip & 0x1 != 0 {
+        vrc6 = &VRC6Audio{}
+    }
+
     return &NSFMapper{
         Data: data,
         LoadAddress: loadAddress,
         Banks: banks,
+        VRC6: vrc6,
     }
 }
 
@@ -248,7 +262,7 @@ var MaxCyclesReached error = errors.New("maximum cycles reached")
 /* https://wiki.nesdev.org/w/index.php/NSF */
 func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
     cpu := StartupState()
-    cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, int(math.Ceil(float64(len(nsf.Data)) / 0x1000)))))
+    cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, int(math.Ceil(float64(len(nsf.Data)) / 0x1000))), nsf.ExtraSoundChip))
     cpu.Input = MakeInput(&NoInput{})
 
     // cpu.A = track
