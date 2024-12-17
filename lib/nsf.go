@@ -259,6 +259,10 @@ const (
 
 var MaxCyclesReached error = errors.New("maximum cycles reached")
 
+/* 1. set up bank switching registers (if necessary)
+ * 2. invoke INIT routine
+ * 3. repeatedly invoke PLAY routine, followed by a nop loop until the play timer fires
+ */
 func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
     cpu := StartupState()
     cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, int(math.Ceil(float64(len(nsf.Data)) / 0x1000))), nsf.ExtraSoundChip))
@@ -267,72 +271,15 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
     // cpu.A = track
     cpu.X = 0 // ntsc or pal
 
-    /* jsr INIT
-     * jsr PLAY
-     * jmp $here
-     */
-
-    /* FIXME: supposedly NSF files can write to memory 0-0x1ef, but are unlikely
-     * to use the interrupt vectors from 0xfffa-0xffff, so this code could be
-     * moved to the interrupt vectors
-     */
-    // initJSR := uint16(0)
-
     if nsf.UseBankSwitch() {
         // set up bank switching values
         for bank := range (0x6000 - 0x5ff8) {
             address := 0x5ff8 + bank
             cpu.StoreMemory(uint16(address), nsf.InitialBanks[bank])
-            /*
-            cpu.StoreMemory(initJSR, Instruction_LDA_immediate)
-            cpu.StoreMemory(initJSR + 1, nsf.InitialBanks[bank])
-            initJSR += 2
-
-            address := 0x5ff8 + bank
-
-            cpu.StoreMemory(initJSR, Instruction_STA_absolute)
-            cpu.StoreMemory(initJSR + 1, byte(address & 0xff))
-            cpu.StoreMemory(initJSR + 2, byte(address >> 8))
-            initJSR += 3
-            */
         }
     }
 
     cpu.A = track
-
-    // set A register to the track number
-    /*
-    cpu.StoreMemory(initJSR, Instruction_LDA_immediate)
-    cpu.StoreMemory(initJSR + 1, track)
-    initJSR += 2
-
-    cpu.StoreMemory(initJSR, Instruction_JSR)
-    cpu.StoreMemory(initJSR + 1, byte(nsf.InitAddress & 0xff))
-    cpu.StoreMemory(initJSR + 2, byte(nsf.InitAddress >> 8))
-
-    initJSR += 3
-
-    / * the address of the jsr instruction that jumps to the $play address * /
-    var playJSR uint16 = initJSR
-    cpu.StoreMemory(playJSR, Instruction_JSR)
-    cpu.StoreMemory(playJSR + 1, byte(nsf.PlayAddress & 0xff))
-    cpu.StoreMemory(playJSR + 2, byte(nsf.PlayAddress >> 8))
-
-    / * jmp in place until the jsr $play instruction is run again * /
-    jmpSelf := playJSR + 3
-    cpu.StoreMemory(jmpSelf, Instruction_JMP_absolute)
-    / * reference the jmp instruction * /
-    cpu.StoreMemory(jmpSelf + 1, byte(jmpSelf & 255))
-    cpu.StoreMemory(jmpSelf + 2, byte(jmpSelf >> 8))
-    */
-
-    // cpu.StoreMemory(0x6, Instruction_KIL_1)
-    /* Jump back to the JSR $play instruction */
-    /*
-    cpu.StoreMemory(0x6, Instruction_JMP_absolute)
-    cpu.StoreMemory(0x7, 0x3)
-    cpu.StoreMemory(0x8, 0x0)
-    */
 
     /* enable all channels */
     cpu.StoreMemory(APUChannelEnable, 0xf)
@@ -397,8 +344,8 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
                         return nil
                     case action := <-actions:
                         switch action {
-                        case NSFActionTogglePause:
-                            paused = !paused
+                            case NSFActionTogglePause:
+                                paused = !paused
                         }
                     case <-cycleTimer.C:
                         cycleCounter += cycleDiff * turboMultiplier
@@ -434,6 +381,11 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
 
     doNopCycle := func() error {
         cycleCounter += cycleDiff * turboMultiplier
+
+        if paused {
+            cycleCounter = 0
+            return nil
+        }
 
         for quit.Err() == nil && cycleCounter > 0 {
             if maxCycles > 0 && cpu.Cycle >= maxCycles {
@@ -488,6 +440,11 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
                     return err
                 }
                 */
+            case action := <-actions:
+                switch action {
+                    case NSFActionTogglePause:
+                        paused = !paused
+                }
             case <-cycleTimer.C:
                 // cycleCounter += cycleDiff * turboMultiplier
                 // cycleCounter += 1000
@@ -497,76 +454,6 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
                 }
         }
     }
-
-    /*
-    atPlay := false
-    for quit.Err() == nil {
-
-        / * the cpu will be executing init for a while, so dont force a jump to $play
-         * until the cpu has executed the jsr $play instruction at least once
-         * /
-        if cpu.PC == playJSR {
-            // log.Printf("Play routine")
-            atPlay = true
-        }
-
-        if atPlay {
-            select {
-                / * every $period hz jump back to the play routine
-                 * /
-                case <-playTimer.C:
-                    cpu.PC = playJSR
-                default:
-            }
-        }
-
-        if maxCycles > 0 && cpu.Cycle >= maxCycles {
-            log.Printf("Maximum cycles %v reached", maxCycles)
-            return MaxCyclesReached
-        }
-
-        for cycleCounter <= 0 {
-            select {
-                case <-quit.Done():
-                    return nil
-                case action := <-actions:
-                    switch action {
-                        case NSFActionTogglePause:
-                            paused = !paused
-                    }
-                case <-cycleTimer.C:
-                    cycleCounter += cycleDiff * turboMultiplier
-            }
-
-            if paused {
-                cycleCounter = 0
-            }
-        }
-
-        err := cpu.Run(instructionTable)
-        if err != nil {
-            return err
-        }
-        usedCycles := cpu.Cycle
-
-        cycleCounter -= float64(usedCycles - lastCpuCycle)
-
-        audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
-
-        if audioData != nil {
-            select {
-                case audioOut <- audioData:
-                default:
-            }
-
-
-        }
-
-        lastCpuCycle = usedCycles
-    }
-    */
-
-    // return nil
 }
 
 /* https://wiki.nesdev.org/w/index.php/NSF */
