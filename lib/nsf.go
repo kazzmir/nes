@@ -435,12 +435,6 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
     doNopCycle := func() error {
         cycleCounter += cycleDiff * turboMultiplier
 
-        nop := Instruction{
-            Name: "nop",
-            Kind: Instruction_NOP_1,
-            Operands: nil,
-        }
-
         for quit.Err() == nil && cycleCounter > 0 {
             if maxCycles > 0 && cpu.Cycle >= maxCycles {
                 log.Printf("Maximum cycles %v reached", maxCycles)
@@ -457,10 +451,8 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
                 default:
             }
 
-            err := cpu.Execute(nop)
-            if err != nil {
-                return err
-            }
+            // don't do anything for 2 cycles
+            cpu.Cycle += 2
             usedCycles := cpu.Cycle
 
             cycleCounter -= float64(usedCycles - lastCpuCycle)
