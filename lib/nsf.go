@@ -377,45 +377,6 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
     paused := false
     _ = cancel
 
-    doNopCycle := func() error {
-        cycleCounter += cycleDiff * turboMultiplier
-
-        nop := Instruction{
-            Name: "nop",
-            Kind: Instruction_NOP_1,
-            Operands: nil,
-        }
-
-        for quit.Err() == nil && cycleCounter > 0 {
-
-            if maxCycles > 0 && cpu.Cycle >= maxCycles {
-                log.Printf("Maximum cycles %v reached", maxCycles)
-                return MaxCyclesReached
-            }
-
-            err := cpu.Execute(nop)
-            if err != nil {
-                return err
-            }
-            usedCycles := cpu.Cycle
-
-            cycleCounter -= float64(usedCycles - lastCpuCycle)
-
-            audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
-
-            if audioData != nil {
-                select {
-                    case audioOut <- audioData:
-                    default:
-                }
-            }
-
-            lastCpuCycle = usedCycles
-        }
-
-        return nil
-    }
-
     runFunction := func (address uint16) error {
         // rts from function will jump back to 0xffff, so quit then
         cpu.PushStack(0xff)
@@ -471,6 +432,54 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
         return nil
     }
 
+    doNopCycle := func() error {
+        cycleCounter += cycleDiff * turboMultiplier
+
+        nop := Instruction{
+            Name: "nop",
+            Kind: Instruction_NOP_1,
+            Operands: nil,
+        }
+
+        for quit.Err() == nil && cycleCounter > 0 {
+            if maxCycles > 0 && cpu.Cycle >= maxCycles {
+                log.Printf("Maximum cycles %v reached", maxCycles)
+                return MaxCyclesReached
+            }
+
+            select {
+                // as soon as the play timer fires, run the play function
+                case <-playTimer.C:
+                    err := runFunction(nsf.PlayAddress)
+                    if err != nil {
+                        return err
+                    }
+                default:
+            }
+
+            err := cpu.Execute(nop)
+            if err != nil {
+                return err
+            }
+            usedCycles := cpu.Cycle
+
+            cycleCounter -= float64(usedCycles - lastCpuCycle)
+
+            audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
+
+            if audioData != nil {
+                select {
+                    case audioOut <- audioData:
+                    default:
+                }
+            }
+
+            lastCpuCycle = usedCycles
+        }
+
+        return nil
+    }
+
     err := runFunction(nsf.InitAddress)
     if err != nil {
         return err
@@ -480,14 +489,16 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
         select {
             case <-quit.Done():
                 return nil
+                /*
             case <-playTimer.C:
                 err := runFunction(nsf.PlayAddress)
                 if err != nil {
                     return err
                 }
+                */
             case <-cycleTimer.C:
                 // cycleCounter += cycleDiff * turboMultiplier
-                cycleCounter += 1000
+                // cycleCounter += 1000
                 err := doNopCycle()
                 if err != nil {
                     return err
