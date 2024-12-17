@@ -1309,9 +1309,13 @@ func (cpu *CPUState) Fetch(table InstructionTable) (Instruction, error) {
         return Instruction{}, fmt.Errorf("unknown instruction: 0x%x at 0x%x", first, cpu.PC)
     }
 
-    operands := make([]byte, description.Operands)
-    for i := 0; i < int(description.Operands); i++ {
-        operands[i] = cpu.LoadMemory(cpu.PC + uint16(i + 1))
+    var operands []byte
+
+    if description.Operands > 0 {
+        operands = make([]byte, description.Operands)
+        for i := 0; i < int(description.Operands); i++ {
+            operands[i] = cpu.LoadMemory(cpu.PC + uint16(i + 1))
+        }
     }
 
     instruction := Instruction{
