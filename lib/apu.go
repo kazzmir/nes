@@ -18,10 +18,10 @@ func (divider *Divider) Reset() {
 }
 
 /* returns true if an output clock was generated */
-func (divider *Divider) Clock() bool {
+func (divider *Divider) Clock(amount int16) bool {
     if divider.Count >= 0 {
-        divider.Count -= 1
-        if divider.Count == -1 {
+        divider.Count -= amount
+        if divider.Count < 0 {
             divider.Reset()
             return true
         }
@@ -49,7 +49,7 @@ func (timer *Timer) Run(cycles float64) int {
     timer.Cycles += cycles
     count := 0
     for timer.Cycles > 0 {
-        if timer.Divider.Clock() {
+        if timer.Divider.Clock(1) {
             count += 1
         }
         timer.Cycles -= 1
@@ -85,7 +85,7 @@ func (envelope *EnvelopeGenerator) Reset() {
 }
 
 func (envelope *EnvelopeGenerator) Tick() {
-    clock := envelope.Divider.Clock()
+    clock := envelope.Divider.Clock(1)
     if clock {
         if envelope.Loop {
             if envelope.Counter == 0 {
@@ -154,7 +154,7 @@ type Sweep struct {
 
 func (sweep *Sweep) Tick(pulse1 bool, timer *Timer){
     if sweep.Enabled {
-        if sweep.Divider.Clock() {
+        if sweep.Divider.Clock(1) {
             shifted := int(timer.Period() >> sweep.ShiftCount)
             if sweep.Negate {
                 if pulse1 {

@@ -325,6 +325,28 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
     paused := false
     _ = cancel
 
+    doAudio := func (cpuCycles float64) {
+        audioData := cpu.APU.Run(cpuCycles / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
+        if nsfMapper.VRC6 != nil {
+            vrc6Audio := nsfMapper.VRC6.Run(cpuCycles, baseCyclesPerSample * 2)
+            if vrc6Audio != nil {
+                // log.Printf("VRC6 audio: %v", vrc6Audio)
+                select {
+                    case audioOut <- vrc6Audio:
+                    default:
+                }
+            }
+        }
+
+        if audioData != nil {
+            // log.Printf("Audio data: %v", audioData)
+            select {
+            case audioOut <- audioData:
+            default:
+            }
+        }
+    }
+
     runFunction := func (address uint16) error {
         // rts from function will jump back to 0xffff, so quit then
         cpu.PushStack(0xff)
@@ -365,17 +387,7 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
 
             cycleCounter -= float64(usedCycles - lastCpuCycle)
 
-            audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
-            if nsfMapper.VRC6 != nil {
-                nsfMapper.VRC6.Run(float64(usedCycles) - float64(lastCpuCycle), baseCyclesPerSample * 2)
-            }
-
-            if audioData != nil {
-                select {
-                    case audioOut <- audioData:
-                    default:
-                }
-            }
+            doAudio(float64(usedCycles - lastCpuCycle))
 
             lastCpuCycle = usedCycles
         }
@@ -413,17 +425,7 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
 
             cycleCounter -= float64(usedCycles - lastCpuCycle)
 
-            audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
-            if nsfMapper.VRC6 != nil {
-                nsfMapper.VRC6.Run(float64(usedCycles) - float64(lastCpuCycle), baseCyclesPerSample * 2)
-            }
-
-            if audioData != nil {
-                select {
-                    case audioOut <- audioData:
-                    default:
-                }
-            }
+            doAudio(float64(usedCycles - lastCpuCycle))
 
             lastCpuCycle = usedCycles
         }
