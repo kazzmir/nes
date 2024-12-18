@@ -230,11 +230,11 @@ func (mapper *NSFMapper) Kind() int {
     return -1
 }
 
-func MakeNSFMapper(data []byte, loadAddress uint16, banks []byte, extraSoundChip byte) Mapper {
+func MakeNSFMapper(data []byte, loadAddress uint16, banks []byte, extraSoundChip byte) *NSFMapper {
     var vrc6 *VRC6Audio
 
     if extraSoundChip & 0x1 != 0 {
-        vrc6 = &VRC6Audio{}
+        vrc6 = MakeVRC6Audio()
     }
 
     return &NSFMapper{
@@ -265,7 +265,8 @@ var MaxCyclesReached error = errors.New("maximum cycles reached")
  */
 func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
     cpu := StartupState()
-    cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, int(math.Ceil(float64(len(nsf.Data)) / 0x1000))), nsf.ExtraSoundChip))
+    nsfMapper := MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, int(math.Ceil(float64(len(nsf.Data)) / 0x1000))), nsf.ExtraSoundChip)
+    cpu.SetMapper(nsfMapper)
     cpu.Input = MakeInput(&NoInput{})
 
     // cpu.A = track
@@ -365,6 +366,9 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
             cycleCounter -= float64(usedCycles - lastCpuCycle)
 
             audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
+            if nsfMapper.VRC6 != nil {
+                nsfMapper.VRC6.Run(float64(usedCycles) - float64(lastCpuCycle), baseCyclesPerSample * 2)
+            }
 
             if audioData != nil {
                 select {
@@ -410,6 +414,9 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
             cycleCounter -= float64(usedCycles - lastCpuCycle)
 
             audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
+            if nsfMapper.VRC6 != nil {
+                nsfMapper.VRC6.Run(float64(usedCycles) - float64(lastCpuCycle), baseCyclesPerSample * 2)
+            }
 
             if audioData != nil {
                 select {

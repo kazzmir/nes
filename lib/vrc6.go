@@ -20,10 +20,113 @@ const VRC6SawVolume = 0xb000
 const VRC6SawFrequencyLow = 0xB001
 const VRC6SawFrequencyHigh = 0xB002
 
+type VRC6Pulse struct {
+    Divider Divider
+    DutyCycle byte
+    Duty byte
+    Volume byte
+    Mode bool
+}
+
+func (pulse *VRC6Pulse) Run() {
+    // divider counts down to 0 and then duty cycle is clocked
+    if pulse.Divider.Clock() {
+        pulse.DutyCycle -= 1
+        if pulse.DutyCycle < 0 {
+            pulse.DutyCycle = 15
+        }
+    }
+}
+
+func (pulse *VRC6Pulse) SetFrequencyLow(frequency uint16) {
+    high := pulse.Divider.ClockPeriod & 0xf00
+    pulse.Divider.ClockPeriod = high | frequency
+}
+
+func (pulse *VRC6Pulse) SetFrequencyHigh(frequency uint16) {
+    low := pulse.Divider.ClockPeriod & 0xff
+    pulse.Divider.ClockPeriod = ((frequency & 0xf) << 8) | low
+}
+
+func (pulse *VRC6Pulse) GenerateSample() byte {
+    if pulse.Mode {
+        return pulse.Volume
+    }
+
+    if pulse.Duty > pulse.DutyCycle {
+        return pulse.Volume
+    }
+
+    return 0
+}
+
+type VRC6Saw struct {
+}
+
+func (saw *VRC6Saw) GenerateSample() byte {
+    return 0
+}
+
 type VRC6Audio struct {
     Pulse1 VRC6Pulse
     Pulse2 VRC6Pulse
     Saw VRC6Saw
+    SampleBuffer []float32
+    SamplePosition int
+    SampleCycles float64
+}
+
+func MakeVRC6Audio() *VRC6Audio {
+    return &VRC6Audio{
+        Pulse1: VRC6Pulse{
+            Divider: Divider{
+                ClockPeriod: 1 << 12,
+                Count: 1 << 12,
+            },
+        },
+        Pulse2: VRC6Pulse{
+            Divider: Divider{
+                ClockPeriod: 1 << 12,
+                Count: 1 << 12,
+            },
+        },
+        SampleBuffer: make([]float32, 1024),
+    }
+}
+
+func (vr6 *VRC6Audio) GenerateSample() float32 {
+    pulse1 := vr6.Pulse1.GenerateSample()
+    pulse2 := vr6.Pulse2.GenerateSample()
+    saw := vr6.Saw.GenerateSample()
+
+    return float32(pulse1 + pulse2 + saw) / 3
+}
+
+func (vrc6 *VRC6Audio) Run(cycles float64, cyclesPerSample float64) []float32 {
+    vrc6.SampleCycles += cycles
+
+    for cycles > 0 {
+        cycles -= 1
+
+        vrc6.Pulse1.Run()
+    }
+
+    var out []float32
+    if vrc6.SampleCycles >= cyclesPerSample {
+        sample := vrc6.GenerateSample()
+        for vrc6.SampleCycles >= cyclesPerSample {
+            vrc6.SampleCycles -= cyclesPerSample
+            vrc6.SampleBuffer[vrc6.SamplePosition] = sample
+            vrc6.SamplePosition += 1
+            if vrc6.SamplePosition >= len(vrc6.SampleBuffer) {
+                out = make([]float32, len(vrc6.SampleBuffer))
+                copy(out, vrc6.SampleBuffer)
+                vrc6.SamplePosition = 0
+            }
+        }
+    }
+
+    return out
 }
 
 // returns true if the address is a VRC6 audio address
@@ -42,9 +145,9 @@ func (vrc6 *VRC6Audio) HandleWrite(address uint16, value uint8) bool {
         case VRC6Pulse1Control:
             log.Printf("vrc6 pulse1 control: %x\n", value)
 
-            volume := int(value & 0xf)
-            duty := int((value >> 4) & 0x7)
-            mode := int((value >> 7) & 0x1)
+            volume := byte(value & 0xf)
+            duty := byte((value >> 4) & 0x7)
+            mode := byte((value >> 7) & 0x1)
 
             vrc6.Pulse1Control(volume, duty, mode)
 
@@ -52,14 +155,14 @@ func (vrc6 *VRC6Audio) HandleWrite(address uint16, value uint8) bool {
         case VRC6Pulse1FrequencyLow:
             log.Printf("vrc6 pulse1 frequency low: %x\n", value)
 
-            frequency := int(value)
+            frequency := uint16(value)
             vrc6.Pulse1FrequencyLow(frequency)
 
             return true
         case VRC6Pulse1FrequencyHigh:
             log.Printf("vrc6 pulse1 frequency high: %x\n", value)
 
-            frequency := int(value & 0xf)
+            frequency := uint16(value & 0xf)
             enable := ((value >> 7) & 0x1) == 0x1
 
             vrc6.Pulse1FrequencyHigh(frequency)
@@ -70,9 +173,9 @@ func (vrc6 *VRC6Audio) HandleWrite(address uint16, value uint8) bool {
         case VRC6Pulse2Control:
             log.Printf("vrc6 pulse2 control: %x\n", value)
 
-            volume := int(value & 0xf)
-            duty := int((value >> 4) & 0x7)
-            mode := int((value >> 7) & 0x1)
+            volume := byte(value & 0xf)
+            duty := byte((value >> 4) & 0x7)
+            mode := byte((value >> 7) & 0x1)
 
             vrc6.Pulse2Control(volume, duty, mode)
 
@@ -129,20 +232,24 @@ func (vrc6 *VRC6Audio) FrequencyControl(halt bool, x16 bool, x256 bool) {
     // TODO
 }
 
-func (vrc6 *VRC6Audio) Pulse1Control(volume int, duty int, mode int) {
+func (vrc6 *VRC6Audio) Pulse1Control(volume byte, duty byte, mode byte) {
+    vrc6.Pulse1.Duty = duty
+    vrc6.Pulse1.Volume = volume
+    vrc6.Pulse1.Mode = mode == 1
+}
+
+func (vrc6 *VRC6Audio) Pulse2Control(volume byte, duty byte, mode byte) {
     // TODO
 }
 
-func (vrc6 *VRC6Audio) Pulse2Control(volume int, duty int, mode int) {
-    // TODO
+// set the lowest 8 bits of the divider frequency
+func (vrc6 *VRC6Audio) Pulse1FrequencyLow(frequency uint16) {
+    vrc6.Pulse1.SetFrequencyLow(frequency)
 }
 
-func (vrc6 *VRC6Audio) Pulse1FrequencyLow(frequency int) {
-    // TODO
-}
-
-func (vrc6 *VRC6Audio) Pulse1FrequencyHigh(frequency int) {
-    // TODO
+// set the highest 4 bits of the divider frequency
+func (vrc6 *VRC6Audio) Pulse1FrequencyHigh(frequency uint16) {
+    vrc6.Pulse1.SetFrequencyHigh(frequency)
 }
 
 func (vrc6 *VRC6Audio) Pulse1SetEnable(enable bool) {
@@ -175,10 +282,4 @@ func (vrc6 *VRC6Audio) SawVolume(volume int) {
 
 func (vrc6 *VRC6Audio) SawSetEnable(enable bool) {
     // TODO
-}
-
-type VRC6Pulse struct {
-}
-
-type VRC6Saw struct {
 }
