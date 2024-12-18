@@ -115,7 +115,7 @@ func (saw *VRC6Saw) Run(x16 bool, x256 bool) {
             saw.Counter = 0
             saw.Accumulator += saw.Rate
             saw.AccumulatorCount += 1
-            if saw.AccumulatorCount >= 14 {
+            if saw.AccumulatorCount >= 7 {
                 saw.AccumulatorCount = 0
                 saw.Accumulator = 0
             }
@@ -131,6 +131,8 @@ func (saw *VRC6Saw) SetFrequencyLow(frequency uint16) {
 func (saw *VRC6Saw) SetFrequencyHigh(frequency uint16) {
     low := saw.Divider.ClockPeriod & 0xff
     saw.Divider.ClockPeriod = ((frequency & 0xf) << 8) | low
+
+    log.Printf("Saw period is now %v", saw.Divider.ClockPeriod)
 }
 
 func (saw *VRC6Saw) SetVolume(volume int) {
@@ -143,6 +145,7 @@ func (saw *VRC6Saw) GenerateSample() byte {
     }
 
     return saw.Accumulator >> 3
+    // return ((((saw.Accumulator >> 3) & 0x1f)) << 4) * 6 / 8
 }
 
 type VRC6Audio struct {
@@ -191,6 +194,8 @@ func (vr6 *VRC6Audio) GenerateSample() float32 {
     saw := vr6.Saw.GenerateSample()
 
     total := pulse1 + pulse2 + saw
+    total = pulse2
+    // total := saw
     // output is a 6-bit value
 
     return float32(total) / float32(1 << 6)
@@ -208,6 +213,7 @@ func (vrc6 *VRC6Audio) Run(cycles float64, cyclesPerSample float64) []float32 {
 
         vrc6.Pulse1.Run(vrc6.X16, vrc6.X256)
         vrc6.Pulse2.Run(vrc6.X16, vrc6.X256)
+        vrc6.Saw.Run(vrc6.X16, vrc6.X256)
     }
 
     var out []float32
@@ -287,7 +293,7 @@ func (vrc6 *VRC6Audio) HandleWrite(address uint16, value uint8) bool {
 
             return true
         case VRC6Pulse2FrequencyHigh:
-            log.Printf("vrc6 pulse2 frequency high: %x\n", value)
+            log.Printf("vrc6 pulse2 frequency high: 0x%x\n", value)
 
             frequency := uint16(value & 0xf)
             enable := ((value >> 7) & 0x1) == 0x1

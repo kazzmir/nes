@@ -327,14 +327,28 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
 
     doAudio := func (cpuCycles float64) {
         audioData := cpu.APU.Run(cpuCycles / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
+        audioData = nil
         if nsfMapper.VRC6 != nil {
             vrc6Audio := nsfMapper.VRC6.Run(cpuCycles, baseCyclesPerSample * 2)
             if vrc6Audio != nil {
+
+                if audioData == nil {
+                    audioData = vrc6Audio
+                } else {
+                    for i := 0; i < len(audioData); i++ {
+                        audioData[i] += vrc6Audio[i]
+                    }
+                }
+
+                audioData = vrc6Audio
+
                 // log.Printf("VRC6 audio: %v", vrc6Audio)
+                /*
                 select {
                     case audioOut <- vrc6Audio:
                     default:
                 }
+                */
             }
         }
 
