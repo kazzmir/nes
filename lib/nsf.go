@@ -259,6 +259,27 @@ const (
 
 var MaxCyclesReached error = errors.New("maximum cycles reached")
 
+func mixAudio(audio1 []float32, audio2 []float32) []float32 {
+    if audio1 == nil {
+        return audio2
+    }
+
+    if audio2 == nil {
+        return audio1
+    }
+
+    if len(audio1) != len(audio2) {
+        log.Printf("Audio lengths differ: %v vs %v", len(audio1), len(audio2))
+        return nil
+    }
+
+    for i := range audio1 {
+        audio1[i] = audio1[i] + audio2[i]
+    }
+
+    return audio1
+}
+
 /* 1. set up bank switching registers (if necessary)
  * 2. invoke INIT routine
  * 3. repeatedly invoke PLAY routine, followed by a nop loop until the play timer fires
@@ -331,24 +352,7 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
         // audioData = nil
         if nsfMapper.VRC6 != nil {
             vrc6Audio := nsfMapper.VRC6.Run(cpuCycles, baseCyclesPerSample * 2)
-            if vrc6Audio != nil {
-
-                if audioData == nil {
-                    audioData = vrc6Audio
-                } else {
-                    for i := 0; i < len(audioData); i++ {
-                        audioData[i] += vrc6Audio[i]
-                    }
-                }
-
-                // log.Printf("VRC6 audio: %v", vrc6Audio)
-                /*
-                select {
-                    case audioOut <- vrc6Audio:
-                    default:
-                }
-                */
-            }
+            audioData = mixAudio(audioData, vrc6Audio)
         }
 
         if audioData != nil {
