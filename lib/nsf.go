@@ -24,6 +24,7 @@ type NSFFile struct {
     Copyright string
     Data []byte
     InitialBanks []byte
+    ExtraSoundChip byte
 }
 
 func isNSF(header []byte) bool {
@@ -94,7 +95,6 @@ func LoadNSF(path string) (NSFFile, error) {
 
     _ = palSpeed
     _ = palOrNtsc
-    _ = extraSoundChip
 
     /*
     log.Printf("Version %v", version)
@@ -134,6 +134,7 @@ func LoadNSF(path string) (NSFFile, error) {
         NTSCSpeed: ntscSpeed,
         Data: programData,
         InitialBanks: bankValues,
+        ExtraSoundChip: extraSoundChip,
 
         SongName: string(songName),
         Artist: string(artist),
@@ -157,6 +158,8 @@ type NSFMapper struct {
     Banks []byte
     UseBankSwitch bool
     LoadAddress uint16
+
+    VRC6 *VRC6Audio
 }
 
 func (mapper *NSFMapper) IsNSF() bool {
@@ -178,6 +181,10 @@ func (mapper *NSFMapper) Write(cpu *CPUState, address uint16, value byte) error 
             mapper.Banks[bank] = value
             mapper.UseBankSwitch = true
         }
+        return nil
+    }
+
+    if mapper.VRC6 != nil && mapper.VRC6.HandleWrite(address, value) {
         return nil
     }
 
@@ -223,11 +230,18 @@ func (mapper *NSFMapper) Kind() int {
     return -1
 }
 
-func MakeNSFMapper(data []byte, loadAddress uint16, banks []byte) Mapper {
+func MakeNSFMapper(data []byte, loadAddress uint16, banks []byte, extraSoundChip byte) *NSFMapper {
+    var vrc6 *VRC6Audio
+
+    if extraSoundChip & 0x1 != 0 {
+        vrc6 = MakeVRC6Audio()
+    }
+
     return &NSFMapper{
         Data: data,
         LoadAddress: loadAddress,
         Banks: banks,
+        VRC6: vrc6,
     }
 }
 
@@ -245,73 +259,29 @@ const (
 
 var MaxCyclesReached error = errors.New("maximum cycles reached")
 
-/* https://wiki.nesdev.org/w/index.php/NSF */
+/* 1. set up bank switching registers (if necessary)
+ * 2. invoke INIT routine
+ * 3. repeatedly invoke PLAY routine, followed by a nop loop until the play timer fires
+ */
 func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
     cpu := StartupState()
-    cpu.SetMapper(MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, int(math.Ceil(float64(len(nsf.Data)) / 0x1000)))))
+    nsfMapper := MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, int(math.Ceil(float64(len(nsf.Data)) / 0x1000))), nsf.ExtraSoundChip)
+    cpu.SetMapper(nsfMapper)
     cpu.Input = MakeInput(&NoInput{})
 
     // cpu.A = track
     cpu.X = 0 // ntsc or pal
-
-    /* jsr INIT
-     * jsr PLAY
-     * jmp $here
-     */
-
-    /* FIXME: supposedly NSF files can write to memory 0-0x1ef, but are unlikely
-     * to use the interrupt vectors from 0xfffa-0xffff, so this code could be
-     * moved to the interrupt vectors
-     */
-    initJSR := uint16(0)
+    cpu.Y = 0 // just init to something
 
     if nsf.UseBankSwitch() {
         // set up bank switching values
         for bank := range (0x6000 - 0x5ff8) {
-            cpu.StoreMemory(initJSR, Instruction_LDA_immediate)
-            cpu.StoreMemory(initJSR + 1, nsf.InitialBanks[bank])
-            initJSR += 2
-
             address := 0x5ff8 + bank
-
-            cpu.StoreMemory(initJSR, Instruction_STA_absolute)
-            cpu.StoreMemory(initJSR + 1, byte(address & 0xff))
-            cpu.StoreMemory(initJSR + 2, byte(address >> 8))
-            initJSR += 3
+            cpu.StoreMemory(uint16(address), nsf.InitialBanks[bank])
         }
     }
 
-    // set A register to the track number
-    cpu.StoreMemory(initJSR, Instruction_LDA_immediate)
-    cpu.StoreMemory(initJSR + 1, track)
-    initJSR += 2
-
-    cpu.StoreMemory(initJSR, Instruction_JSR)
-    cpu.StoreMemory(initJSR + 1, byte(nsf.InitAddress & 0xff))
-    cpu.StoreMemory(initJSR + 2, byte(nsf.InitAddress >> 8))
-
-    initJSR += 3
-
-    /* the address of the jsr instruction that jumps to the $play address */
-    var playJSR uint16 = initJSR
-    cpu.StoreMemory(playJSR, Instruction_JSR)
-    cpu.StoreMemory(playJSR + 1, byte(nsf.PlayAddress & 0xff))
-    cpu.StoreMemory(playJSR + 2, byte(nsf.PlayAddress >> 8))
-
-    /* jmp in place until the jsr $play instruction is run again */
-    jmpSelf := playJSR + 3
-    cpu.StoreMemory(jmpSelf, Instruction_JMP_absolute)
-    /* reference the jmp instruction */
-    cpu.StoreMemory(jmpSelf + 1, byte(jmpSelf & 255))
-    cpu.StoreMemory(jmpSelf + 2, byte(jmpSelf >> 8))
-
-    // cpu.StoreMemory(0x6, Instruction_KIL_1)
-    /* Jump back to the JSR $play instruction */
-    /*
-    cpu.StoreMemory(0x6, Instruction_JMP_absolute)
-    cpu.StoreMemory(0x7, 0x3)
-    cpu.StoreMemory(0x8, 0x0)
-    */
+    cpu.A = track
 
     /* enable all channels */
     cpu.StoreMemory(APUChannelEnable, 0xf)
@@ -356,71 +326,154 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
     paused := false
     _ = cancel
 
-    atPlay := false
-    for quit.Err() == nil {
+    doAudio := func (cpuCycles float64) {
+        audioData := cpu.APU.Run(cpuCycles / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
+        // audioData = nil
+        if nsfMapper.VRC6 != nil {
+            vrc6Audio := nsfMapper.VRC6.Run(cpuCycles, baseCyclesPerSample * 2)
+            if vrc6Audio != nil {
 
-        /* the cpu will be executing init for a while, so dont force a jump to $play
-         * until the cpu has executed the jsr $play instruction at least once
-         */
-        if cpu.PC == playJSR {
-            // log.Printf("Play routine")
-            atPlay = true
-        }
-
-        if atPlay {
-            select {
-                /* every $period hz jump back to the play routine
-                 */
-                case <-playTimer.C:
-                    cpu.PC = playJSR
-                default:
-            }
-        }
-
-        if maxCycles > 0 && cpu.Cycle >= maxCycles {
-            log.Printf("Maximum cycles %v reached", maxCycles)
-            return MaxCyclesReached
-        }
-
-        for cycleCounter <= 0 {
-            select {
-                case <-quit.Done():
-                    return nil
-                case action := <-actions:
-                    switch action {
-                        case NSFActionTogglePause:
-                            paused = !paused
+                if audioData == nil {
+                    audioData = vrc6Audio
+                } else {
+                    for i := 0; i < len(audioData); i++ {
+                        audioData[i] += vrc6Audio[i]
                     }
-                case <-cycleTimer.C:
-                    cycleCounter += cycleDiff * turboMultiplier
-            }
+                }
 
-            if paused {
-                cycleCounter = 0
+                // log.Printf("VRC6 audio: %v", vrc6Audio)
+                /*
+                select {
+                    case audioOut <- vrc6Audio:
+                    default:
+                }
+                */
             }
         }
-
-        err := cpu.Run(instructionTable)
-        if err != nil {
-            return err
-        }
-        usedCycles := cpu.Cycle
-
-        cycleCounter -= float64(usedCycles - lastCpuCycle)
-
-        audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
 
         if audioData != nil {
+            // log.Printf("Audio data: %v", audioData)
             select {
                 case audioOut <- audioData:
                 default:
             }
-
-
         }
-
-        lastCpuCycle = usedCycles
     }
 
-    return nil
+    runFunction := func (address uint16) error {
+        // rts from function will jump back to 0xffff, so quit then
+        cpu.PushStack(0xff)
+        cpu.PushStack(0xfe)
+
+        cpu.PC = address
+
+        for quit.Err() == nil && cpu.PC != 0xffff {
+
+            if maxCycles > 0 && cpu.Cycle >= maxCycles {
+                log.Printf("Maximum cycles %v reached", maxCycles)
+                return MaxCyclesReached
+            }
+
+            for cycleCounter <= 0 {
+                select {
+                    case <-quit.Done():
+                        return nil
+                    case action := <-actions:
+                        switch action {
+                            case NSFActionTogglePause:
+                                paused = !paused
+                        }
+                    case <-cycleTimer.C:
+                        cycleCounter += cycleDiff * turboMultiplier
+                }
+
+                if paused {
+                    cycleCounter = 0
+                }
+            }
+
+            err := cpu.Run(instructionTable)
+            if err != nil {
+                return err
+            }
+            usedCycles := cpu.Cycle
+
+            cycleCounter -= float64(usedCycles - lastCpuCycle)
+
+            doAudio(float64(usedCycles - lastCpuCycle))
+
+            lastCpuCycle = usedCycles
+        }
+
+        return nil
+    }
+
+    doNopCycle := func() error {
+        cycleCounter += cycleDiff * turboMultiplier
+
+        if paused {
+            cycleCounter = 0
+            return nil
+        }
+
+        for quit.Err() == nil && cycleCounter > 0 {
+            if maxCycles > 0 && cpu.Cycle >= maxCycles {
+                log.Printf("Maximum cycles %v reached", maxCycles)
+                return MaxCyclesReached
+            }
+
+            select {
+                // as soon as the play timer fires, run the play function
+                case <-playTimer.C:
+                    err := runFunction(nsf.PlayAddress)
+                    if err != nil {
+                        return err
+                    }
+                default:
+            }
+
+            // don't do anything for 2 cycles
+            cpu.Cycle += 2
+            usedCycles := cpu.Cycle
+
+            cycleCounter -= float64(usedCycles - lastCpuCycle)
+
+            doAudio(float64(usedCycles - lastCpuCycle))
+
+            lastCpuCycle = usedCycles
+        }
+
+        return nil
+    }
+
+    err := runFunction(nsf.InitAddress)
+    if err != nil {
+        return err
+    }
+
+    for {
+        select {
+            case <-quit.Done():
+                return nil
+                /*
+            case <-playTimer.C:
+                err := runFunction(nsf.PlayAddress)
+                if err != nil {
+                    return err
+                }
+                */
+            case action := <-actions:
+                switch action {
+                    case NSFActionTogglePause:
+                        paused = !paused
+                }
+            case <-cycleTimer.C:
+                // cycleCounter += cycleDiff * turboMultiplier
+                // cycleCounter += 1000
+                err := doNopCycle()
+                if err != nil {
+                    return err
+                }
+        }
+    }
 }

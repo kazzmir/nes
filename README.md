@@ -127,3 +127,5 @@ Colors have been fixed, and rendering uses an in-memory `[]uint32` array, which 
 8/23/2020: Added an nsf player. The format is not 100% supported yet as it does not support bank switching or PAL speeds, but most nsf files I can find seem to play properly.
 
 ![nsf](./pics/nsf.png)
+
+12/18/2024: Added support for [VRC6](https://www.nesdev.org/wiki/VRC6_audio) in NSF files. Also the code can now be built for the windows platform.
