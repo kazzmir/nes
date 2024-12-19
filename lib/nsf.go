@@ -271,6 +271,7 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
 
     // cpu.A = track
     cpu.X = 0 // ntsc or pal
+    cpu.Y = 0 // just init to something
 
     if nsf.UseBankSwitch() {
         // set up bank switching values
