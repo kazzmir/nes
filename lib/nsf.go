@@ -341,8 +341,6 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
                     }
                 }
 
-                audioData = vrc6Audio
-
                 // log.Printf("VRC6 audio: %v", vrc6Audio)
                 /*
                 select {
