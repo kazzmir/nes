@@ -128,4 +128,4 @@ Colors have been fixed, and rendering uses an in-memory `[]uint32` array, which 
 
 ![nsf](./pics/nsf.png)
 
-12/18/2024: Added support for [VRC6](https://www.nesdev.org/wiki/VRC6_audio) in NSF files. Also the code can now be built for the windows platform.
+12/18/2024: Added support for [VRC6](https://www.nesdev.org/wiki/VRC6_audio) and bank switching in NSF files. Also the code can now be built for the windows platform.
