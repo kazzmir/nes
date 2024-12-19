@@ -3,7 +3,7 @@ package lib
 // https://www.nesdev.org/wiki/VRC6_audio
 
 import (
-    "log"
+    // "log"
 )
 
 // memory addresses to control the VRC6 audio chip
@@ -67,7 +67,7 @@ func (pulse *VRC6Pulse) SetFrequencyHigh(frequency uint16) {
     low := pulse.Divider.ClockPeriod & 0xff
     pulse.Divider.ClockPeriod = ((frequency & 0xf) << 8) | low
 
-    log.Printf("Pulse period is now %v", pulse.Divider.ClockPeriod)
+    // log.Printf("Pulse period is now %v", pulse.Divider.ClockPeriod)
 }
 
 func (pulse *VRC6Pulse) GenerateSample() byte {
@@ -136,7 +136,7 @@ func (saw *VRC6Saw) SetFrequencyHigh(frequency uint16) {
     low := saw.Divider.ClockPeriod & 0xff
     saw.Divider.ClockPeriod = ((frequency & 0xf) << 8) | low
 
-    log.Printf("Saw period is now %v", saw.Divider.ClockPeriod)
+    // log.Printf("Saw period is now %v", saw.Divider.ClockPeriod)
 }
 
 func (saw *VRC6Saw) SetVolume(volume int) {
@@ -149,7 +149,6 @@ func (saw *VRC6Saw) GenerateSample() byte {
     }
 
     return saw.Accumulator >> 3
-    // return ((((saw.Accumulator >> 3) & 0x1f)) << 4) * 6 / 8
 }
 
 type VRC6Audio struct {
@@ -243,7 +242,7 @@ func (vrc6 *VRC6Audio) Run(cycles float64, cyclesPerSample float64) []float32 {
 func (vrc6 *VRC6Audio) HandleWrite(address uint16, value uint8) bool {
     switch address {
         case VRC6FrequencyControl:
-            log.Printf("vrc6 frequency control: 0x%x\n", value)
+            // log.Printf("vrc6 frequency control: 0x%x\n", value)
 
             halt := (value & 0x1) == 0x1
             x16 := (value & 0x2) == 0x2
@@ -253,7 +252,7 @@ func (vrc6 *VRC6Audio) HandleWrite(address uint16, value uint8) bool {
 
             return true
         case VRC6Pulse1Control:
-            log.Printf("vrc6 pulse1 control: 0x%x\n", value)
+            // log.Printf("vrc6 pulse1 control: 0x%x\n", value)
 
             volume := byte(value & 0xf)
             duty := byte((value >> 4) & 0x7)
@@ -263,14 +262,14 @@ func (vrc6 *VRC6Audio) HandleWrite(address uint16, value uint8) bool {
 
             return true
         case VRC6Pulse1FrequencyLow:
-            log.Printf("vrc6 pulse1 frequency low: 0x%x\n", value)
+            // log.Printf("vrc6 pulse1 frequency low: 0x%x\n", value)
 
             frequency := uint16(value)
             vrc6.Pulse1FrequencyLow(frequency)
 
             return true
         case VRC6Pulse1FrequencyHigh:
-            log.Printf("vrc6 pulse1 frequency high: 0x%x\n", value)
+            // log.Printf("vrc6 pulse1 frequency high: 0x%x\n", value)
 
             frequency := uint16(value & 0xf)
             enable := ((value >> 7) & 0x1) == 0x1
@@ -281,7 +280,7 @@ func (vrc6 *VRC6Audio) HandleWrite(address uint16, value uint8) bool {
             return true
 
         case VRC6Pulse2Control:
-            log.Printf("vrc6 pulse2 control: 0x%x\n", value)
+            // log.Printf("vrc6 pulse2 control: 0x%x\n", value)
 
             volume := byte(value & 0xf)
             duty := byte((value >> 4) & 0x7)
@@ -291,14 +290,14 @@ func (vrc6 *VRC6Audio) HandleWrite(address uint16, value uint8) bool {
 
             return true
         case VRC6Pulse2FrequencyLow:
-            log.Printf("vrc6 pulse2 frequency low: 0x%x\n", value)
+            // log.Printf("vrc6 pulse2 frequency low: 0x%x\n", value)
 
             frequency := uint16(value)
             vrc6.Pulse2FrequencyLow(frequency)
 
             return true
         case VRC6Pulse2FrequencyHigh:
-            log.Printf("vrc6 pulse2 frequency high: 0x%x\n", value)
+            // log.Printf("vrc6 pulse2 frequency high: 0x%x\n", value)
 
             frequency := uint16(value & 0xf)
             enable := ((value >> 7) & 0x1) == 0x1
@@ -309,7 +308,7 @@ func (vrc6 *VRC6Audio) HandleWrite(address uint16, value uint8) bool {
             return true
 
         case VRC6SawVolume:
-            log.Printf("vrc6 saw volume: 0x%x\n", value)
+            // log.Printf("vrc6 saw volume: 0x%x\n", value)
 
             mask := uint8((1 << 6) - 1)
             volume := int(value & mask)
@@ -317,14 +316,14 @@ func (vrc6 *VRC6Audio) HandleWrite(address uint16, value uint8) bool {
 
             return true
         case VRC6SawFrequencyLow:
-            log.Printf("vrc6 saw frequency low: 0x%x\n", value)
+            // log.Printf("vrc6 saw frequency low: 0x%x\n", value)
 
             frequency := uint16(value)
             vrc6.SawFrequencyLow(frequency)
 
             return true
         case VRC6SawFrequencyHigh:
-            log.Printf("vrc6 saw frequency high: 0x%x\n", value)
+            // log.Printf("vrc6 saw frequency high: 0x%x\n", value)
 
             frequency := uint16(value & 0xf)
             enable := ((value >> 7) & 0x1) == 0x1
@@ -345,14 +344,14 @@ func (vrc6 *VRC6Audio) FrequencyControl(halt bool, x16 bool, x256 bool) {
 }
 
 func (vrc6 *VRC6Audio) Pulse1Control(volume byte, duty byte, mode byte) {
-    log.Printf("pulse1 duty %v", duty)
+    // log.Printf("pulse1 duty %v", duty)
     vrc6.Pulse1.Duty = int(duty)
     vrc6.Pulse1.Volume = volume
     vrc6.Pulse1.Mode = mode == 1
 }
 
 func (vrc6 *VRC6Audio) Pulse2Control(volume byte, duty byte, mode byte) {
-    log.Printf("pulse2 duty %v", duty)
+    // log.Printf("pulse2 duty %v", duty)
     vrc6.Pulse2.Duty = int(duty)
     vrc6.Pulse2.Volume = volume
     vrc6.Pulse2.Mode = mode == 1
