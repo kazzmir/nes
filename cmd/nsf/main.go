@@ -486,6 +486,7 @@ func showInfo(path string){
     fmt.Printf("Starting song: %v\n", nsf.StartingSong)
     fmt.Printf("NTSC speed: %v\n", nsf.NTSCSpeed)
     fmt.Printf("Data length: 0x%x\n", len(nsf.Data))
+    fmt.Printf("Extra sound chips: 0x%x\n", nsf.ExtraSoundChip)
 }
 
 type Arguments struct {

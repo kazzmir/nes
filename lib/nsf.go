@@ -6,7 +6,7 @@ import (
     "io"
     "os"
     "log"
-    "math"
+    // "math"
     "context"
     "time"
     "errors"
@@ -193,9 +193,6 @@ func (mapper *NSFMapper) Write(cpu *CPUState, address uint16, value byte) error 
 
 func (mapper *NSFMapper) Read(address uint16) byte {
     use := int(address) - int(mapper.LoadAddress)
-    if use >= len(mapper.Data) {
-        return 0
-    }
     if use < 0 {
         return 0
     }
@@ -203,12 +200,25 @@ func (mapper *NSFMapper) Read(address uint16) byte {
     if mapper.UseBankSwitch {
         bankIndex := use / 0x1000
         offset := use % 0x1000
+
+        if bankIndex >= len(mapper.Banks) {
+            return 0
+        }
+
         bankAddress := mapper.Banks[bankIndex]
         convertedAddress := int(bankAddress) * 0x1000 + int(offset)
         // log.Printf("Read address 0x%x -> 0x%x", address, int(bankAddress) * 0x1000 + int(offset))
 
+        if convertedAddress >= len(mapper.Data) {
+            return 0
+        }
+
         return mapper.Data[convertedAddress]
     } else {
+        if use >= len(mapper.Data) {
+            return 0
+        }
+
         return mapper.Data[use]
     }
 }
@@ -286,7 +296,7 @@ func mixAudio(audio1 []float32, audio2 []float32) []float32 {
  */
 func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
     cpu := StartupState()
-    nsfMapper := MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, int(math.Ceil(float64(len(nsf.Data)) / 0x1000))), nsf.ExtraSoundChip)
+    nsfMapper := MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, 8), nsf.ExtraSoundChip)
     cpu.SetMapper(nsfMapper)
     cpu.Input = MakeInput(&NoInput{})
 
@@ -298,6 +308,7 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
         // set up bank switching values
         for bank := range (0x6000 - 0x5ff8) {
             address := 0x5ff8 + bank
+            // log.Printf("Set bank %v to %v", bank, nsf.InitialBanks[bank])
             cpu.StoreMemory(uint16(address), nsf.InitialBanks[bank])
         }
     }
