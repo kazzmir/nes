@@ -838,6 +838,9 @@ type CPUState struct {
     Input *Input `json:"-"`
 
     Mapper MapperState `json:"mapper"`
+
+    // a single allocated instruction that is reused for each Run() call
+    instruction Instruction
 }
 
 func (cpu *CPUState) Load(other *CPUState){
@@ -1300,31 +1303,38 @@ func (cpu *CPUState) StoreStack(where byte, value byte) {
     cpu.StoreMemory(cpu.StackBase + uint16(where), value)
 }
 
-func (cpu *CPUState) Fetch(table InstructionTable) (Instruction, error) {
+func (cpu *CPUState) fetch(table InstructionTable, instruction *Instruction) error {
     first := cpu.LoadMemory(cpu.PC)
     firstI := InstructionType(first)
 
     description, ok := table[firstI]
     if !ok {
-        return Instruction{}, fmt.Errorf("unknown instruction: 0x%x at 0x%x", first, cpu.PC)
+        return fmt.Errorf("unknown instruction: 0x%x at 0x%x", first, cpu.PC)
     }
 
-    var operands []byte
+    operands := instruction.Operands[:0]
 
     if description.Operands > 0 {
-        operands = make([]byte, description.Operands)
+        // operands = make([]byte, description.Operands)
         for i := 0; i < int(description.Operands); i++ {
-            operands[i] = cpu.LoadMemory(cpu.PC + uint16(i + 1))
+            // operands[i] = cpu.LoadMemory(cpu.PC + uint16(i + 1))
+            operands = append(operands, cpu.LoadMemory(cpu.PC + uint16(i + 1)))
         }
     }
 
-    instruction := Instruction{
+    *instruction = Instruction{
         Name: description.Name,
         Kind: firstI,
         Operands: operands,
     }
 
-    return instruction, nil
+    return nil
+}
+
+func (cpu *CPUState) Fetch(table InstructionTable) (Instruction, error) {
+    var instruction Instruction
+    err := cpu.fetch(table, &instruction)
+    return instruction, err
 }
 
 func (cpu *CPUState) Stall(cycles int){
@@ -1355,16 +1365,17 @@ func (cpu *CPUState) Run(table InstructionTable) error {
         cpu.Interrupt()
     }
 
-    instruction, err := cpu.Fetch(table)
+    // instruction, err := cpu.Fetch(table)
+    err := cpu.fetch(table, &cpu.instruction)
     if err != nil {
         return err
     }
 
     if cpu.Debug > 0 {
-        log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cpu.Cycle)
+        log.Printf("PC: 0x%x Execute instruction %v A:%X X:%X Y:%X P:%X SP:%X CYC:%v\n", cpu.PC, cpu.instruction.String(), cpu.A, cpu.X, cpu.Y, cpu.Status, cpu.SP, cpu.Cycle)
         // dumpPage(cpu.Maps[0])
     }
-    return cpu.Execute(instruction)
+    return cpu.Execute(cpu.instruction)
 }
 
 func (cpu *CPUState) setBit(bit byte, set bool){
