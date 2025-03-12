@@ -16,6 +16,7 @@ import (
     "io"
     "io/fs"
     "path/filepath"
+    "math"
     "math/rand"
     "strings"
     "bufio"
@@ -109,7 +110,8 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
     if audioDevice != 0 {
         /* runNES will generate arrays of samples that we enqueue into the SDL audio system */
         return func(){
-            var buffer bytes.Buffer
+            // var buffer bytes.Buffer
+            var audioBytes []byte
             enabled := true
             for {
                 select {
@@ -129,13 +131,25 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                         }
                         // log.Printf("Prepare audio to queue")
                         // log.Printf("Enqueue data %v", samples)
-                        buffer.Reset()
+                        // buffer.Reset()
                         /* convert []float32 into []byte */
-                        binary.Write(&buffer, binary.LittleEndian, samples)
+                        // slow method that does allocations
+                        // binary.Write(&buffer, binary.LittleEndian, samples)
+
+                        // fast method with no allocations, copied from binary.Write
+                        totalSize := len(samples) * 4
+                        for len(audioBytes) < totalSize {
+                            audioBytes = append(audioBytes, 0)
+                        }
+
+                        for i, sample := range samples {
+                            binary.LittleEndian.PutUint32(audioBytes[4*i:], math.Float32bits(sample))
+                        }
+
                         // log.Printf("Enqueue audio")
                         var err error
                         sdl.Do(func(){
-                            err = sdl.QueueAudio(audioDevice, buffer.Bytes())
+                            err = sdl.QueueAudio(audioDevice, audioBytes[:totalSize])
                         })
                         if err != nil {
                             log.Printf("Error: could not queue audio data: %v", err)
