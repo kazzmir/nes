@@ -1370,7 +1370,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
             /* Load the sprites for the next scanline */
             if ppu.IsSpriteEnabled() && ppu.Scanline < 240 {
                 sprites := ppu.GetSprites()
-                ppu.CurrentSprites = nil
+                ppu.CurrentSprites = ppu.CurrentSprites[:0]
                 count := 0
                 size := 8
                 if ppu.GetSpriteSize() == SpriteSize8x16 {
