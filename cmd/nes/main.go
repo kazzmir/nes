@@ -1445,6 +1445,7 @@ Options:
   -size, --size #: start the window at a multiple of the nes screen size of 320x200 (default 3)
   -record: enable video recording to an mp4 when the rom loads
   -fps #: set a desired frame rate
+  -profile: Write profile.cpu and profile.memory, which are the pprof cpu and memory profiles
   -cycles, --cycles #: limit the emulator to only run for some number of cycles
   -record-input: record key presses
   -replay-input <input file>: replay key presses. A rom must also be specified
@@ -1455,6 +1456,9 @@ Options:
                 arguments.DebugCpu = true
             case "-debug=ppu", "--debug=ppu":
                 arguments.DebugPpu = true
+            case "-profile":
+                arguments.CpuProfile = true
+                arguments.MemoryProfile = true
             case "-record-input":
                 arguments.RecordKeys = true
             case "-replay-input":

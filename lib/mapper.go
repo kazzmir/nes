@@ -286,7 +286,12 @@ func (mapper *Mapper0) Read(address uint16) byte {
         use = use % 0x4000
         return mapper.BankMemory[use]
     } else {
-        return mapper.BankMemory[use]
+        if int(use) < len(mapper.BankMemory) {
+            return mapper.BankMemory[use]
+        } else {
+            log.Printf("mapper0: invalid read at %v beyond %v", use, len(mapper.BankMemory))
+            return 0
+        }
     }
 }
 

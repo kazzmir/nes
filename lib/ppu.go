@@ -75,6 +75,8 @@ type PPUState struct {
     OAM []byte `json:"oam"`
     OAMAddress int `json:"oamaddress"`
 
+    oamSprites []Sprite
+
     /* makes the ppu print stuff via log.Printf if set to a value > 0 */
     Debug uint8 `json:"-"`
 
@@ -532,7 +534,10 @@ type Sprite struct {
 }
 
 func (ppu *PPUState) GetSprites() []Sprite {
-    var out []Sprite
+    // var out []Sprite
+    if len(ppu.oamSprites) < len(ppu.OAM) {
+        ppu.oamSprites = make([]Sprite, len(ppu.OAM))
+    }
     position := 0
     spriteCount := 0
     for position < len(ppu.OAM) {
@@ -552,7 +557,8 @@ func (ppu *PPUState) GetSprites() []Sprite {
         flip_horizontal := (data >> 6) & 0x1 == 0x1
         flip_vertical := (data >> 7) & 0x1 == 0x1
 
-        out = append(out, Sprite{
+        // out = append(out, Sprite{
+        ppu.oamSprites[spriteCount] = Sprite{
             Tile: tile,
             X: x,
             Y: y + 1, // sprites are offset by 1 pixel
@@ -561,12 +567,12 @@ func (ppu *PPUState) GetSprites() []Sprite {
             Palette: palette,
             Priority: priority,
             Sprite0: spriteCount == 0,
-        })
+        }
 
         spriteCount += 1
     }
 
-    return out
+    return ppu.oamSprites[:spriteCount]
 }
 
 func get2c02Palette() [][]uint8 {
