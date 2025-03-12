@@ -131,9 +131,7 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                         // log.Printf("Enqueue data %v", samples)
                         buffer.Reset()
                         /* convert []float32 into []byte */
-                        for _, sample := range samples {
-                            binary.Write(&buffer, binary.LittleEndian, sample)
-                        }
+                        binary.Write(&buffer, binary.LittleEndian, samples)
                         // log.Printf("Enqueue audio")
                         var err error
                         sdl.Do(func(){
