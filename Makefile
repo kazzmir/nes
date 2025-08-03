@@ -1,4 +1,4 @@
-.PHONY: nes nsf test nestest apu-test make-screenshot mapper
+.PHONY: nes nsf test nestest apu-test make-screenshot mapper static
 
 nes:
 	time go build ./cmd/nes
@@ -25,3 +25,6 @@ all: nes nsf make-screenshot test
 update:
 	go get -u ./...
 	go mod tidy
+
+static:
+	go build -tags static -ldflags "-s -w" -o nes ./cmd/nes
