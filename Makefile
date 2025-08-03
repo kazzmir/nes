@@ -28,3 +28,7 @@ update:
 
 static:
 	go build -tags static -ldflags "-s -w" -o nes ./cmd/nes
+
+docker:
+	docker build -f Dockerfile -t nes-static:latest .
+	docker run --rm -v "$(PWD):/mnt" nes-static
