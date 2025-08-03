@@ -32,4 +32,4 @@ RUN go build -tags static -ldflags "-s -w" -o nes ./cmd/nes
 FROM debian:bullseye-slim AS final
 COPY --from=build /src/nes /out/nes
 
-CMD ["/bin/sh", "-c", "cp /out/nes /mnt/nes-static"]
+CMD ["/bin/sh", "-c", "cp /out/nes /mnt/nes-static.x86_64"]

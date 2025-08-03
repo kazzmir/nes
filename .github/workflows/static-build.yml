@@ -25,12 +25,12 @@ jobs:
       - name: Upload nes-static artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nes-static
-          path: ./nes-static
+          name: nes-static.x86_64
+          path: ./nes-static.x86_64
 
       - name: Create GitHub Release and upload binary
         uses: softprops/action-gh-release@v2
         with:
-          files: ./nes-static
+          files: ./nes-static.x86_64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
