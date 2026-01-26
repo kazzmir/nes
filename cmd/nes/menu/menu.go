@@ -648,7 +648,7 @@ func _doRenderButton(button Button, font text.Face, out *ebiten.Image, x float64
 
     var use color.Color = white
     if selected {
-        use = gfx.Glow(red, yellow, 15, clock)
+        use = gfx.Glow(red, yellow, 40, clock)
     }
 
     return drawButton(font, out, x, y, button.Text(), use)

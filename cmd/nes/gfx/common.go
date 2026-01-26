@@ -11,6 +11,9 @@ import (
     "image/color"
     _ "cmp"
     _ "encoding/binary"
+
+    "github.com/kazzmir/nes/lib/colorconv"
+
     // "errors"
     "github.com/hajimehoshi/ebiten/v2"
 )
@@ -201,7 +204,7 @@ func (manager *RenderManager) RenderAll(info RenderInfo) error {
  * https://isidore.co/calibre#book_id=5588&panel=book_details
  */
 // FIXME: replace with colorconv library
-func rgb2hsv(col color.Color) (float32, float32, float32) {
+func rgb2hsv_old(col color.Color) (float32, float32, float32) {
     return 0, 0, 0
     /*
     r := float64(col.R) / 255.0
@@ -243,7 +246,7 @@ func rgb2hsv(col color.Color) (float32, float32, float32) {
 /* input: h: 0-360, s: 0-1, v: 0-1
  * output: r: 0-1, b: 0-1, g: 0-1
  */
-func hsv2rgb(h float32, s float32, v float32) (float32, float32, float32) {
+func hsv2rgb_old(h float32, s float32, v float32) (float32, float32, float32) {
 
     epsilon := 0.001
 
@@ -278,7 +281,7 @@ func hsv2rgb(h float32, s float32, v float32) (float32, float32, float32) {
     }
 }
 
-func interpolate(v1 float32, v2 float32, period float32, clock uint64) float32 {
+func interpolate(v1 float64, v2 float64, period float64, clock uint64) float64 {
     if v1 > v2 {
         v1, v2 = v2, v1
     }
@@ -287,7 +290,7 @@ func interpolate(v1 float32, v2 float32, period float32, clock uint64) float32 {
 
     p := math.Sin(float64((clock % uint64(period))) * (180.0 / float64(period)) * math.Pi / 180) * float64(distance)
 
-    return v1 + float32(p)
+    return v1 + float64(p)
 }
 
 func interpolate2(v1 float32, v2 float32, radians float64) float32 {
@@ -341,20 +344,19 @@ func InterpolateColor(start sdl.Color, end sdl.Color, steps int, step int) sdl.C
  * speed is a period such that after 'speed' clocks the color will return to the start color.
  * thus, at half a period the color will be the end color.
  */
-func Glow(start color.Color, end color.Color, speed float32, clock uint64) color.Color {
-    // FIXME
-    /*
-    startH, startS, startV := rgb2hsv(start)
-    endH, endS, endV := rgb2hsv(end)
+func Glow(start color.Color, end color.Color, speed float64, clock uint64) color.Color {
+    startH, startS, startV := colorconv.ColorToHSV(start)
+    endH, endS, endV := colorconv.ColorToHSV(end)
 
     h := interpolate(startH, endH, speed, clock)
     s := interpolate(startS, endS, speed, clock)
     v := interpolate(startV, endV, speed, clock)
 
-    r, g, b := hsv2rgb(h, s, v)
-    return sdl.Color{R: uint8(clamp(r*255, 0, 255)), G: uint8(clamp(g*255, 0, 255)), B: uint8(clamp(b*255, 0, 255)), A: 255}
-    */
-    return start
+    out, err := colorconv.HSVToColor(h, s, v)
+    if err != nil {
+        return start
+    }
+    return out
 }
 
 /*
