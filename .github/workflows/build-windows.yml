@@ -13,15 +13,10 @@ jobs:
       - name: Set up go
         uses: actions/setup-go@v5
 
-      - name: Install mingw dependencies
-        run: |
-          sudo apt-get -y update
-          ./setup-windows.sh
-
       - name: Install go dependencies
         run: |
           go get ./...
           go mod tidy
 
       - name: Build
-        run: ./build-windows
+        run: go build ./cmd/nes
