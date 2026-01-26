@@ -10,7 +10,6 @@ import (
     // "io/fs"
     "path/filepath"
     // "math"
-    "math/rand"
     "strings"
     "bufio"
 
@@ -567,10 +566,6 @@ func loadTTF(path string, size int) (*ttf.Font, error) {
 */
 
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
-    randomSeed := time.Now().UnixNano()
-
-    rand.Seed(randomSeed)
-
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
     renderOverlayUpdate := make(chan string, 5)

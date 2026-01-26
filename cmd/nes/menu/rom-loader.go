@@ -11,7 +11,7 @@ import (
     "path/filepath"
     "os"
     "math"
-    "math/rand"
+    "math/rand/v2"
     "image"
     "fmt"
     "sort"
@@ -132,7 +132,7 @@ func getUniqueProgramIdentifier() string {
             /* couldn't read the program hash for some reason, just compute some random string */
             min := int(math.Pow10(5))
             max := int(math.Pow10(6))
-            uniqueIdentifier = fmt.Sprintf("%v-%v", time.Now().UnixNano(), rand.Intn(max-min) + min)
+            uniqueIdentifier = fmt.Sprintf("%v-%v", time.Now().UnixNano(), rand.N(max-min) + min)
         } else {
             uniqueIdentifier = value
         }

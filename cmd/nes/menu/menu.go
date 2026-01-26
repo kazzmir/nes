@@ -13,7 +13,7 @@ import (
     "os"
     "fmt"
     "math"
-    "math/rand"
+    "math/rand/v2"
     "time"
     // "bytes"
     "log"
@@ -83,7 +83,7 @@ func MakeSnow(screenWidth int) Snow {
     // y := rand.Float32() * 400
     y := float32(0)
     return Snow{
-        color: uint8(rand.Int31n(210) + 40),
+        color: uint8(rand.N(210) + 40),
         x: x,
         y: y,
         truex: x,
@@ -2842,7 +2842,7 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
                             snow[i].direction = -snow[i].direction
                         }
 
-                        newColor := int(snow[i].color) + rand.Intn(11) - 5
+                        newColor := int(snow[i].color) + rand.N(11) - 5
                         if newColor > 255 {
                             newColor = 255
                         }
