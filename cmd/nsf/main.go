@@ -10,17 +10,17 @@ import (
     "sync"
     "path/filepath"
     "strconv"
-    "bytes"
-    "encoding/binary"
+    // "bytes"
+    // "encoding/binary"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/util"
-    "github.com/veandco/go-sdl2/sdl"
 
     "github.com/jroimartin/gocui"
 )
 
 
+/*
 func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     var audioSpec sdl.AudioSpec
     var obtainedSpec sdl.AudioSpec
@@ -36,6 +36,7 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     device, err := sdl.OpenAudioDevice("", false, &audioSpec, &obtainedSpec, sdl.AUDIO_ALLOW_FORMAT_CHANGE)
     return device, err
 }
+*/
 
 
 type PlayerAction int
@@ -243,6 +244,7 @@ func run(nsfPath string) error {
 
     _ = nsf
 
+    /*
     err = sdl.Init(sdl.INIT_AUDIO)
     if err != nil {
         return err
@@ -272,7 +274,7 @@ func run(nsfPath string) error {
                 case <-quit.Done():
                 case audio := <-audioOut:
                     audioBuffer.Reset()
-                    /* convert []float32 into []byte */
+                    / * convert []float32 into []byte * /
                     for _, sample := range audio {
                         binary.Write(&audioBuffer, binary.LittleEndian, sample)
                     }
@@ -367,6 +369,7 @@ func run(nsfPath string) error {
     }
 
     <-playQuit.Done()
+    */
 
     return nil
 }

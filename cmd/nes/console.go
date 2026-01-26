@@ -11,7 +11,6 @@ import (
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/debug"
-    "github.com/veandco/go-sdl2/sdl"
 )
 
 type ConsoleState int
@@ -442,6 +441,7 @@ func (console *Console) run(mainCancel context.CancelFunc, mainQuit context.Cont
     }
 }
 
+/*
 func (console *Console) HandleText(event sdl.Event){
     switch event.GetType() {
         case sdl.TEXTINPUT:
@@ -458,6 +458,7 @@ func (console *Console) HandleText(event sdl.Event){
             log.Printf("Text editing")
     }
 }
+*/
 
 /*
 func (console *Console) HandleKey(event *sdl.KeyboardEvent, emulatorKeys common.EmulatorKeys){
