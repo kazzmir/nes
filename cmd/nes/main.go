@@ -60,12 +60,19 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
 }
 */
 
+// type DrawFunc func(screen *ebiten.Image)
 
 type Engine struct {
     Coroutine *coroutine.Coroutine
+    Draws []func(screen *ebiten.Image)
+    Quit context.Context
 }
 
 func (engine *Engine) Update() error {
+    if engine.Quit.Err() != nil {
+        return ebiten.Termination
+    }
+
     keys := inpututil.AppendJustPressedKeys(nil)
 
     for _, key := range keys {
@@ -83,6 +90,20 @@ func (engine *Engine) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func (engine *Engine) Draw(screen *ebiten.Image) {
+    if len(engine.Draws) > 0 {
+        last := engine.Draws[len(engine.Draws)-1]
+        last(screen)
+    }
+}
+
+func (engine *Engine) PushDraw(draw func(*ebiten.Image)) {
+    engine.Draws = append(engine.Draws, draw)
+}
+
+func (engine *Engine) PopDraw() {
+    if len(engine.Draws) > 0 {
+        engine.Draws = engine.Draws[:len(engine.Draws)-1]
+    }
 }
 
 func stripExtension(path string) string {
@@ -1196,8 +1217,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     })
     */
 
+    /*
     console := MakeConsole(6, &renderManager, mainCancel, mainQuit, emulatorActionsOutput, nesChannel, renderNow)
     _ = console
+    */
 
     /*
     mainWindowId, err := window.GetID()
@@ -1442,18 +1465,24 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
     */
 
+    engine := Engine{
+        Quit: mainQuit,
+    }
+
     menu := coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
         for mainQuit.Err() == nil {
             select {
                 case <-doMenu:
                     activeMenu := menu.MakeMenu(mainQuit, font)
                     emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
-                    activeMenu.Run(mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, &emulatorKeys)
+                    activeMenu.Run(mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, &emulatorKeys, yield, &engine)
                     emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
+                    /*
                     select {
                         case renderNow<-true:
                         default:
                     }
+                    */
                 default:
                     // sdl.Do(eventFunction)
             }
@@ -1466,11 +1495,9 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         return nil
     })
 
-    engine := &Engine{
-        Coroutine: menu,
-    }
+    engine.Coroutine = menu
 
-    return ebiten.RunGame(engine)
+    return ebiten.RunGame(&engine)
 
     /*
     log.Printf("Waiting to quit..")

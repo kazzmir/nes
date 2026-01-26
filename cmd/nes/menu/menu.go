@@ -32,9 +32,11 @@ import (
     "github.com/kazzmir/nes/cmd/nes/gfx"
     // "github.com/kazzmir/nes/data"
     nes "github.com/kazzmir/nes/lib"
+    "github.com/kazzmir/nes/lib/coroutine"
 
     "github.com/hajimehoshi/ebiten/v2"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
+    "github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 type MenuInput int
@@ -2530,6 +2532,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
 }
 
 func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, keys *common.EmulatorKeys) SubMenu {
+    log.Printf("Making main menu")
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
             /* quit the entire menu system if the user presses escape at the top level */
@@ -2545,6 +2548,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
         mainCancel()
     }})
 
+    log.Printf("Making main menu")
     main.Buttons.Add(&SubMenuButton{Name: "Load ROM", Func: func() SubMenu {
         loadRomQuit, loadRomCancel := context.WithCancel(menu.quit)
 
@@ -2570,12 +2574,15 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
         }
     }})
 
+    /*
     main.Buttons.Add(&ToggleButton{State1: "Sound enabled", State2: "Sound disabled", state: isAudioEnabled(menu.quit, programActions),
                               Func: func(value bool){
                                   log.Printf("Set sound to %v", value)
                                   programActions <- &common.ProgramToggleSound{}
                               },
                 })
+                */
+    log.Printf("Making main menu")
 
     /* FIXME: this callback to update ExtraInfo feels a bit hacky */
     /*
@@ -2608,13 +2615,18 @@ func (layer *MenuRenderLayer) ZIndex() int {
     return layer.Index
 }
 
-func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *gfx.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys){
+type DrawManager interface {
+    PushDraw(func(*ebiten.Image))
+    PopDraw()
+}
+
+func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *gfx.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys, yield coroutine.YieldFunc, drawManager DrawManager){
 
     menuZIndex := 10
 
     defer renderManager.RemoveByIndex(menuZIndex)
 
-    windowSizeUpdates := make(chan common.WindowSize, 10)
+    // windowSizeUpdates := make(chan common.WindowSize, 10)
 
     userInput := make(chan MenuInput, 3)
     defer close(userInput)
@@ -2727,151 +2739,171 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
     */
 
     /* Logic loop */
-    go func(){
-        snowTicker := time.NewTicker(time.Second / 20)
-        defer snowTicker.Stop()
+    snowTicker := time.NewTicker(time.Second / 20)
+    defer snowTicker.Stop()
 
-        var snow []Snow
+    var snow []Snow
 
-        /* Draw a reddish overlay on the screen */
-        baseRenderer := func(out *ebiten.Image) error {
-            /*
-            err := renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
-            _ = err
-            renderer.SetDrawColor(32, 0, 0, 210)
-            renderer.FillRect(nil)
-            */
+    log.Printf("Starting menu system")
 
+    /* Draw a reddish overlay on the screen */
+    baseRenderer := func(out *ebiten.Image) error {
+        vector.FillRect(out, 0, 0, float32(out.Bounds().Dx()), float32(out.Bounds().Dy()), color.NRGBA{R: 32, G: 0, B: 0, A: 210}, true)
+
+        /*
+        err := renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
+        _ = err
+        renderer.SetDrawColor(32, 0, 0, 210)
+        renderer.FillRect(nil)
+        */
+
+        return nil
+    }
+
+    makeSnowRenderer := func() gfx.RenderFunction {
+        // snowCopy := gfx.CopyArray(snowflakes)
+        return func(out *ebiten.Image) error {
+            for _, snow := range snow {
+                c := snow.color
+                vector.FillCircle(out, snow.x, snow.y, float32(1), color.NRGBA{R: c, G: c, B: c, A: 255}, true)
+
+                /*
+                renderer.SetDrawColor(c, c, c, 255)
+                renderer.DrawPoint(int32(snow.x), int32(snow.y))
+                */
+            }
             return nil
         }
+    }
 
-        makeSnowRenderer := func(snowflakes []Snow) gfx.RenderFunction {
-            // snowCopy := gfx.CopyArray(snowflakes)
-            return func(out *ebiten.Image) error {
-                /*
-                for _, snow := range snowCopy {
-                    c := snow.color
-                    renderer.SetDrawColor(c, c, c, 255)
-                    renderer.DrawPoint(int32(snow.x), int32(snow.y))
-                }
-                */
-                return nil
-            }
+    var windowSize common.WindowSize
+    windowSize.X = 320
+    windowSize.Y = 240
+
+    makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) gfx.RenderFunction {
+        return func(out *ebiten.Image) error {
+            /*
+            white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+            err := writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3, "NES Emulator", white)
+            err = writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
+            return err
+            */
+            return nil
         }
+    }
+    _ = makeDefaultInfoRenderer
 
-        var windowSize common.WindowSize
+    wind := rand.Float32() - 0.5
+    snowRenderer := makeSnowRenderer()
 
-        makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) gfx.RenderFunction {
-            return func(out *ebiten.Image) error {
-                /*
-                white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
-                err := writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3, "NES Emulator", white)
-                err = writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
-                return err
-                */
-                return nil
-            }
-        }
+    draw := func(screen *ebiten.Image){
+        baseRenderer(screen)
+        snowRenderer(screen)
+    }
 
-        wind := rand.Float32() - 0.5
-        snowRenderer := makeSnowRenderer(nil)
+    drawManager.PushDraw(draw)
+    defer drawManager.PopDraw()
 
-        currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, emulatorKeys)
+    log.Printf("Making main menu")
 
-        var clock uint64 = 0
+    currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, emulatorKeys)
 
-        /* Reset the default renderer */
-        for {
-            updateRender := false
-            select {
-                case <-menu.quit.Done():
-                    return
+    var clock uint64 = 0
 
-                case windowSize = <-windowSizeUpdates:
-                    currentMenu.UpdateWindowSize(windowSize.X, windowSize.Y)
+    /* Reset the default renderer */
+    log.Printf("main menu loop")
+    for {
+        // updateRender := false
+        select {
+            case <-menu.quit.Done():
+                return
 
-                case input := <-userInput:
-                    currentMenu = currentMenu.Input(input)
-                    currentMenu.UpdateWindowSize(windowSize.X, windowSize.Y)
-                    /* Its slightly more efficient to tell the renderer to perform a render operation rather than
-                     * to set updateRender=true which forces the chain of render functions to be recreated.
-                     */
-                    select {
-                        case renderNow <- true:
-                    }
-
-                    /*
-                case event := <-rawEvents:
-                    currentMenu.RawInput(event)
-                    */
-
-                case <-snowTicker.C:
-                    clock += 1
-
-                    /* FIXME: move this code somewhere else to keep the main Run() method small */
-                    if len(snow) < 300 {
-                        snow = append(snow, MakeSnow(windowSize.X))
-                    }
-
-                    wind += (rand.Float32() - 0.5) / 4
-                    if wind < -1 {
-                        wind = -1
-                    }
-                    if wind > 1 {
-                        wind = 1
-                    }
-
-                    for i := 0; i < len(snow); i++ {
-                        snow[i].truey += snow[i].fallSpeed
-                        snow[i].truex += wind
-                        snow[i].x = snow[i].truex + float32(math.Cos(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
-                        // snow[i].y = snow[i].truey + float32(-math.Sin(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
-                        snow[i].y = snow[i].truey
-                        snow[i].angle += float32(snow[i].direction) * snow[i].speed
-
-                        if snow[i].y > float32(windowSize.Y) {
-                            snow[i] = MakeSnow(windowSize.X)
-                        }
-
-                        if snow[i].angle < 0 {
-                            snow[i].angle = 0
-                            snow[i].direction = -snow[i].direction
-                        }
-                        if snow[i].angle >= 180  {
-                            snow[i].angle = 180
-                            snow[i].direction = -snow[i].direction
-                        }
-
-                        newColor := int(snow[i].color) + rand.N(11) - 5
-                        if newColor > 255 {
-                            newColor = 255
-                        }
-                        if newColor < 40 {
-                            newColor = 40
-                        }
-
-                        snow[i].color = uint8(newColor)
-                    }
-
-                    snowRenderer = makeSnowRenderer(snow)
-                    updateRender = true
-            }
-
-            if updateRender {
-                /* If there is a graphics update then send it to the renderer */
-                renderManager.Replace(menuZIndex, &MenuRenderLayer{
-                    Renderer: chainRenders(baseRenderer, snowRenderer,
-                                                          makeDefaultInfoRenderer(windowSize.X, windowSize.Y),
-                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, font, smallFont, clock)),
-                    Index: menuZIndex,
-                })
+            case input := <-userInput:
+                currentMenu = currentMenu.Input(input)
+                /* Its slightly more efficient to tell the renderer to perform a render operation rather than
+                 * to set updateRender=true which forces the chain of render functions to be recreated.
+                 */
                 select {
                     case renderNow <- true:
-                    default:
                 }
+
+                /*
+            case event := <-rawEvents:
+                currentMenu.RawInput(event)
+                */
+
+            case <-snowTicker.C:
+                clock += 1
+
+                /* FIXME: move this code somewhere else to keep the main Run() method small */
+                if len(snow) < 300 {
+                    snow = append(snow, MakeSnow(windowSize.X))
+                }
+
+                wind += (rand.Float32() - 0.5) / 4
+                if wind < -1 {
+                    wind = -1
+                }
+                if wind > 1 {
+                    wind = 1
+                }
+
+                for i := 0; i < len(snow); i++ {
+                    snow[i].truey += snow[i].fallSpeed
+                    snow[i].truex += wind
+                    snow[i].x = snow[i].truex + float32(math.Cos(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
+                    // snow[i].y = snow[i].truey + float32(-math.Sin(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
+                    snow[i].y = snow[i].truey
+                    snow[i].angle += float32(snow[i].direction) * snow[i].speed
+
+                    if snow[i].y > float32(windowSize.Y) {
+                        snow[i] = MakeSnow(windowSize.X)
+                    }
+
+                    if snow[i].angle < 0 {
+                        snow[i].angle = 0
+                        snow[i].direction = -snow[i].direction
+                    }
+                    if snow[i].angle >= 180  {
+                        snow[i].angle = 180
+                        snow[i].direction = -snow[i].direction
+                    }
+
+                    newColor := int(snow[i].color) + rand.N(11) - 5
+                    if newColor > 255 {
+                        newColor = 255
+                    }
+                    if newColor < 40 {
+                        newColor = 40
+                    }
+
+                    snow[i].color = uint8(newColor)
+                }
+
+                snowRenderer = makeSnowRenderer()
+                // updateRender = true
+            default:
+                if yield() != nil {
+                    return
+                }
+        }
+
+        /*
+        if updateRender {
+            / * If there is a graphics update then send it to the renderer * /
+            renderManager.Replace(menuZIndex, &MenuRenderLayer{
+                Renderer: chainRenders(baseRenderer, snowRenderer,
+                                                      makeDefaultInfoRenderer(windowSize.X, windowSize.Y),
+                                                      currentMenu.MakeRenderer(windowSize.X, windowSize.Y, font, smallFont, clock)),
+                Index: menuZIndex,
+            })
+            select {
+                case renderNow <- true:
+                default:
             }
         }
-    }()
+        */
+    }
 
     /*
     sdl.Do(func(){
@@ -2893,6 +2925,7 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
         }
     })
     */
+
 
     // log.Printf("Running the menu")
     /*
