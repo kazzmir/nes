@@ -2539,7 +2539,6 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
 }
 
 func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, keys *common.EmulatorKeys) SubMenu {
-    log.Printf("Making main menu")
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
             /* quit the entire menu system if the user presses escape at the top level */
@@ -2555,7 +2554,6 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
         mainCancel()
     }})
 
-    log.Printf("Making main menu")
     main.Buttons.Add(&SubMenuButton{Name: "Load ROM", Func: func() SubMenu {
         loadRomQuit, loadRomCancel := context.WithCancel(menu.quit)
 
@@ -2589,7 +2587,6 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
                               },
                 })
                 */
-    log.Printf("Making main menu")
 
     /* FIXME: this callback to update ExtraInfo feels a bit hacky */
     /*
