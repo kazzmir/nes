@@ -1,21 +1,22 @@
 package common
 
 import (
-    nes "github.com/kazzmir/nes/lib"
-    "github.com/veandco/go-sdl2/sdl"
     "sync"
-    "strings"
-    "log"
+    // "strings"
+    // "log"
     "fmt"
     "errors"
 
+    nes "github.com/kazzmir/nes/lib"
     // "runtime/debug"
 )
 
 type JoystickManager struct {
+    /*
     Joysticks []*SDLJoystickButtons
     Player1 *SDLJoystickButtons
     Player2 *SDLJoystickButtons
+    */
     Lock sync.Mutex
 }
 
@@ -23,6 +24,7 @@ func NewJoystickManager() *JoystickManager {
     manager := JoystickManager{
     }
 
+    /*
     max := sdl.NumJoysticks()
     for i := 0; i < max; i++ {
         input, err := OpenJoystick(i)
@@ -36,6 +38,7 @@ func NewJoystickManager() *JoystickManager {
     if len(manager.Joysticks) > 0 {
         manager.Player1 = manager.Joysticks[0]
     }
+    */
 
     return &manager
 }
@@ -44,9 +47,11 @@ func (manager *JoystickManager) CurrentName() string {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
+    /*
     if manager.Player1 != nil {
         return manager.Player1.Name
     }
+    */
 
     return "No joystick found"
 }
@@ -55,6 +60,7 @@ func (manager *JoystickManager) SaveInput() error {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
+    /*
     if manager.Player1 != nil {
         data, err := LoadConfigData()
         if err != nil {
@@ -75,6 +81,7 @@ func (manager *JoystickManager) SaveInput() error {
 
         return SaveConfigData(data)
     }
+    */
 
     return nil
 }
@@ -85,11 +92,14 @@ func (manager *JoystickManager) AddJoystick(index int) error {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
+    /*
     joystick, err := OpenJoystick(index)
     if err != nil {
         return err
     }
+    */
 
+    /*
     for _, check := range manager.Joysticks {
         if check.joystick.InstanceID() == joystick.joystick.InstanceID() {
             return JoystickAlreadyAdded
@@ -100,10 +110,12 @@ func (manager *JoystickManager) AddJoystick(index int) error {
     if manager.Player1 == nil {
         manager.Player1 = &joystick
     }
+    */
 
     return nil
 }
 
+/*
 func (manager *JoystickManager) RemoveJoystick(id sdl.JoystickID){
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
@@ -122,7 +134,9 @@ func (manager *JoystickManager) RemoveJoystick(id sdl.JoystickID){
 
     manager.Joysticks = out
 }
+*/
 
+/*
 func (manager *JoystickManager) HandleEvent(event sdl.Event) EmulatorAction {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
@@ -137,14 +151,17 @@ func (manager *JoystickManager) HandleEvent(event sdl.Event) EmulatorAction {
 
     return out
 }
+*/
 
 func (manager *JoystickManager) Close() {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
+    /*
     for _, joystick := range manager.Joysticks {
         joystick.Close()
     }
+    */
 }
 
 func (manager *JoystickManager) Get() nes.ButtonMapping {
@@ -162,9 +179,11 @@ func (manager *JoystickManager) Get() nes.ButtonMapping {
     mapping[nes.ButtonIndexLeft] = false
     mapping[nes.ButtonIndexRight] = false
 
+    /*
     if manager.Player1 != nil {
         return manager.Player1.Get()
     }
+    */
 
     return mapping
 }
@@ -233,13 +252,14 @@ func (buttons *SDLKeyboardButtons) Get() nes.ButtonMapping {
     return mapping
 }
 
+/*
 func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
     set := false
     switch event.GetType() {
         case sdl.KEYDOWN: set = true
         case sdl.KEYUP: set = false
         default:
-            /* what is this? */
+            / * what is this? * /
             return
     }
 
@@ -248,10 +268,10 @@ func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
         case buttons.Keys.ButtonB: buttons.ButtonB = set
         case buttons.Keys.ButtonTurboA:
             buttons.ButtonTurboA = set
-            /* if the user releases the turbo button the A/B button might be in
+            / * if the user releases the turbo button the A/B button might be in
              * a pressed state even though the user is not currently pressing it,
              * so ensure that A/B is not pressed if turbo is released
-             */
+             * /
             if !set {
                 buttons.ButtonA = false
             }
@@ -268,6 +288,7 @@ func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
         case buttons.Keys.ButtonRight: buttons.ButtonRight = set
     }
 }
+*/
 
 type JoystickInput interface {
     /* FIXME: return a mapping suitable for json */
@@ -292,7 +313,7 @@ func (axis *JoystickAxis) Serialize() string {
 }
 
 type SDLJoystickButtons struct {
-    joystick *sdl.Joystick
+    // joystick *sdl.Joystick
     Inputs map[nes.Button]JoystickInput // normal nes buttons
     ExtraInputs map[EmulatorActionValue]JoystickInput // extra emulator-only buttons
     Pressed nes.ButtonMapping
@@ -310,12 +331,13 @@ func MakeIControlPadInput(index int) (IControlPad, error){
 }
 
 func (icontrolpad *IControlPad) Close(){
-    icontrolpad.joystick.joystick.Close()
+    // icontrolpad.joystick.joystick.Close()
 }
 
 func (icontrolpad *IControlPad) Get() nes.ButtonMapping {
     mapping := make(nes.ButtonMapping)
 
+    /*
     mapping[nes.ButtonIndexA] = icontrolpad.joystick.joystick.Button(12) == 1
     mapping[nes.ButtonIndexB] = icontrolpad.joystick.joystick.Button(13) == 1
     mapping[nes.ButtonIndexSelect] = icontrolpad.joystick.joystick.Button(8) == 1
@@ -324,15 +346,18 @@ func (icontrolpad *IControlPad) Get() nes.ButtonMapping {
     mapping[nes.ButtonIndexDown] = icontrolpad.joystick.joystick.Button(3) == 1
     mapping[nes.ButtonIndexLeft] = icontrolpad.joystick.joystick.Button(2) == 1
     mapping[nes.ButtonIndexRight] =  icontrolpad.joystick.joystick.Button(1) == 1
+    */
 
     return mapping
 }
 
 func OpenJoystick(index int) (SDLJoystickButtons, error){
+    /*
     joystick := sdl.JoystickOpen(index)
     if joystick == nil {
         return SDLJoystickButtons{}, fmt.Errorf("Could not open joystick %v", index)
     }
+    */
 
     /*
     log.Printf("Joystick guid: %v", joystick.GUID())
@@ -340,14 +365,15 @@ func OpenJoystick(index int) (SDLJoystickButtons, error){
     */
 
     return SDLJoystickButtons{
-        joystick: joystick,
+        // joystick: joystick,
         Inputs: make(map[nes.Button]JoystickInput),
         ExtraInputs: make(map[EmulatorActionValue]JoystickInput),
         Pressed: make(nes.ButtonMapping),
-        Name: strings.TrimSpace(joystick.Name()),
+        // Name: strings.TrimSpace(joystick.Name()),
     }, nil
 }
 
+/*
 func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event) EmulatorAction {
     joystick.Lock.Lock()
     defer joystick.Lock.Unlock()
@@ -394,9 +420,10 @@ func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event) EmulatorAction 
 
     return emulatorOut
 }
+*/
 
 func (joystick *SDLJoystickButtons) Close(){
-    joystick.joystick.Close()
+    // joystick.joystick.Close()
 }
 
 func (joystick *SDLJoystickButtons) SetButton(button nes.Button, input JoystickInput){
@@ -457,6 +484,7 @@ func (combine *CombineButtons) Get() nes.ButtonMapping {
 }
 
 type EmulatorKeys struct {
+    /*
     Turbo sdl.Keycode
     Pause sdl.Keycode
     HardReset sdl.Keycode
@@ -480,13 +508,15 @@ type EmulatorKeys struct {
     ButtonDown sdl.Keycode
     ButtonLeft sdl.Keycode
     ButtonRight sdl.Keycode
+    */
 }
 
 type EmulatorKey struct {
     Name string
-    Code sdl.Keycode
+    // Code sdl.Keycode
 }
 
+    /*
 func (keys *EmulatorKeys) Update(key string, value sdl.Keycode) {
     switch key {
         case "A": keys.ButtonA = value
@@ -514,12 +544,15 @@ func (keys *EmulatorKeys) Update(key string, value sdl.Keycode) {
 
     }
 }
+    */
 
 func (keys *EmulatorKeys) UpdateAll(other EmulatorKeys){
     *keys = other
 }
 
 func (keys EmulatorKeys) AllKeys() []EmulatorKey {
+    return nil
+    /*
     return []EmulatorKey{
         EmulatorKey{Name: "A", Code: keys.ButtonA},
         EmulatorKey{Name: "B", Code: keys.ButtonB},
@@ -545,13 +578,15 @@ func (keys EmulatorKeys) AllKeys() []EmulatorKey {
         EmulatorKey{Name: "LoadState", Code: keys.LoadState},
         EmulatorKey{Name: "Console", Code: keys.Console},
     }
+    */
 }
 
 func LoadEmulatorKeys() EmulatorKeys {
-    data, _ := LoadConfigData()
+    // data, _ := LoadConfigData()
 
     out := DefaultEmulatorKeys()
 
+    /*
     convert := func(key string, default_ sdl.Keycode) sdl.Keycode {
         if key != "" {
             return sdl.GetKeyFromName(key)
@@ -581,11 +616,13 @@ func LoadEmulatorKeys() EmulatorKeys {
     out.ButtonDown = convert(data.Player1Keys.ButtonDown, out.ButtonDown)
     out.ButtonLeft = convert(data.Player1Keys.ButtonLeft, out.ButtonLeft)
     out.ButtonRight = convert(data.Player1Keys.ButtonRight, out.ButtonRight)
+    */
 
     return out
 }
 
 func SaveEmulatorKeys(keys EmulatorKeys){
+    /*
     data, _ := LoadConfigData()
     data.Player1Keys.Turbo = sdl.GetKeyName(keys.Turbo)
     data.Player1Keys.Pause = sdl.GetKeyName(keys.Pause)
@@ -616,9 +653,13 @@ func SaveEmulatorKeys(keys EmulatorKeys){
     if err != nil {
         log.Printf("Warning: could not save config: %v", err)
     }
+    */
 }
 
 func DefaultEmulatorKeys() EmulatorKeys {
+    return EmulatorKeys{}
+
+    /*
     return EmulatorKeys {
         Turbo: sdl.K_BACKQUOTE,
         Pause: sdl.K_SPACE,
@@ -644,4 +685,5 @@ func DefaultEmulatorKeys() EmulatorKeys {
         ButtonLeft: sdl.K_LEFT,
         ButtonRight: sdl.K_RIGHT,
     }
+    */
 }

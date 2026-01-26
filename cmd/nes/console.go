@@ -128,6 +128,7 @@ func (layer *RenderConsoleLayer) SetText(text string){
 }
 
 func (layer *RenderConsoleLayer) Render(info gfx.RenderInfo) error {
+    /*
     renderer := info.Renderer
     var alpha uint8 = 200
     renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
@@ -158,7 +159,7 @@ func (layer *RenderConsoleLayer) Render(info gfx.RenderInfo) error {
     layer.Lock.Unlock()
     gfx.Reverse(lines)
 
-    /* show all previous lines */
+    / * show all previous lines * /
     for _, line := range lines {
         yPos -= info.SmallFont.Height() - 1
         if yPos < -info.SmallFont.Height() {
@@ -166,6 +167,7 @@ func (layer *RenderConsoleLayer) Render(info gfx.RenderInfo) error {
         }
         gfx.WriteFont(info.SmallFont, renderer, 1, yPos, line, grey)
     }
+    */
 
     return nil
 }
@@ -457,6 +459,7 @@ func (console *Console) HandleText(event sdl.Event){
     }
 }
 
+/*
 func (console *Console) HandleKey(event *sdl.KeyboardEvent, emulatorKeys common.EmulatorKeys){
     switch event.Keysym.Sym {
         case emulatorKeys.Console:
@@ -487,6 +490,7 @@ func (console *Console) HandleKey(event *sdl.KeyboardEvent, emulatorKeys common.
             }
     }
 }
+*/
 
 func (console *Console) Toggle(){
     log.Printf("toggle console")

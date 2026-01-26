@@ -7,31 +7,30 @@ import "C"
 import (
     "context"
 
-    "io"
-    "io/fs"
-    "runtime"
+    // "io"
+    // "io/fs"
+    // "runtime"
     "os"
     "fmt"
     "math"
     "math/rand"
     "time"
-    "bytes"
+    // "bytes"
     "log"
     "sync"
-    "strings"
-    "text/template"
-    "path/filepath"
+    // "strings"
+    // "text/template"
+    // "path/filepath"
 
     "crypto/md5"
 
     "image"
     "image/png"
     "image/color"
-    "golang.org/x/image/bmp"
 
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/gfx"
-    "github.com/kazzmir/nes/data"
+    // "github.com/kazzmir/nes/data"
     nes "github.com/kazzmir/nes/lib"
 
     "github.com/hajimehoshi/ebiten/v2"
@@ -269,15 +268,17 @@ func drawConstButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *Tex
 }
 */
 
-/*
-func writeFontCached(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, id TextureId, x int, y int, message string, color sdl.Color) error {
+func writeFontCached(font text.Face, out *ebiten.Image, x int, y int, message string, col color.Color) error {
+    // FIXME
+    /*
     info, err := textureManager.RenderText(font, renderer, message, color, id)
     if err != nil {
         return err
     }
     return gfx.CopyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
+    */
+    return nil
 }
-*/
 
 type MenuState int
 const (
@@ -288,7 +289,7 @@ const (
 func chainRenders(functions ...gfx.RenderFunction) gfx.RenderFunction {
     return func(screen *ebiten.Image) error {
         for _, f := range functions {
-            err := f(renderer)
+            err := f(screen)
             if err != nil {
                 return err
             }
@@ -992,12 +993,13 @@ func convertInput(input JoystickInputType) common.JoystickInput {
 func (mapping *JoystickButtonMapping) UpdateJoystick(manager *common.JoystickManager){
     /* FIXME */
 
+    /*
     if manager.Player1 != nil {
         for name, input := range mapping.Inputs {
             manager.Player1.SetButton(convertButton(name), convertInput(input))
         }
 
-        /* FIXME: just a test */
+        / * FIXME: just a test * /
         manager.Player1.SetExtraButton(common.EmulatorTurbo, &common.JoystickButton{Button: 5})
 
         err := manager.SaveInput()
@@ -1005,6 +1007,7 @@ func (mapping *JoystickButtonMapping) UpdateJoystick(manager *common.JoystickMan
             log.Printf("Warning: could not save joystick input: %v", err)
         }
     }
+    */
 }
 
 func inList(value string, array []string) bool {
@@ -1713,7 +1716,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
             return parent
         },
         // JoystickName: "No joystick found",
-        Textures: make(map[string]TextureId),
+        // Textures: make(map[string]TextureId),
         // JoystickIndex: -1,
         Mapping: JoystickButtonMapping{
             Inputs: make(map[string]JoystickInputType),
@@ -1738,8 +1741,10 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
 
     go func(){
         for stateChange := range joystickStateChanges {
+            _ = stateChange
             // log.Printf("Joystick state change: %v", stateChange)
 
+            /*
             add, ok := stateChange.(*JoystickStateAdd)
             if ok {
                 // log.Printf("Add joystick")
@@ -1748,33 +1753,37 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
                 if err != nil && err != common.JoystickAlreadyAdded {
                     log.Printf("Warning: could not add joystick %v: %v\n", add.InstanceId, err)
                 }
-                /*
+
+                / *
                 menu.JoystickName = add.Name
                 menu.JoystickIndex = add.Index
                 log.Printf("Set joystick to '%v' index %v", add.Name, add.Index)
-                */
+                * /
                 // menu.Lock.Unlock()
             }
+            */
 
+            /*
             remove, ok := stateChange.(*JoystickStateRemove)
             if ok {
                 // log.Printf("Remove joystick")
                 _ = remove
                 // menu.Lock.Lock()
                 joystickManager.RemoveJoystick(remove.InstanceId)
-                /*
+                / *
                 menu.JoystickName = "No joystick found"
                 menu.JoystickIndex = -1
-                */
+                * /
                 // menu.Lock.Unlock()
             }
+            */
         }
     }()
 
     menu.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu{ return parent } })
 
     menu.Buttons.Add(&MenuNextLine{})
-    menu.Buttons.Add(&MenuLabel{Label: "Configure", Color: sdl.Color{R: 255, G: 0, B: 0, A: 255}})
+    menu.Buttons.Add(&MenuLabel{Label: "Configure", Color: color.RGBA{R: 255, G: 0, B: 0, A: 255}})
     menu.Buttons.Add(&MenuNextLine{})
 
     menu.Buttons.Add(&SubMenuButton{Name: "All Buttons", Func: func() SubMenu {
@@ -1914,7 +1923,7 @@ func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
 
 func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
     return func(out *ebiten.Image) error {
-        return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, smallFont)
+        return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, smallFont, out)
     }
 }
 
@@ -2376,7 +2385,9 @@ func (choose *ChooseButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
-func (choose *ChooseButton) Render(font *ttf.Font, renderer *sdl.Renderer, buttonManager *ButtonManager, textureManager *TextureManager, x int, y int, selected bool, clock uint64) (int, int, error) {
+func (choose *ChooseButton) Render(font text.Face, out *ebiten.Image, x int, y int, selected bool, clock uint64) (int, int, error) {
+    // FIXME
+    /*
     if choose.IsEnabled() {
 
         size := 10
@@ -2390,6 +2401,8 @@ func (choose *ChooseButton) Render(font *ttf.Font, renderer *sdl.Renderer, butto
     } else {
         return x, y, nil
     }
+    */
+    return 0, 0, nil
 }
 
 func (choose *ChooseButton) IsEnabled() bool {
@@ -2419,11 +2432,13 @@ func (choose *ChooseButton) Enable() {
 
 func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKeys), keys *common.EmulatorKeys) SubMenu {
 
+    /*
     var items []string
 
     for _, key := range keys.AllKeys() {
         items = append(items, fmt.Sprintf("%v: %v", key.Name, sdl.GetKeyName(key.Code)))
     }
+    */
 
     // chooseButton := &ChooseButton{Items: items}
 
@@ -2436,7 +2451,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
             return parentMenu
         },
         // ExtraInfo: keysInfo(keys),
-        Beep: menu.Beep,
+        // Beep: menu.Beep,
         ChooseDone: chooseDone,
         ChooseCancel: chooseCancel,
         // Chooser: chooseButton,
@@ -2448,6 +2463,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
     keyMenu.Buttons.Add(back)
 
     changeButtons := make(map[string]*StaticFixedWidthButton)
+        /*
     for _, key := range keys.AllKeys() {
         name := key.Name
         code := key.Code
@@ -2463,6 +2479,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
 
         changeButtons[name] = button
     }
+        */
 
     defaults := &StaticButton{
         Name: "Reset to defaults",
@@ -2470,10 +2487,12 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
             keyMenu.Keys.UpdateAll(common.DefaultEmulatorKeys())
             common.SaveEmulatorKeys(*keyMenu.Keys)
 
+            /*
             for _, key := range keyMenu.Keys.AllKeys() {
                 button := changeButtons[key.Name]
                 button.Update(fmt.Sprintf("%v: %v", key.Name, sdl.GetKeyName(key.Code)))
             }
+            */
         },
     }
 
@@ -2490,7 +2509,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
     */
 
     keyMenu.Buttons.Add(&MenuNextLine{})
-    keyMenu.Buttons.Add(&MenuLabel{Label: "Select a key to change", Color: sdl.Color{R: 255, G: 255, B: 0, A: 255}})
+    keyMenu.Buttons.Add(&MenuLabel{Label: "Select a key to change", Color: color.RGBA{R: 255, G: 255, B: 0, A: 255}})
     keyMenu.Buttons.Add(&MenuNextLine{})
 
     // keyMenu.Buttons.Add(&MenuSpace{Space: 60})
@@ -2510,17 +2529,17 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
     return keyMenu
 }
 
-func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, textureManager *TextureManager, keys *common.EmulatorKeys) SubMenu {
+func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, keys *common.EmulatorKeys) SubMenu {
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
             /* quit the entire menu system if the user presses escape at the top level */
             menu.cancel()
             return current
         },
-        Beep: menu.Beep,
+        // Beep: menu.Beep,
     }
 
-    joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickManager)
+    // joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickManager)
 
     main.Buttons.Add(&StaticButton{Name: "Quit", Func: func(button *StaticButton){
         mainCancel()
@@ -2529,7 +2548,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
     main.Buttons.Add(&SubMenuButton{Name: "Load ROM", Func: func() SubMenu {
         loadRomQuit, loadRomCancel := context.WithCancel(menu.quit)
 
-        romLoaderState := MakeRomLoaderState(loadRomQuit, 1, 1, textureManager.NextId())
+        romLoaderState := MakeRomLoaderState(loadRomQuit, 1, 1)
         go romLoader(loadRomQuit, romLoaderState)
 
         return &LoadRomMenu{
@@ -2547,7 +2566,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
             LoaderCancel: loadRomCancel,
             MenuCancel: menu.cancel,
             LoaderState: romLoaderState,
-            Beep: menu.Beep,
+            // Beep: menu.Beep,
         }
     }})
 
@@ -2559,6 +2578,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
                 })
 
     /* FIXME: this callback to update ExtraInfo feels a bit hacky */
+    /*
     keysMenu := MakeKeysMenu(menu, main, func (newKeys common.EmulatorKeys){
         main.ExtraInfo = keysInfo(&newKeys)
     }, keys)
@@ -2570,6 +2590,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
     main.Buttons.Add(&SubMenuButton{Name: "Joystick", Func: func() SubMenu { return joystickMenu } })
 
     main.ExtraInfo = keysInfo(keys)
+    */
 
     return main
 }
@@ -2587,7 +2608,7 @@ func (layer *MenuRenderLayer) ZIndex() int {
     return layer.Index
 }
 
-func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *ttf.Font, smallFont *ttf.Font, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *gfx.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys){
+func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *gfx.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys){
 
     menuZIndex := 10
 
@@ -2601,8 +2622,9 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
     joystickStateChanges := make(chan JoystickState, 3)
     defer close(joystickStateChanges)
 
-    rawEvents := make(chan sdl.Event, 100)
+    // rawEvents := make(chan sdl.Event, 100)
 
+    /*
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
         if event != nil {
@@ -2659,7 +2681,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                     }
 
                     width, height := window.GetSize()
-                    /* Not great but tolerate not updating the system when the window changes */
+                    / * Not great but tolerate not updating the system when the window changes * /
                     select {
                         case windowSizeUpdates <- common.WindowSize{X: int(width), Y: int(height)}:
                         default:
@@ -2676,7 +2698,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                         userInput <- MenuQuit
                     }
 
-                    /* allow vi input */
+                    / * allow vi input * /
                     switch keyboard_event.Keysym.Sym {
                         case sdl.K_LEFT, sdl.K_h:
                             select {
@@ -2702,58 +2724,59 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
             }
         }
     }
+    */
 
     /* Logic loop */
     go func(){
-        textureManager := MakeTextureManager()
-        defer textureManager.Destroy()
-
         snowTicker := time.NewTicker(time.Second / 20)
         defer snowTicker.Stop()
 
         var snow []Snow
 
         /* Draw a reddish overlay on the screen */
-        baseRenderer := func(renderer *sdl.Renderer) error {
+        baseRenderer := func(out *ebiten.Image) error {
+            /*
             err := renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
             _ = err
             renderer.SetDrawColor(32, 0, 0, 210)
             renderer.FillRect(nil)
+            */
 
             return nil
         }
 
         makeSnowRenderer := func(snowflakes []Snow) gfx.RenderFunction {
-            snowCopy := gfx.CopyArray(snowflakes)
-            return func(renderer *sdl.Renderer) error {
+            // snowCopy := gfx.CopyArray(snowflakes)
+            return func(out *ebiten.Image) error {
+                /*
                 for _, snow := range snowCopy {
                     c := snow.color
                     renderer.SetDrawColor(c, c, c, 255)
                     renderer.DrawPoint(int32(snow.x), int32(snow.y))
                 }
+                */
                 return nil
             }
         }
 
-        buttonManager := MakeButtonManager()
-        nesEmulatorTextureId := textureManager.NextId()
-        myNameTextureId := textureManager.NextId()
-
         var windowSize common.WindowSize
 
         makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) gfx.RenderFunction {
-            white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-            return func(renderer *sdl.Renderer) error {
-                err := writeFontCached(smallFont, renderer, textureManager, nesEmulatorTextureId, maxWidth - 130, maxHeight - smallFont.Height() * 3, "NES Emulator", white)
-                err = writeFontCached(smallFont, renderer, textureManager, myNameTextureId, maxWidth - 130, maxHeight - smallFont.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
+            return func(out *ebiten.Image) error {
+                /*
+                white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+                err := writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3, "NES Emulator", white)
+                err = writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
                 return err
+                */
+                return nil
             }
         }
 
         wind := rand.Float32() - 0.5
         snowRenderer := makeSnowRenderer(nil)
 
-        currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, textureManager, emulatorKeys)
+        currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, emulatorKeys)
 
         var clock uint64 = 0
 
@@ -2777,8 +2800,10 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                         case renderNow <- true:
                     }
 
+                    /*
                 case event := <-rawEvents:
                     currentMenu.RawInput(event)
+                    */
 
                 case <-snowTicker.C:
                     clock += 1
@@ -2837,7 +2862,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
                 renderManager.Replace(menuZIndex, &MenuRenderLayer{
                     Renderer: chainRenders(baseRenderer, snowRenderer,
                                                           makeDefaultInfoRenderer(windowSize.X, windowSize.Y),
-                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, &buttonManager, textureManager, font, smallFont, clock)),
+                                                          currentMenu.MakeRenderer(windowSize.X, windowSize.Y, font, smallFont, clock)),
                     Index: menuZIndex,
                 })
                 select {
@@ -2848,6 +2873,7 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
         }
     }()
 
+    /*
     sdl.Do(func(){
         width, height := window.GetSize()
         windowSizeUpdates <- common.WindowSize{
@@ -2866,11 +2892,14 @@ func (menu *Menu) Run(window *sdl.Window, mainCancel context.CancelFunc, font *t
             }
         }
     })
+    */
 
     // log.Printf("Running the menu")
+    /*
     for menu.quit.Err() == nil {
         sdl.Do(eventFunction)
     }
+    */
     // log.Printf("Menu is done")
 }
 

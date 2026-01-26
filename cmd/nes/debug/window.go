@@ -10,6 +10,8 @@ import (
     _ "strconv"
     nes "github.com/kazzmir/nes/lib"
     // "github.com/kazzmir/nes/cmd/nes/gfx"
+
+    "github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 type WindowRequest any
@@ -62,10 +64,8 @@ type DebugWindow struct {
     Requests chan WindowRequest
     IsOpen bool
     Wait sync.WaitGroup
-    /*
-    BigFont *ttf.Font
-    SmallFont *ttf.Font
-    */
+    BigFont text.Face
+    SmallFont text.Face
     Line Line
     Instructions []Instruction
     Lock sync.Mutex
@@ -75,17 +75,15 @@ type DebugWindow struct {
     LastCommand string
 }
 
-func MakeDebugWindow(mainQuit context.Context /*, bigFont *ttf.Font, smallFont *ttf.Font*/) *DebugWindow {
+func MakeDebugWindow(mainQuit context.Context, bigFont text.Face, smallFont text.Face) *DebugWindow {
     quit, cancel := context.WithCancel(mainQuit)
     debug := DebugWindow{
         Quit: quit,
         Cancel: cancel,
         Requests: make(chan WindowRequest, 5),
         IsOpen: false,
-        /*
         BigFont: bigFont,
         SmallFont: smallFont,
-        */
         Line: Line{},
     }
 

@@ -1,46 +1,40 @@
 package main
 
-/* golang sdl https://pkg.go.dev/github.com/veandco/go-sdl2@v0.4.8/sdl
- */
-
-/*
-#include <stdlib.h>
-*/
-import "C"
 import (
     "fmt"
     "log"
     "strconv"
     "os"
     "os/signal"
-    "io"
-    "io/fs"
+    // "io"
+    // "io/fs"
     "path/filepath"
-    "math"
+    // "math"
     "math/rand"
     "strings"
     "bufio"
 
-    nes "github.com/kazzmir/nes/lib"
-    "github.com/kazzmir/nes/util"
-
-    "github.com/hajimehoshi/ebiten/v2"
-
-    "encoding/binary"
-    "bytes"
+    // "encoding/binary"
+    // "bytes"
     "time"
     "sync"
     "context"
     "runtime/pprof"
-    "runtime"
+    // "runtime"
+
+    nes "github.com/kazzmir/nes/lib"
+    "github.com/kazzmir/nes/util"
 
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/menu"
     "github.com/kazzmir/nes/cmd/nes/debug"
-    "github.com/kazzmir/nes/data"
+    // "github.com/kazzmir/nes/data"
 
     // rdebug "runtime/debug"
+
+    "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 /*
@@ -372,6 +366,7 @@ func (layer *OverlayMessageLayer) ZIndex() int {
 }
 
 func (layer *OverlayMessageLayer) Render(info gfx.RenderInfo) error {
+    /*
     width, height := info.Window.GetSize()
 
     font := info.Font
@@ -386,6 +381,7 @@ func (layer *OverlayMessageLayer) Render(info gfx.RenderInfo) error {
     renderer.FillRect(&sdl.Rect{X: int32(x - 10), Y: int32(y - 10), W: int32(messageLength + 10 + 5), H: int32(font.Height() + 10 + 5)})
 
     gfx.WriteFont(font, renderer, x, y, layer.Message, white)
+    */
     return nil
 }
 
@@ -595,15 +591,19 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
 
     // force a software renderer
+    /*
     if !util.HasGlxinfo() {
         sdl.Do(func(){
             sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
         })
     }
+    */
 
-    log.Printf("Initializing SDL")
+    // log.Printf("Initializing SDL")
 
     var err error
+    _ = err
+    /*
     sdl.Do(func(){
         err = sdl.Init(sdl.INIT_EVERYTHING)
     })
@@ -620,11 +620,14 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     defer sdl.Do(func(){
         sdl.EnableScreenSaver()
     })
+    */
 
     log.Printf("Create window")
     /* to resize the window */
+    /*
     var window *sdl.Window
     var renderer *sdl.Renderer
+    */
 
     /* 7/5/2021: its apparently very important that the window and renderer be created
      * in the sdl thread via sdl.Do. If the renderer calls are in sdl.Do, then so must
@@ -632,6 +635,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
      * the creation of the window and renderer in sdl.Do, and thus in opengl mode
      * the window would not be rendered.
      */
+     /*
     sdl.Do(func(){
         window, renderer, err = sdl.CreateWindowAndRenderer(
             int32(nes.VideoWidth * windowSizeMultiple),
@@ -642,6 +646,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             window.SetTitle("Nes Emulator")
         }
     })
+    */
 
     /*
     window, err := sdl.CreateWindow("nes",
@@ -664,17 +669,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
     renderer, err := sdl.CreateRenderer(window, -1, 0)
     */
-
-    if err != nil {
-        return fmt.Errorf("Unable to create SDL window: %v", err)
-    }
-
-    defer sdl.Do(func(){
-        window.Destroy()
-    })
-    defer sdl.Do(func(){
-        renderer.Destroy()
-    })
 
     /* debug stuff
     numDrivers, err := sdl.GetNumRenderDrivers()
@@ -701,6 +695,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     const AudioSampleRate float32 = 44100
 
+    /*
     err = mix.Init(mix.INIT_OGG)
     if err != nil {
         log.Printf("Could not initialize SDL mixer: %v", err)
@@ -710,7 +705,9 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             log.Printf("Could not open mixer audio: %v", err)
         }
     }
+    */
 
+    /*
     renderInfo, err := renderer.GetInfo()
     if err != nil {
         log.Printf("Could not get render info from renderer: %v\n", err)
@@ -730,6 +727,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         log.Printf(" Max texture width: %v\n", renderInfo.MaxTextureWidth)
         log.Printf(" Max texture height: %v\n", renderInfo.MaxTextureHeight)
     }
+    */
    
     /*
     audioDevice, err := setupAudio(AudioSampleRate)
@@ -775,10 +773,14 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     toDraw := make(chan nes.VirtualScreen, 1)
     bufferReady := make(chan nes.VirtualScreen, 1)
 
+    /*
     pixelFormat := gfx.FindPixelFormat()
-
     log.Printf("Using pixel format %v\n", sdl.GetPixelFormatName(uint(pixelFormat)))
+    */
 
+    var font text.Face
+    var smallFont text.Face
+    /*
     err = ttf.Init()
     if err != nil {
         return fmt.Errorf("Unable to initialize ttf: %v", err)
@@ -797,18 +799,21 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         return fmt.Errorf("Unable to load font size 15: %v", err)
     }
     defer smallFont.Close()
+    */
 
+    joystickManager := common.NewJoystickManager()
+    /*
     log.Printf("Found joysticks: %v\n", sdl.NumJoysticks())
     for i := 0; i < sdl.NumJoysticks(); i++ {
         guid := sdl.JoystickGetDeviceGUID(i)
         log.Printf("Joystick %v: %v\n", i, guid)
     }
 
-    joystickManager := common.NewJoystickManager()
     defer joystickManager.Close()
 
     // sdl.Do(sdl.StopTextInput)
     sdl.Do(sdl.StartTextInput)
+    */
 
     // var joystickInput nes.HostInput
     /*
@@ -864,6 +869,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         canRender := false
 
         render := func (){
+            /*
             renderer.SetDrawColor(0, 0, 0, 0)
             renderer.Clear()
 
@@ -879,7 +885,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
 
             renderer.Present()
+            */
         }
+
+        _ = render
 
         for {
             select {
@@ -889,7 +898,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     if canRender {
                         fps += 1
                         common.RenderPixelsRGBA(screen, raw_pixels, nes.OverscanPixels)
-                        sdl.Do(render)
+                        // sdl.Do(render)
                     }
                     canRender = false
                     bufferReady <- screen
@@ -902,10 +911,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             Index: 2,
                         })
                     }
-                    sdl.Do(render)
+                    // sdl.Do(render)
                 case <-renderNow:
                     /* Force a rerender */
-                    sdl.Do(render)
+                    // sdl.Do(render)
                 case <-renderTimer.C:
                     canRender = true
                 case <-fpsTimer.C:
@@ -994,7 +1003,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         }
 
         renderNes := func(info gfx.RenderInfo) error {
-            return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, info.Renderer)
+            // return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, info.Renderer)
+            return nil
         }
 
         layer := &DefaultRenderLayer{
@@ -1159,17 +1169,22 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }()
 
     /* enable drag/drop events */
+    /*
     sdl.Do(func(){
         sdl.EventState(sdl.DROPFILE, sdl.ENABLE)
     })
+    */
 
     console := MakeConsole(6, &renderManager, mainCancel, mainQuit, emulatorActionsOutput, nesChannel, renderNow)
+    _ = console
 
+    /*
     mainWindowId, err := window.GetID()
     if err != nil {
         log.Printf("Could not get main window id: %v", err)
         return err
     }
+    */
 
     /*
     events := make(chan sdl.Event, 20)
@@ -1411,7 +1426,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             case <-doMenu:
                 activeMenu := menu.MakeMenu(mainQuit, font)
                 emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
-                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, &emulatorKeys)
+                activeMenu.Run(mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, &emulatorKeys)
                 emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
                 select {
                     case renderNow<-true:

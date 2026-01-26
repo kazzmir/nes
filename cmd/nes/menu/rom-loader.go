@@ -25,7 +25,7 @@ import (
 
     "github.com/kazzmir/nes/cmd/nes/menu/filterlist"
     "github.com/kazzmir/nes/cmd/nes/common"
-    "github.com/kazzmir/nes/cmd/nes/gfx"
+    // "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/thread"
     "github.com/kazzmir/nes/data"
     nes "github.com/kazzmir/nes/lib"
@@ -75,7 +75,6 @@ type RomLoaderState struct {
     Lock sync.Mutex
 
     Arrow imagelib.Image
-    ArrowId TextureId
 
     CurrentScan string
     CurrentScanLock sync.Mutex
@@ -813,6 +812,7 @@ func (loader *RomLoaderState) TileRows(maxHeight int) int {
     return count
 }
 
+/*
 func renderUpArrow(x int, y int, texture *sdl.Texture, renderer *sdl.Renderer){
     _, _, width, height, err := texture.Query()
     if err == nil {
@@ -828,6 +828,7 @@ func renderDownArrow(x int, y int, texture *sdl.Texture, renderer *sdl.Renderer)
         renderer.CopyEx(texture, nil, &dest, 0, nil, sdl.FLIP_VERTICAL)
     }
 }
+*/
 
 func (loader *RomLoaderState) GetFilteredRoms() []*RomIdAndPath {
     return loader.RomIdsAndPaths.Filtered()
@@ -851,16 +852,22 @@ func (loader *RomLoaderState) ZoomOut() {
 }
 
 // draw part of the string in a new color where the substring is from 'startPosition' and goes for 'length' characters
-func drawOverlayString(font *ttf.Font, renderer *sdl.Renderer, x int, y int, base string, startPosition int, length int, color sdl.Color) error {
+func drawOverlayString(font text.Face, out *ebiten.Image, x int, y int, base string, startPosition int, length int, col color.Color) error {
+    // FIXME
+    /*
     rendered := base[0:startPosition+1]
     // get the length of the text minus the last character
     startLength := gfx.TextWidth(font, rendered) - gfx.TextWidth(font, string(rendered[len(rendered)-1]))
     matched := base[startPosition:startPosition+length]
     // show the matched part of the selected rom
     return gfx.WriteFont(font, renderer, x + startLength, y, matched, color)
+    */
+    return nil
 }
 
-func maxTextWidth(font *ttf.Font, maxWidth int) int {
+func maxTextWidth(face text.Face, maxWidth int) int {
+    // FIXME
+    /*
     if maxWidth <= 0 {
         return 0
     }
@@ -870,6 +877,8 @@ func maxTextWidth(font *ttf.Font, maxWidth int) int {
         size = 1
     }
     return maxWidth / size
+    */
+    return 1
 }
 
 func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font text.Face, smallFont text.Face, screen *ebiten.Image) error {
@@ -877,6 +886,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font text.Face
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
 
+    /*
     white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
     green := sdl.Color{R: 0, G: 255, B: 0, A: 255}
 
@@ -926,7 +936,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font text.Face
     raw_pixels := make([]byte, width*height * 4)
     pixelFormat := gfx.FindPixelFormat()
 
-    /* if the rom doesn't have any frames loaded then show a blank thumbnail */
+    / * if the rom doesn't have any frames loaded then show a blank thumbnail * /
     blankScreen := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
     blankScreen.ClearToColor(0, 0, 0)
 
@@ -994,14 +1004,14 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font text.Face
             frame = blankScreen
         }
 
-        /* Highlight the selected rom with a yellow outline */
+        / * Highlight the selected rom with a yellow outline * /
         if selectedId == romIdAndPath.Id {
             renderer.SetDrawColor(255, 255, 0, 255)
             rect := sdl.Rect{X: int32(x-float32(outlineSize)), Y: int32(y-float32(outlineSize)), W: int32(float32(width) / layout.Thumbnail + float32(outlineSize*2)), H: int32(float32(height) / layout.Thumbnail + float32(outlineSize*2))}
             renderer.FillRect(&rect)
         }
 
-        /* FIXME: cache these textures with the texture manager */
+        / * FIXME: cache these textures with the texture manager * /
         common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
         doRender(width, height, raw_pixels, int(x), int(y), int(float32(width) / layout.Thumbnail), int(float32(height) / layout.Thumbnail), pixelFormat, renderer)
 
@@ -1022,6 +1032,7 @@ func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font text.Face
             }
         }
     }
+    */
 
     return nil
 }
@@ -1082,7 +1093,7 @@ func loadArrowPicture() (image.Image, error) {
     return png.Decode(reader)
 }
 
-func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int, arrowId TextureId) *RomLoaderState {
+func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int) *RomLoaderState {
     arrow, err := loadArrowPicture()
     if err != nil {
         log.Printf("Could not load arrow image: %v", err)
@@ -1096,7 +1107,6 @@ func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int,
         WindowSizeWidth: windowWidth,
         WindowSizeHeight: windowHeight,
         Arrow: arrow,
-        ArrowId: arrowId,
         Layout: TileLayout{
             XStart: 50,
             YStart: 80,
