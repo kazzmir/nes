@@ -104,9 +104,9 @@ func testPng(png string) error {
 
 
     if !compareImage(expectedImage, get_screenshot.ScreenToImage(screen)) {
-        log.Printf(test_utils.Failure(png))
+        log.Print(test_utils.Failure(png))
     } else {
-        log.Printf(test_utils.Success(png))
+        log.Print(test_utils.Success(png))
     }
 
     return nil

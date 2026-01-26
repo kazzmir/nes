@@ -74,9 +74,9 @@ func Run(debug bool) (bool, error) {
     }
 
     if test1 {
-        log.Printf(test_utils.Success("Branch test 1"))
+        log.Print(test_utils.Success("Branch test 1"))
     } else {
-        log.Printf(test_utils.Failure("Branch test 1"))
+        log.Print(test_utils.Failure("Branch test 1"))
     }
 
     test2, err := doTest("test-roms/branch_timing_tests/2.Backward_Branch.nes")
@@ -85,9 +85,9 @@ func Run(debug bool) (bool, error) {
     }
 
     if test2 {
-        log.Printf(test_utils.Success("Branch test 2"))
+        log.Print(test_utils.Success("Branch test 2"))
     } else {
-        log.Printf(test_utils.Failure("Branch test 2"))
+        log.Print(test_utils.Failure("Branch test 2"))
     }
 
     test3, err := doTest("test-roms/branch_timing_tests/3.Forward_Branch.nes")
@@ -96,9 +96,9 @@ func Run(debug bool) (bool, error) {
     }
 
     if test3 {
-        log.Printf(test_utils.Success("Branch test 3"))
+        log.Print(test_utils.Success("Branch test 3"))
     } else {
-        log.Printf(test_utils.Failure("Branch test 3"))
+        log.Print(test_utils.Failure("Branch test 3"))
     }
 
     return test1 && test2 && test3, nil
