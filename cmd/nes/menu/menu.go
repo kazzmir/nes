@@ -2618,6 +2618,7 @@ func (layer *MenuRenderLayer) ZIndex() int {
 type DrawManager interface {
     PushDraw(func(*ebiten.Image))
     PopDraw()
+    GetWindowSize() common.WindowSize
 }
 
 func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *gfx.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys, yield coroutine.YieldFunc, drawManager DrawManager){
@@ -2776,10 +2777,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
         }
     }
 
-    var windowSize common.WindowSize
-    windowSize.X = 320
-    windowSize.Y = 240
-
     makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) gfx.RenderFunction {
         return func(out *ebiten.Image) error {
             /*
@@ -2834,6 +2831,8 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
 
             case <-snowTicker.C:
                 clock += 1
+
+                windowSize := drawManager.GetWindowSize()
 
                 /* FIXME: move this code somewhere else to keep the main Run() method small */
                 if len(snow) < 300 {

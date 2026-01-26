@@ -66,6 +66,7 @@ type Engine struct {
     Coroutine *coroutine.Coroutine
     Draws []func(screen *ebiten.Image)
     Quit context.Context
+    WindowSize common.WindowSize
 }
 
 func (engine *Engine) Update() error {
@@ -86,7 +87,13 @@ func (engine *Engine) Update() error {
 }
 
 func (engine *Engine) Layout(outsideWidth, outsideHeight int) (int, int) {
-    return nes.VideoWidth, nes.VideoHeight - nes.OverscanPixels * 2
+    engine.WindowSize = common.WindowSize{X: outsideWidth, Y: outsideHeight}
+    return outsideWidth, outsideHeight
+    // return nes.VideoWidth, nes.VideoHeight - nes.OverscanPixels * 2
+}
+
+func (engine *Engine) GetWindowSize() common.WindowSize {
+    return engine.WindowSize
 }
 
 func (engine *Engine) Draw(screen *ebiten.Image) {
