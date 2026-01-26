@@ -138,9 +138,9 @@ func Run(debug bool) (bool, error) {
         }
 
         if passed {
-            log.Printf(test_utils.Success(fmt.Sprintf("APU test %v", testNum)))
+            log.Print(test_utils.Success(fmt.Sprintf("APU test %v", testNum)))
         } else {
-            log.Printf(test_utils.Failure(fmt.Sprintf("APU test %v", testNum)))
+            log.Print(test_utils.Failure(fmt.Sprintf("APU test %v", testNum)))
         }
     }
 

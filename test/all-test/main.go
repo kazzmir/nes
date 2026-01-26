@@ -17,9 +17,9 @@ func main(){
         log.Printf("Error: nestest failed with an error: %v", err)
     } else {
         if ok {
-            log.Printf(test_utils.Success("nestest"))
+            log.Print(test_utils.Success("nestest"))
         } else {
-            log.Printf(test_utils.Failure("nestest"))
+            log.Print(test_utils.Failure("nestest"))
         }
     }
 
