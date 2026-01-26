@@ -1,22 +1,21 @@
 package gfx
 
 import (
-    "log"
-    "bytes"
+    _ "log"
+    _ "bytes"
     "sort"
     "sync"
     "math"
-    "slices"
-    "image"
-    "cmp"
-    "encoding/binary"
+    _ "slices"
+    _ "image"
+    "image/color"
+    _ "cmp"
+    _ "encoding/binary"
     // "errors"
-    "github.com/veandco/go-sdl2/sdl"
-    "github.com/veandco/go-sdl2/ttf"
-    // "github.com/veandco/go-sdl2/gfx"
+    "github.com/hajimehoshi/ebiten/v2"
 )
 
-type RenderFunction func(*sdl.Renderer) error
+type RenderFunction func(*ebiten.Image) error
 
 type PixelFormat uint32
 
@@ -25,6 +24,7 @@ type PixelFormat uint32
  * if the first byte in the byte array is the same as the lowest byte of the 32-bit number
  * then the host is little endian
  */
+ /*
 func FindPixelFormat() PixelFormat {
     red := uint32(32)
     green := uint32(128)
@@ -41,9 +41,11 @@ func FindPixelFormat() PixelFormat {
 
     return sdl.PIXELFORMAT_RGBA8888
 }
+*/
 
+/*
 func TextWidth(font *ttf.Font, text string) int {
-    /* FIXME: this feels a bit inefficient, maybe find a better way that doesn't require fully rendering the text */
+    / * FIXME: this feels a bit inefficient, maybe find a better way that doesn't require fully rendering the text * /
     surface, err := font.RenderUTF8Solid(text, sdl.Color{R: 255, G: 255, B: 255, A: 255})
     if err != nil {
         log.Printf("Unable to render font text '%v': %v", text, err)
@@ -53,7 +55,9 @@ func TextWidth(font *ttf.Font, text string) int {
     defer surface.Free()
     return int(surface.W)
 }
+*/
 
+/*
 func WriteFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) error {
     surface, err := font.RenderUTF8Blended(message, color)
     if err != nil {
@@ -72,7 +76,9 @@ func WriteFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message str
 
     return CopyTexture(texture, renderer, surfaceBounds.Max.X, surfaceBounds.Max.Y, x, y)
 }
+*/
 
+/*
 func CopyTexture(texture *sdl.Texture, renderer *sdl.Renderer, width int, height int, x int, y int) error {
     sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(width), H: int32(height)}
     destRect := sourceRect
@@ -81,6 +87,7 @@ func CopyTexture(texture *sdl.Texture, renderer *sdl.Renderer, width int, height
 
     return renderer.Copy(texture, &sourceRect, &destRect)
 }
+*/
 
 type RenderLayerList []RenderLayer
 
@@ -97,10 +104,13 @@ func (list RenderLayerList) Less(a int, b int) bool {
 }
 
 type RenderInfo struct {
+    Screen *ebiten.Image
+    /*
     Renderer *sdl.Renderer
     Font *ttf.Font
     SmallFont *ttf.Font
     Window *sdl.Window
+    */
 }
 
 type RenderLayer interface {
@@ -190,10 +200,13 @@ func (manager *RenderManager) RenderAll(info RenderInfo) error {
 /* page 303 of computer graphics and geometric modeling: implementation & algorithms (vol 1)
  * https://isidore.co/calibre#book_id=5588&panel=book_details
  */
-func rgb2hsv(color sdl.Color) (float32, float32, float32) {
-    r := float64(color.R) / 255.0
-    g := float64(color.G) / 255.0
-    b := float64(color.B) / 255.0
+// FIXME: replace with colorconv library
+func rgb2hsv(col color.Color) (float32, float32, float32) {
+    return 0, 0, 0
+    /*
+    r := float64(col.R) / 255.0
+    g := float64(col.G) / 255.0
+    b := float64(col.B) / 255.0
 
     epsilon := 0.001
 
@@ -224,6 +237,7 @@ func rgb2hsv(color sdl.Color) (float32, float32, float32) {
     }
 
     return float32(h), float32(s), float32(v)
+    */
 }
 
 /* input: h: 0-360, s: 0-1, v: 0-1
@@ -297,6 +311,7 @@ func clamp(v float32, low float32, high float32) float32 {
 /* smoothly interpolate from start to end given a maximum of steps. if step > steps, then the color
  * will just be the end color.
  */
+ /*
 func InterpolateColor(start sdl.Color, end sdl.Color, steps int, step int) sdl.Color {
     if step <= 0 {
         return start
@@ -318,6 +333,7 @@ func InterpolateColor(start sdl.Color, end sdl.Color, steps int, step int) sdl.C
     r, g, b := hsv2rgb(h, s, v)
     return sdl.Color{R: uint8(clamp(r*255, 0, 255)), G: uint8(clamp(g*255, 0, 255)), B: uint8(clamp(b*255, 0, 255)), A: 255}
 }
+*/
 
 /* smoothly interpolate between two colors. clock should be a monotonically increasing value.
  * speed governs how fast the change will take place where speed=2 will quickly bounce back and
@@ -325,7 +341,9 @@ func InterpolateColor(start sdl.Color, end sdl.Color, steps int, step int) sdl.C
  * speed is a period such that after 'speed' clocks the color will return to the start color.
  * thus, at half a period the color will be the end color.
  */
-func Glow(start sdl.Color, end sdl.Color, speed float32, clock uint64) sdl.Color {
+func Glow(start color.Color, end color.Color, speed float32, clock uint64) color.Color {
+    // FIXME
+    /*
     startH, startS, startV := rgb2hsv(start)
     endH, endS, endV := rgb2hsv(end)
 
@@ -335,8 +353,11 @@ func Glow(start sdl.Color, end sdl.Color, speed float32, clock uint64) sdl.Color
 
     r, g, b := hsv2rgb(h, s, v)
     return sdl.Color{R: uint8(clamp(r*255, 0, 255)), G: uint8(clamp(g*255, 0, 255)), B: uint8(clamp(b*255, 0, 255)), A: 255}
+    */
+    return start
 }
 
+/*
 func RasterizeTriangle(x1 int, y1 int, x2 int, y2 int, x3 int, y3 int, color sdl.Color) (*sdl.Surface, error) {
     // normalize points first
     minX := min(x1, x2, x3)
@@ -405,7 +426,9 @@ func RasterizeTriangle(x1 int, y1 int, x2 int, y2 int, x3 int, y3 int, color sdl
 
     return surface, err
 }
+*/
 
+/*
 func DrawEquilateralTriange(renderer *sdl.Renderer, x int, y int, size float64, angle float64, color sdl.Color) error {
     x1 := float64(x) + math.Cos(angle * math.Pi / 180) * size
     y1 := float64(y) - math.Sin(angle * math.Pi / 180) * size
@@ -430,15 +453,16 @@ func DrawEquilateralTriange(renderer *sdl.Renderer, x int, y int, size float64, 
 
     return CopyTexture(texture, renderer, int(surface.W), int(surface.H), int(min(x1, x2, x3)), int(min(y1, y2, y3)))
 
-    /*
+    / *
 
     if !gfx.FilledTrigonColor(renderer, int32(x1), int32(y1), int32(x2), int32(y2), int32(x3), int32(y3), color) {
         return errors.New("Unable to render triangle")
     } else {
         return nil
     }
-    */
+    * /
 }
+*/
 
 type Coordinates struct {
     UpperLeftX int
@@ -466,6 +490,7 @@ func (coords Coordinates) MaxY() int {
 type GuiRenderer func(coords Coordinates)
 
 /* draw a box that clips everything drawn inside of it by the bounds. the box has a 1px white border around it */
+/*
 func Box1(x int, y int, width int, height int, renderer *sdl.Renderer, render GuiRenderer){
     buffer := 1
     renderer.SetClipRect(&sdl.Rect{X: int32(x+buffer), Y: int32(y+buffer), W: int32(width-buffer*2), H: int32(height-buffer*2)})
@@ -481,3 +506,4 @@ func Box1(x int, y int, width int, height int, renderer *sdl.Renderer, render Gu
     renderer.SetDrawColor(255, 255, 255, 255)
     renderer.DrawRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(width), H: int32(height)})
 }
+*/

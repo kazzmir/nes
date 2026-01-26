@@ -11,8 +11,6 @@ import (
     "sync"
     "github.com/kazzmir/nes/util"
     nes "github.com/kazzmir/nes/lib"
-    "github.com/veandco/go-sdl2/sdl"
-    "github.com/veandco/go-sdl2/ttf"
 )
 
 type NSFRenderState struct {
@@ -25,6 +23,7 @@ type NSFRenderState struct {
     MaxTrack int
 }
 
+/*
 func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) error {
     surface, err := font.RenderUTF8Blended(message, color)
     if err != nil {
@@ -50,14 +49,16 @@ func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message str
 
     return nil
 }
+*/
 
+/*
 func runAudio(audioDevice sdl.AudioDeviceID, audio chan []float32){
     var buffer bytes.Buffer
     for samples := range audio {
         // log.Printf("Prepare audio to queue")
         // log.Printf("Enqueue data %v", samples)
         buffer.Reset()
-        /* convert []float32 into []byte */
+        / * convert []float32 into []byte * /
         for _, sample := range samples {
             binary.Write(&buffer, binary.LittleEndian, sample)
         }
@@ -69,6 +70,7 @@ func runAudio(audioDevice sdl.AudioDeviceID, audio chan []float32){
         }
     }
 }
+*/
 
 type NSFPlayerActions int
 const (
@@ -85,6 +87,9 @@ func RunNSF(path string) error {
         return err
     }
 
+    _ = nsfFile
+
+    /*
     // force a software renderer
     if !util.HasGlxinfo() {
         sdl.Do(func(){
@@ -106,7 +111,7 @@ func RunNSF(path string) error {
     var window *sdl.Window
     var renderer *sdl.Renderer
 
-    /* to resize the window */
+    / * to resize the window * /
     // | sdl.WINDOW_RESIZABLE
     sdl.Do(func(){
         window, renderer, err = sdl.CreateWindowAndRenderer(int32(640), int32(480), sdl.WINDOW_SHOWN)
@@ -123,12 +128,12 @@ func RunNSF(path string) error {
         window.Destroy()
     })
 
-    /*
+    / *
     renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
     if err != nil {
         return err
     }
-    */
+    * /
 
     sdl.Do(func(){
         err = ttf.Init()
@@ -139,7 +144,7 @@ func RunNSF(path string) error {
 
     defer sdl.Do(ttf.Quit)
 
-    /* FIXME: choose a font somehow if this one is not found */
+    / * FIXME: choose a font somehow if this one is not found * /
     var font *ttf.Font
     sdl.Do(func(){
         font, err = loadTTF("DejaVuSans.ttf", 20)
@@ -153,7 +158,7 @@ func RunNSF(path string) error {
 
     renderUpdates := make(chan NSFRenderState)
 
-    /* The 'view' loop, that displays whats in the NSFRenderState model */
+    / * The 'view' loop, that displays whats in the NSFRenderState model * /
     go func(){
         white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
         red := sdl.Color{R:255, G: 0, B: 0, A: 255}
@@ -255,7 +260,7 @@ func RunNSF(path string) error {
 
     const AudioSampleRate float32 = 44100
 
-    /* The 'controller' loop, that updates the 'renderState' model */
+    / * The 'controller' loop, that updates the 'renderState' model * /
     go func(){
         var renderState NSFRenderState
         renderState.SongName = nsfFile.SongName
@@ -320,7 +325,7 @@ func RunNSF(path string) error {
                             renderState.Paused = false
                             renderState.Track = newTrack
                             renderState.PlayTime = 0
-                            /* FIXME: in go 1.15 */
+                            / * FIXME: in go 1.15 * /
                             // second.Reset(1 * time.Second)
 
                             playCancel()
@@ -351,7 +356,7 @@ func RunNSF(path string) error {
 
     go func(){
         <-quit.Done()
-        /* FIXME: close this channel after writers are guaranteed not to be using it */
+        / * FIXME: close this channel after writers are guaranteed not to be using it * /
         close(audioOut)
     }()
 
@@ -407,4 +412,6 @@ func RunNSF(path string) error {
     waiter.Wait()
 
     return err
+    */
+    return nil
 }

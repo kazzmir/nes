@@ -24,9 +24,7 @@ import (
     nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/util"
 
-    "github.com/veandco/go-sdl2/sdl"
-    "github.com/veandco/go-sdl2/mix"
-    "github.com/veandco/go-sdl2/ttf"
+    "github.com/hajimehoshi/ebiten/v2"
 
     "encoding/binary"
     "bytes"
@@ -45,6 +43,7 @@ import (
     // rdebug "runtime/debug"
 )
 
+/*
 func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     var audioSpec sdl.AudioSpec
     var obtainedSpec sdl.AudioSpec
@@ -64,6 +63,7 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     })
     return device, err
 }
+*/
 
 
 func stripExtension(path string) string {
@@ -106,9 +106,10 @@ type AudioQueryEnabled struct {
     Response chan bool
 }
 
-func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audioActions <-chan AudioActions, mainQuit context.Context) func() {
+func makeAudioWorker(audio <-chan []float32, audioActions <-chan AudioActions, mainQuit context.Context) func() {
+    /* FIXME convert to ebiten
     if audioDevice != 0 {
-        /* runNES will generate arrays of samples that we enqueue into the SDL audio system */
+        / * runNES will generate arrays of samples that we enqueue into the SDL audio system * /
         return func(){
             // var buffer bytes.Buffer
             var audioBytes []byte
@@ -132,7 +133,7 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
                         // log.Printf("Prepare audio to queue")
                         // log.Printf("Enqueue data %v", samples)
                         // buffer.Reset()
-                        /* convert []float32 into []byte */
+                        / * convert []float32 into []byte * /
                         // slow method that does allocations
                         // binary.Write(&buffer, binary.LittleEndian, samples)
 
@@ -175,11 +176,14 @@ func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audi
             }
         }
     }
+    */
+    return func(){}
 }
 
 /* must be called in a sdl.Do */
-func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat gfx.PixelFormat, renderer *sdl.Renderer) error {
+func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat gfx.PixelFormat, out *ebiten.Image) error {
 
+    /*
     pixels := C.CBytes(raw_pixels)
     defer C.free(pixels)
 
@@ -188,9 +192,9 @@ func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat gfx
 
     // pixelFormat := sdl.PIXELFORMAT_ABGR8888
 
-    /* pixelFormat should be ABGR8888 on little-endian (x86) and
+    / * pixelFormat should be ABGR8888 on little-endian (x86) and
      * RBGA8888 on big-endian (arm)
-     */
+     * /
 
     surface, err := sdl.CreateRGBSurfaceWithFormatFrom(pixels, int32(width), int32(height), int32(depth), int32(pitch), uint32(pixelFormat))
     if err != nil {
@@ -220,6 +224,7 @@ func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat gfx
     }
 
     renderer.SetLogicalSize(0, 0)
+    */
 
     return nil
 }
@@ -269,6 +274,8 @@ func (layer *EmulatorMessageLayer) ZIndex() int {
 }
 
 func (layer *EmulatorMessageLayer) Render(renderInfo gfx.RenderInfo) error {
+    // FIXME
+    /*
     windowWidth, windowHeight := renderInfo.Window.GetSize()
 
     font := renderInfo.SmallFont
@@ -285,6 +292,7 @@ func (layer *EmulatorMessageLayer) Render(renderInfo gfx.RenderInfo) error {
             x := int(windowWidth) - 100
             remaining := message.DeathTime.Sub(now)
             alpha := 255
+
             white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
             red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
 
@@ -297,7 +305,7 @@ func (layer *EmulatorMessageLayer) Render(renderInfo gfx.RenderInfo) error {
                 if alpha > 255 {
                     alpha = 255
                 }
-                /* strangely if alpha=0 it renders without transparency so the pixels are fully white */
+                / * strangely if alpha=0 it renders without transparency so the pixels are fully white * /
                 if alpha < 1 {
                     alpha = 1
                 }
@@ -311,6 +319,7 @@ func (layer *EmulatorMessageLayer) Render(renderInfo gfx.RenderInfo) error {
             y -= font.Height() + 2
         }
     }
+            */
 
     return nil
 }
@@ -380,6 +389,7 @@ func (layer *OverlayMessageLayer) Render(info gfx.RenderInfo) error {
     return nil
 }
 
+/*
 func getWindowIdFromEvent(event sdl.Event) uint32 {
     switch event.GetType() {
         case sdl.TEXTEDITING:
@@ -406,9 +416,10 @@ func getWindowIdFromEvent(event sdl.Event) uint32 {
 
     log.Printf("Warning: unknown event type: %v", event.GetType())
 
-    /* FIXME: what is the invalid window id */
+    / * FIXME: what is the invalid window id * /
     return 0
 }
+*/
 
 type ReplayKeysInput struct {
     Cpu *nes.CPUState
@@ -521,6 +532,7 @@ func makeReplayKeys(cpu *nes.CPUState, replayKeysPath string) (*ReplayKeysInput,
     }, nil
 }
 
+/*
 func loadTTF(path string, size int) (*ttf.Font, error) {
     file, err := data.OpenFile(path)
     if err != nil {
@@ -556,6 +568,7 @@ func loadTTF(path string, size int) (*ttf.Font, error) {
         return out, nil
     }
 }
+*/
 
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
     randomSeed := time.Now().UnixNano()
@@ -718,6 +731,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         log.Printf(" Max texture height: %v\n", renderInfo.MaxTextureHeight)
     }
    
+    /*
     audioDevice, err := setupAudio(AudioSampleRate)
     if err != nil {
         log.Printf("Warning: could not set up audio: %v", err)
@@ -727,6 +741,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         log.Printf("Opened SDL audio device %v", audioDevice)
         sdl.PauseAudioDevice(audioDevice, false)
     }
+    */
 
     var waiter sync.WaitGroup
 
@@ -915,7 +930,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     audioInput := (<-chan []float32)(audioChannel)
     audioOutput := (chan<- []float32)(audioChannel)
 
-    go makeAudioWorker(audioDevice, audioInput, audioActionsInput, mainQuit)()
+    go makeAudioWorker(audioInput, audioActionsInput, mainQuit)()
 
     emulatorKeys := common.LoadEmulatorKeys()
     input := &common.SDLKeyboardButtons{
@@ -1156,6 +1171,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         return err
     }
 
+    /*
     events := make(chan sdl.Event, 20)
 
     handleOneEvent := func(event sdl.Event){
@@ -1185,7 +1201,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                 }
 
-                /*
+                / *
                 width, height := window.GetSize()
                 / * Not great but tolerate not updating the system when the window changes * /
                 select {
@@ -1193,7 +1209,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     default:
                         log.Printf("Warning: dropping a window event")
                 }
-                */
+                * /
             case sdl.TEXTINPUT, sdl.TEXTEDITING:
                 useWindowId := getWindowIdFromEvent(event)
 
@@ -1242,7 +1258,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         return
                     }
 
-                    /* Pass input to nes */
+                    / * Pass input to nes * /
                     input.HandleEvent(keyboard_event)
 
                     switch keyboard_event.Keysym.Sym {
@@ -1356,8 +1372,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 }
         }
     }
+    */
 
     /* Process events */
+    /*
     go func(){
         for {
             select {
@@ -1368,22 +1386,25 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
         }
     }()
+    */
 
     /* This function executes in a sdl.Do context */
+    /*
     eventFunction := func(){
         event := sdl.WaitEventTimeout(1)
         if event != nil {
             // log.Printf("Event %+v\n", event)
             events <- event
-            /*
+            / *
             select {
                 case events <- event:
                 default:
                     log.Printf("Dropping event %+v", event)
             }
-            */
+            * /
         }
     }
+    */
 
     for mainQuit.Err() == nil {
         select {
@@ -1397,7 +1418,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     default:
                 }
             default:
-                sdl.Do(eventFunction)
+                // sdl.Do(eventFunction)
         }
     }
 
@@ -1408,6 +1429,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 }
 
 
+/*
 func get_pixel_format(format uint32) string {
     switch format {
         case sdl.PIXELFORMAT_BGR888: return "BGR888"
@@ -1418,6 +1440,7 @@ func get_pixel_format(format uint32) string {
 
     return fmt.Sprintf("%v?", format)
 }
+*/
 
 type Arguments struct {
     NESPath string
@@ -1543,6 +1566,10 @@ func main(){
         return
     }
 
+    ebiten.SetWindowTitle("NES Emulator")
+    ebiten.SetWindowSize(nes.VideoWidth * arguments.WindowSizeMultiple, (nes.VideoHeight - nes.OverscanPixels * 2) * arguments.WindowSizeMultiple)
+    ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+
     /*
     go func(){
         var stats rdebug.GCStats
@@ -1565,27 +1592,21 @@ func main(){
     }
 
     if nes.IsNESFile(arguments.NESPath) {
-        sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
-            if err != nil {
-                log.Printf("Error: %v\n", err)
-            }
-        })
+        err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
+        if err != nil {
+            log.Printf("Error: %v\n", err)
+        }
     } else if nes.IsNSFFile(arguments.NESPath) {
-        sdl.Main(func (){
-            err := RunNSF(arguments.NESPath)
-            if err != nil {
-                log.Printf("Error: %v\n", err)
-            }
-        })
+        err := RunNSF(arguments.NESPath)
+        if err != nil {
+            log.Printf("Error: %v\n", err)
+        }
     } else {
         /* Open up the loading menu immediately */
-        sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
-            if err != nil {
-                log.Printf("Error: %v\n", err)
-            }
-        })
+        err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
+        if err != nil {
+            log.Printf("Error: %v\n", err)
+        }
     }
     log.Printf("Bye")
 

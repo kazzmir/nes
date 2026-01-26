@@ -23,14 +23,15 @@ import (
     "image/png"
     "image/color"
 
-    "github.com/veandco/go-sdl2/sdl"
-    "github.com/veandco/go-sdl2/ttf"
     "github.com/kazzmir/nes/cmd/nes/menu/filterlist"
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/thread"
     "github.com/kazzmir/nes/data"
     nes "github.com/kazzmir/nes/lib"
+
+    "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 type RomId uint64
@@ -871,7 +872,7 @@ func maxTextWidth(font *ttf.Font, maxWidth int) int {
     return maxWidth / size
 }
 
-func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font *ttf.Font, smallFont *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager) error {
+func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font text.Face, smallFont text.Face, screen *ebiten.Image) error {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
