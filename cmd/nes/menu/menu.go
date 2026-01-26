@@ -200,18 +200,23 @@ func (manager *TextureManager) RenderText(font *ttf.Font, renderer *sdl.Renderer
 */
 
 /* an interactable button */
-/*
-func drawButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, textureId TextureId, x int, y int, message string, color sdl.Color) (int, int, error) {
-    buttonInside := sdl.Color{R: 64, G: 64, B: 64, A: 255}
-    buttonOutline := sdl.Color{R: 32, G: 32, B: 32, A: 255}
-
-    info, err := textureManager.RenderText(font, renderer, message, color, textureId)
-    if err != nil {
-        return 0, 0, err
-    }
+func drawButton(font text.Face, out *ebiten.Image, x float64, y float64, message string, col color.Color) (float64, float64, error) {
+    buttonInside := color.RGBA{R: 64, G: 64, B: 64, A: 255}
+    buttonOutline := color.RGBA{R: 32, G: 32, B: 32, A: 255}
 
     margin := 12
 
+    width, height := text.Measure(message, font, 1)
+
+    vector.FillRect(out, float32(x), float32(y), float32(width) + float32(margin), float32(height) + float32(margin), buttonOutline, true)
+    vector.FillRect(out, float32(x + 1), float32(y + 1), float32(width) + float32(margin) - 3, float32(height) + float32(margin) - 3, buttonInside, true)
+
+    var options text.DrawOptions
+    options.GeoM.Translate(x + float64(margin) / 2, y + float64(margin) / 2)
+    options.ColorScale.ScaleWithColor(col)
+    text.Draw(out, message, font, &options)
+
+    /*
     renderer.SetDrawColor(buttonOutline.R, buttonOutline.G, buttonOutline.B, buttonOutline.A)
     renderer.FillRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(info.Width + margin), H: int32(info.Height + margin)})
 
@@ -219,10 +224,10 @@ func drawButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureM
     renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(info.Width + margin - 3), H: int32(info.Height + margin - 3)})
 
     err = gfx.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
+    */
 
-    return info.Width, info.Height, err
+    return width, height, nil
 }
-*/
 
 /*
 func drawFixedWidthButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, textureId TextureId, width int, x int, y int, message string, color sdl.Color) (int, int, error) {
@@ -516,7 +521,7 @@ func MakeMenu(mainQuit context.Context, font text.Face) Menu {
 type MenuItem interface {
     Text() string
     /* returns next x,y coordinate where rendering can occur, and a possible error */
-    Render(text.Face, *ebiten.Image, int, int, bool, uint64) (int, int, error)
+    Render(text.Face, *ebiten.Image, float64, float64, bool, uint64) (float64, float64, error)
 }
 
 type MenuSpace struct {
@@ -527,8 +532,8 @@ func (space *MenuSpace) Text() string {
     return ""
 }
 
-func (space *MenuSpace) Render(font text.Face, out *ebiten.Image, x int, y int, selected bool, clock uint64) (int, int, error) {
-    return x + space.Space, y, nil
+func (space *MenuSpace) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
+    return x + float64(space.Space), y, nil
 }
 
 type MenuNextLine struct {
@@ -538,7 +543,7 @@ func (line *MenuNextLine) Text() string {
     return "\n"
 }
 
-func (line *MenuNextLine) Render(font text.Face, out *ebiten.Image, x int, y int, selected bool, clock uint64) (int, int, error) {
+func (line *MenuNextLine) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
     /* Force the renderer to go to the next line */
     return 999999999, 0, nil
 }
@@ -552,7 +557,7 @@ func (label *MenuLabel) Text() string {
     return label.Label
 }
 
-func (label *MenuLabel) Render(font text.Face, out *ebiten.Image, x int, y int, selected bool, clock uint64) (int, int, error) {
+func (label *MenuLabel) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
     // color := sdl.Color{R: 255, G: 0, B: 0, A: 255}
     /*
     textureId := buttonManager.GetButtonTextureId(textureManager, label.Text(), label.Color)
@@ -598,7 +603,7 @@ func (button *StaticButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
-func (button *StaticButton) Render(font text.Face, out *ebiten.Image, x int, y int, selected bool, clock uint64) (int, int, error) {
+func (button *StaticButton) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
     return _doRenderButton(button, font, out, x, y, selected, clock)
 }
 
@@ -625,7 +630,7 @@ func (toggle *ToggleButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
-func (button *ToggleButton) Render(font text.Face, out *ebiten.Image, x int, y int, selected bool, clock uint64) (int, int, error) {
+func (button *ToggleButton) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
     return _doRenderButton(button, font, out, x, y, selected, clock)
 }
 
@@ -636,24 +641,17 @@ type SubMenuButton struct {
     Func SubMenuFunc
 }
 
-func _doRenderButton(button Button, font text.Face, out *ebiten.Image, x int, y int, selected bool, clock uint64) (int, int, error) {
-    // FIXME
-    /*
-    yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
-    red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
-    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+func _doRenderButton(button Button, font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
+    yellow := color.RGBA{R: 255, G: 255, B: 0, A: 255}
+    red := color.RGBA{R: 255, G: 0, B: 0, A: 255}
+    white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 
-    color := white
+    var use color.Color = white
     if selected {
-        color = gfx.Glow(red, yellow, 15, clock)
+        use = gfx.Glow(red, yellow, 15, clock)
     }
 
-    textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
-    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
-
-    return width, height, err
-    */
-    return 0, 0, nil
+    return drawButton(font, out, x, y, button.Text(), use)
 }
 
 type StaticFixedButtonFunc func(*StaticFixedWidthButton)
@@ -691,7 +689,7 @@ func (button *StaticFixedWidthButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
-func (button *StaticFixedWidthButton) Render(font text.Face, screen *ebiten.Image, x int, y int, selected bool, clock uint64) (int, int, error) {
+func (button *StaticFixedWidthButton) Render(font text.Face, screen *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
     // FIXME
     /*
     yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
@@ -744,7 +742,7 @@ func (button *StaticFixedWidthButton) Render(font text.Face, screen *ebiten.Imag
 }
 
 
-func (button *SubMenuButton) Render(font text.Face, out *ebiten.Image, x int, y int, selected bool, clock uint64) (int, int, error) {
+func (button *SubMenuButton) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
     return _doRenderButton(button, font, out, x, y, selected, clock)
 }
 
@@ -845,7 +843,7 @@ func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
     return menu
 }
 
-func (buttons *MenuButtons) Render(startX int, startY int, font text.Face, renderer *ebiten.Image, clock uint64) (int, int, error) {
+func (buttons *MenuButtons) Render(startX float64, startY float64, font text.Face, renderer *ebiten.Image, clock uint64) (float64, float64, error) {
     buttons.Lock.Lock()
     defer buttons.Lock.Unlock()
 
@@ -854,25 +852,27 @@ func (buttons *MenuButtons) Render(startX int, startY int, font text.Face, rende
     x := startX
     y := startY
 
-    // FIXME
-    /*
+    maxWidth := float64(renderer.Bounds().Dx())
+
     for i, item := range buttons.Items {
-        if x > maxWidth - gfx.TextWidth(font, item.Text()) {
+
+        width, height := text.Measure(item.Text(), font, 1)
+
+        if x > maxWidth - width {
             x = startX
-            y += font.Height() + 20
+            y += height + 20
         }
 
-        width, height, err := item.Render(font, renderer, buttonManager, textureManager, x, y, i == buttons.Selected, clock)
+        itemWidth, _, err := item.Render(font, renderer, x, y, i == buttons.Selected, clock)
 
         // textureId := buttonManager.GetButtonTextureId(textureManager, button.Text(), color)
         // width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, button.Text(), color)
-        x += width + itemDistance
+        x += itemWidth + itemDistance
         _ = height
         if err != nil {
             return x, y, err
         }
     }
-    */
 
     return x, y, nil
 }
@@ -923,7 +923,7 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
     }
 }
 
-func renderLines(screen *ebiten.Image, x int, y int, font text.Face, info string) (int, int, error) {
+func renderLines(screen *ebiten.Image, x float64, y float64, font text.Face, info string) (float64, float64, error) {
     aLength, height := text.Measure("A", font, 1)
     // white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 
@@ -936,7 +936,7 @@ func renderLines(screen *ebiten.Image, x int, y int, font text.Face, info string
             text.Draw(screen, part, font, &options)
             // gfx.WriteFont(font, renderer, x + i * aLength * 20, y, part, white)
         }
-        y += int(height) + 2
+        y += height + 2
     }
 
     return x, y, nil
@@ -945,14 +945,14 @@ func renderLines(screen *ebiten.Image, x int, y int, font text.Face, info string
 func (menu *StaticMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
     
     return func(screen *ebiten.Image) error {
-        startX := 50
+        startX := float64(50)
         _, y, err := menu.Buttons.Render(startX, 50, font, screen, clock)
         // FIXME: handle err
 
         _, height := text.Measure("A", font, 1)
 
         x := startX
-        y += int(height * 3)
+        y += height * 3
 
         _, _, err = renderLines(screen, x, y, smallFont, menu.ExtraInfo)
         return err
