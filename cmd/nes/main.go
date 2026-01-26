@@ -29,7 +29,7 @@ import (
     "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/menu"
     "github.com/kazzmir/nes/cmd/nes/debug"
-    // "github.com/kazzmir/nes/data"
+    "github.com/kazzmir/nes/data"
 
     // rdebug "runtime/debug"
 
@@ -581,43 +581,15 @@ func makeReplayKeys(cpu *nes.CPUState, replayKeysPath string) (*ReplayKeysInput,
     }, nil
 }
 
-/*
-func loadTTF(path string, size int) (*ttf.Font, error) {
-    file, err := data.OpenFile(path)
+func loadFontSource() (*text.GoTextFaceSource, error) {
+    file, err := data.OpenFile("DejaVuSans.ttf")
     if err != nil {
         return nil, err
     }
-
     defer file.Close()
 
-    // make rwops, use OpenFontRW, close rwops
-    memory, err := io.ReadAll(file)
-    if err != nil {
-        return nil, err
-    }
-
-    rwops, err := sdl.RWFromMem(memory)
-    if err != nil {
-        return nil, err
-    }
-
-    // defer rwops.Close()
-
-    out, err := ttf.OpenFontRW(rwops, 1, size)
-    if err != nil {
-        rwops.Close()
-        return nil, err
-    } else {
-        // the memory must exist longer than the rwops. we can't add a finalizer directly to the rwops
-        // because it is not a golang object, but rather allocated by sdl directly using malloc()
-        // instead we add the finalizer to the font, which is going to close the rwops anyway
-        runtime.SetFinalizer(out, func(font *ttf.Font){
-            memory = nil
-        })
-        return out, nil
-    }
+    return text.NewGoTextFaceSource(file)
 }
-*/
 
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
     nesChannel := make(chan NesAction, 10)
@@ -639,108 +611,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         renderOverlayUpdate <- "No ROM loaded"
     }
 
-    // force a software renderer
-    /*
-    if !util.HasGlxinfo() {
-        sdl.Do(func(){
-            sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
-        })
-    }
-    */
-
-    // log.Printf("Initializing SDL")
-
     var err error
     _ = err
-    /*
-    sdl.Do(func(){
-        err = sdl.Init(sdl.INIT_EVERYTHING)
-    })
-    if err != nil {
-        return err
-    }
-    defer sdl.Do(func(){
-        sdl.Quit()
-    })
-
-    sdl.Do(func(){
-        sdl.DisableScreenSaver()
-    })
-    defer sdl.Do(func(){
-        sdl.EnableScreenSaver()
-    })
-    */
 
     log.Printf("Create window")
-    /* to resize the window */
-    /*
-    var window *sdl.Window
-    var renderer *sdl.Renderer
-    */
-
-    /* 7/5/2021: its apparently very important that the window and renderer be created
-     * in the sdl thread via sdl.Do. If the renderer calls are in sdl.Do, then so must
-     * also be the creation of the window and the renderer. Initially I did not have
-     * the creation of the window and renderer in sdl.Do, and thus in opengl mode
-     * the window would not be rendered.
-     */
-     /*
-    sdl.Do(func(){
-        window, renderer, err = sdl.CreateWindowAndRenderer(
-            int32(nes.VideoWidth * windowSizeMultiple),
-            int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple),
-            sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
-
-        if window != nil {
-            window.SetTitle("Nes Emulator")
-        }
-    })
-    */
-
-    /*
-    window, err := sdl.CreateWindow("nes",
-                                    sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
-                                    int32(nes.VideoWidth * windowSizeMultiple),
-                                    int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple),
-                                    sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
-    if err != nil {
-        return err
-    }
-    defer window.Destroy()
-
-    softwareRenderer := true
-    _ = softwareRenderer
-    // renderer, err := sdl.CreateSoftwareRenderer(surface)
-    // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_SOFTWARE)
-
-    log.Printf("Create renderer")
-    / * Create an accelerated renderer * /
-    // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
-    renderer, err := sdl.CreateRenderer(window, -1, 0)
-    */
-
-    /* debug stuff
-    numDrivers, err := sdl.GetNumRenderDrivers()
-    if err != nil {
-        log.Printf("Could not get the number of render drivers\n")
-    } else {
-        for i := 0; i < numDrivers; i++ {
-            var renderInfo sdl.RendererInfo
-            _, err = sdl.GetRenderDriverInfo(0, &renderInfo)
-            if err != nil {
-                log.Printf("Could not get render driver info: %v\n", err)
-            } else {
-                log.Printf("Render driver info %v\n", i + 1)
-                log.Printf(" Name: %v\n", renderInfo.Name)
-                log.Printf(" Flags: %v\n", renderInfo.Flags)
-                log.Printf(" Number of texture formats: %v\n", renderInfo.NumTextureFormats)
-                log.Printf(" Texture formats: %v\n", renderInfo.TextureFormats)
-                log.Printf(" Max texture width: %v\n", renderInfo.MaxTextureWidth)
-                log.Printf(" Max texture height: %v\n", renderInfo.MaxTextureHeight)
-            }
-        }
-    }
-    */
 
     const AudioSampleRate float32 = 44100
 
@@ -756,28 +630,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
     */
 
-    /*
-    renderInfo, err := renderer.GetInfo()
-    if err != nil {
-        log.Printf("Could not get render info from renderer: %v\n", err)
-    } else {
-        log.Printf("Current render info\n")
-        log.Printf(" Name: %v\n", renderInfo.Name)
-        log.Printf(" Flags: %v\n", renderInfo.Flags)
-        log.Printf(" Number of texture formats: %v\n", renderInfo.NumTextureFormats)
-        var buffer bytes.Buffer
-        for texture := uint32(0); texture < renderInfo.NumTextureFormats; texture++ {
-            value := uint(renderInfo.TextureFormats[texture])
-            buffer.WriteString(sdl.GetPixelFormatName(value))
-            buffer.WriteString(" ")
-        }
-        // log.Printf(" Texture formats: %v\n", renderInfo.TextureFormats)
-        log.Printf(" Texture formats: %v\n", buffer.String())
-        log.Printf(" Max texture width: %v\n", renderInfo.MaxTextureWidth)
-        log.Printf(" Max texture height: %v\n", renderInfo.MaxTextureHeight)
-    }
-    */
-   
     /*
     audioDevice, err := setupAudio(AudioSampleRate)
     if err != nil {
@@ -827,28 +679,20 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     log.Printf("Using pixel format %v\n", sdl.GetPixelFormatName(uint(pixelFormat)))
     */
 
-    var font text.Face
-    var smallFont text.Face
-    /*
-    err = ttf.Init()
+    fontSource, err := loadFontSource() 
     if err != nil {
-        return fmt.Errorf("Unable to initialize ttf: %v", err)
+        return fmt.Errorf("Unable to load font source: %v", err)
     }
 
-    defer ttf.Quit()
-
-    font, err := loadTTF("DejaVuSans.ttf", 20)
-    if err != nil {
-        return fmt.Errorf("Unable to load font size 20: %v", err)
+    font := &text.GoTextFace{
+        Source: fontSource,
+        Size: 20,
     }
-    defer font.Close()
 
-    smallFont, err := loadTTF("DejaVuSans.ttf", 15)
-    if err != nil {
-        return fmt.Errorf("Unable to load font size 15: %v", err)
+    smallFont := &text.GoTextFace{
+        Source: fontSource,
+        Size: 15,
     }
-    defer smallFont.Close()
-    */
 
     joystickManager := common.NewJoystickManager()
     /*

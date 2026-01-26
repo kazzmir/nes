@@ -2823,22 +2823,29 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
 
     }
 
-    makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) gfx.RenderFunction {
-        return func(out *ebiten.Image) error {
-            /*
-            white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
-            err := writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3, "NES Emulator", white)
-            err = writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
-            return err
-            */
-            return nil
-        }
+    renderInfo := func(out *ebiten.Image) error {
+        // white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+
+        maxWidth, maxHeight := out.Bounds().Dx(), out.Bounds().Dy()
+
+        var drawOptions text.DrawOptions
+
+        _, height := text.Measure("A", smallFont, 1)
+
+        drawOptions.GeoM.Translate(float64(maxWidth - 130), float64(maxHeight) - height * 3)
+        text.Draw(out, "NES Emulator", smallFont, &drawOptions)
+        drawOptions.GeoM.Translate(0, float64(height + 3))
+        text.Draw(out, "Jon Rafkind", smallFont, &drawOptions)
+
+        // err := writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3, "NES Emulator", white)
+        // err = writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
+        return nil
     }
-    _ = makeDefaultInfoRenderer
 
     draw := func(screen *ebiten.Image){
         baseRenderer(screen)
         renderSnow(screen)
+        renderInfo(screen)
     }
 
     drawManager.PushDraw(draw)
