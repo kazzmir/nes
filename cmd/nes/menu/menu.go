@@ -35,6 +35,7 @@ import (
     "github.com/kazzmir/nes/lib/coroutine"
 
     "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
     "github.com/hajimehoshi/ebiten/v2/vector"
 )
@@ -81,7 +82,9 @@ type Snow struct {
 }
 
 func MakeSnow(screenWidth int) Snow {
-    x := rand.Float32() * float32(screenWidth)
+    trueWidth := float32(screenWidth) * 1.2
+
+    x := rand.Float32() * trueWidth - trueWidth * 0.1
     // y := rand.Float32() * 400
     y := float32(0)
     return Snow{
@@ -92,8 +95,8 @@ func MakeSnow(screenWidth int) Snow {
         truey: y,
         angle: rand.Float32() * 180,
         direction: 1,
-        speed: rand.Float32() * 4 + 1,
-        fallSpeed: rand.Float32() * 2.5 + 0.8,
+        speed: rand.Float32() * 3 + 0.5,
+        fallSpeed: rand.Float32() * 1.3 + 0.2,
     }
 }
 
@@ -2761,20 +2764,63 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
         return nil
     }
 
-    makeSnowRenderer := func() gfx.RenderFunction {
-        // snowCopy := gfx.CopyArray(snowflakes)
-        return func(out *ebiten.Image) error {
-            for _, snow := range snow {
-                c := snow.color
-                vector.FillCircle(out, snow.x, snow.y, float32(1), color.NRGBA{R: c, G: c, B: c, A: 255}, true)
-
-                /*
-                renderer.SetDrawColor(c, c, c, 255)
-                renderer.DrawPoint(int32(snow.x), int32(snow.y))
-                */
-            }
-            return nil
+    renderSnow := func(out *ebiten.Image) error {
+        for _, snow := range snow {
+            c := snow.color
+            vector.FillCircle(out, snow.x, snow.y, float32(1), color.NRGBA{R: c, G: c, B: c, A: 255}, true)
         }
+        return nil
+    }
+
+    wind := (rand.Float32() - 0.5) / 2
+
+    updateSnow := func(windowSize common.WindowSize){
+        if len(snow) < 300 {
+            snow = append(snow, MakeSnow(windowSize.X))
+        }
+
+        maxWind := float32(0.8)
+
+        wind += (rand.Float32() - 0.5) / 6
+        if wind < -maxWind {
+            wind = -maxWind
+        }
+        if wind > maxWind {
+            wind = maxWind
+        }
+
+        for i := 0; i < len(snow); i++ {
+            snow[i].truey += snow[i].fallSpeed
+            snow[i].truex += wind
+            snow[i].x = snow[i].truex + float32(math.Cos(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
+            // snow[i].y = snow[i].truey + float32(-math.Sin(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
+            snow[i].y = snow[i].truey
+            snow[i].angle += float32(snow[i].direction) * snow[i].speed
+
+            if snow[i].y > float32(windowSize.Y) {
+                snow[i] = MakeSnow(windowSize.X)
+            }
+
+            if snow[i].angle < 0 {
+                snow[i].angle = 0
+                snow[i].direction = -snow[i].direction
+            }
+            if snow[i].angle >= 180  {
+                snow[i].angle = 180
+                snow[i].direction = -snow[i].direction
+            }
+
+            newColor := int(snow[i].color) + rand.N(11) - 5
+            if newColor > 255 {
+                newColor = 255
+            }
+            if newColor < 40 {
+                newColor = 40
+            }
+
+            snow[i].color = uint8(newColor)
+        }
+
     }
 
     makeDefaultInfoRenderer := func(maxWidth int, maxHeight int) gfx.RenderFunction {
@@ -2790,102 +2836,44 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
     }
     _ = makeDefaultInfoRenderer
 
-    wind := rand.Float32() - 0.5
-    snowRenderer := makeSnowRenderer()
-
     draw := func(screen *ebiten.Image){
         baseRenderer(screen)
-        snowRenderer(screen)
+        renderSnow(screen)
     }
 
     drawManager.PushDraw(draw)
     defer drawManager.PopDraw()
-
-    log.Printf("Making main menu")
 
     currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, emulatorKeys)
 
     var clock uint64 = 0
 
     /* Reset the default renderer */
-    log.Printf("main menu loop")
-    for {
-        // updateRender := false
-        select {
-            case <-menu.quit.Done():
-                return
+    for menu.quit.Err() == nil {
+        clock += 1
 
-            case input := <-userInput:
-                currentMenu = currentMenu.Input(input)
-                /* Its slightly more efficient to tell the renderer to perform a render operation rather than
-                 * to set updateRender=true which forces the chain of render functions to be recreated.
-                 */
-                select {
-                    case renderNow <- true:
-                }
-
-                /*
-            case event := <-rawEvents:
-                currentMenu.RawInput(event)
-                */
-
-            case <-snowTicker.C:
-                clock += 1
-
-                windowSize := drawManager.GetWindowSize()
-
-                /* FIXME: move this code somewhere else to keep the main Run() method small */
-                if len(snow) < 300 {
-                    snow = append(snow, MakeSnow(windowSize.X))
-                }
-
-                wind += (rand.Float32() - 0.5) / 4
-                if wind < -1 {
-                    wind = -1
-                }
-                if wind > 1 {
-                    wind = 1
-                }
-
-                for i := 0; i < len(snow); i++ {
-                    snow[i].truey += snow[i].fallSpeed
-                    snow[i].truex += wind
-                    snow[i].x = snow[i].truex + float32(math.Cos(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
-                    // snow[i].y = snow[i].truey + float32(-math.Sin(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
-                    snow[i].y = snow[i].truey
-                    snow[i].angle += float32(snow[i].direction) * snow[i].speed
-
-                    if snow[i].y > float32(windowSize.Y) {
-                        snow[i] = MakeSnow(windowSize.X)
-                    }
-
-                    if snow[i].angle < 0 {
-                        snow[i].angle = 0
-                        snow[i].direction = -snow[i].direction
-                    }
-                    if snow[i].angle >= 180  {
-                        snow[i].angle = 180
-                        snow[i].direction = -snow[i].direction
-                    }
-
-                    newColor := int(snow[i].color) + rand.N(11) - 5
-                    if newColor > 255 {
-                        newColor = 255
-                    }
-                    if newColor < 40 {
-                        newColor = 40
-                    }
-
-                    snow[i].color = uint8(newColor)
-                }
-
-                snowRenderer = makeSnowRenderer()
-                // updateRender = true
-            default:
-                if yield() != nil {
-                    return
-                }
+        keys := inpututil.AppendJustPressedKeys(nil)
+        for _, key := range keys {
+            switch key {
+                case ebiten.KeyLeft, ebiten.KeyH:
+                    currentMenu = currentMenu.Input(MenuPrevious)
+                case ebiten.KeyRight, ebiten.KeyL:
+                    currentMenu = currentMenu.Input(MenuNext)
+                case ebiten.KeyUp, ebiten.KeyK:
+                    currentMenu = currentMenu.Input(MenuUp)
+                case ebiten.KeyDown, ebiten.KeyJ:
+                    currentMenu = currentMenu.Input(MenuDown)
+                case ebiten.KeyEnter:
+                    currentMenu = currentMenu.Input(MenuSelect)
+            }
         }
+
+        updateSnow(drawManager.GetWindowSize())
+
+        if yield() != nil {
+            return
+        }
+    }
 
         /*
         if updateRender {
@@ -2902,16 +2890,10 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
             }
         }
         */
-    }
+    // }
 
     /*
     sdl.Do(func(){
-        width, height := window.GetSize()
-        windowSizeUpdates <- common.WindowSize{
-            X: int(width),
-            Y: int(height),
-        }
-
         // log.Printf("Found joysticks: %v\n", sdl.NumJoysticks())
         for i := 0; i < sdl.NumJoysticks(); i++ {
             // guid := sdl.JoystickGetDeviceGUID(i)
@@ -2924,15 +2906,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
         }
     })
     */
-
-
-    // log.Printf("Running the menu")
-    /*
-    for menu.quit.Err() == nil {
-        sdl.Do(eventFunction)
-    }
-    */
-    // log.Printf("Menu is done")
 }
 
 func (menu *Menu) Close() {
