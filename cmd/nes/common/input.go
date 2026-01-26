@@ -9,6 +9,8 @@ import (
 
     nes "github.com/kazzmir/nes/lib"
     // "runtime/debug"
+
+    "github.com/hajimehoshi/ebiten/v2"
 )
 
 type JoystickManager struct {
@@ -484,36 +486,34 @@ func (combine *CombineButtons) Get() nes.ButtonMapping {
 }
 
 type EmulatorKeys struct {
-    /*
-    Turbo sdl.Keycode
-    Pause sdl.Keycode
-    HardReset sdl.Keycode
-    PPUDebug sdl.Keycode
-    SlowDown sdl.Keycode
-    SpeedUp sdl.Keycode
-    Normal sdl.Keycode
-    StepFrame sdl.Keycode
-    Record sdl.Keycode
-    SaveState sdl.Keycode
-    LoadState sdl.Keycode
-    Console sdl.Keycode
+    Turbo ebiten.Key
+    Pause ebiten.Key
+    HardReset ebiten.Key
+    PPUDebug ebiten.Key
+    SlowDown ebiten.Key
+    SpeedUp ebiten.Key
+    Normal ebiten.Key
+    StepFrame ebiten.Key
+    Record ebiten.Key
+    SaveState ebiten.Key
+    LoadState ebiten.Key
+    Console ebiten.Key
 
-    ButtonA sdl.Keycode
-    ButtonB sdl.Keycode
-    ButtonTurboA sdl.Keycode
-    ButtonTurboB sdl.Keycode
-    ButtonSelect sdl.Keycode
-    ButtonStart sdl.Keycode
-    ButtonUp sdl.Keycode
-    ButtonDown sdl.Keycode
-    ButtonLeft sdl.Keycode
-    ButtonRight sdl.Keycode
-    */
+    ButtonA ebiten.Key
+    ButtonB ebiten.Key
+    ButtonTurboA ebiten.Key
+    ButtonTurboB ebiten.Key
+    ButtonSelect ebiten.Key
+    ButtonStart ebiten.Key
+    ButtonUp ebiten.Key
+    ButtonDown ebiten.Key
+    ButtonLeft ebiten.Key
+    ButtonRight ebiten.Key
 }
 
 type EmulatorKey struct {
     Name string
-    // Code sdl.Keycode
+    Code ebiten.Key
 }
 
     /*
@@ -551,8 +551,6 @@ func (keys *EmulatorKeys) UpdateAll(other EmulatorKeys){
 }
 
 func (keys EmulatorKeys) AllKeys() []EmulatorKey {
-    return nil
-    /*
     return []EmulatorKey{
         EmulatorKey{Name: "A", Code: keys.ButtonA},
         EmulatorKey{Name: "B", Code: keys.ButtonB},
@@ -578,7 +576,6 @@ func (keys EmulatorKeys) AllKeys() []EmulatorKey {
         EmulatorKey{Name: "LoadState", Code: keys.LoadState},
         EmulatorKey{Name: "Console", Code: keys.Console},
     }
-    */
 }
 
 func LoadEmulatorKeys() EmulatorKeys {
@@ -657,33 +654,29 @@ func SaveEmulatorKeys(keys EmulatorKeys){
 }
 
 func DefaultEmulatorKeys() EmulatorKeys {
-    return EmulatorKeys{}
-
-    /*
     return EmulatorKeys {
-        Turbo: sdl.K_BACKQUOTE,
-        Pause: sdl.K_SPACE,
-        HardReset: sdl.K_r,
-        PPUDebug: sdl.K_p,
-        SlowDown: sdl.K_MINUS,
-        SpeedUp: sdl.K_EQUALS,
-        Normal: sdl.K_0,
-        StepFrame: sdl.K_o,
-        Record: sdl.K_m,
-        SaveState: sdl.K_1,
-        LoadState: sdl.K_2,
-        Console: sdl.K_TAB,
+        Turbo: ebiten.KeyBackquote,
+        Pause: ebiten.KeySpace,
+        HardReset: ebiten.KeyR,
+        PPUDebug: ebiten.KeyP,
+        SlowDown: ebiten.KeyMinus,
+        SpeedUp: ebiten.KeyEqual,
+        Normal: ebiten.Key0,
+        StepFrame: ebiten.KeyO,
+        Record: ebiten.KeyM,
+        SaveState: ebiten.Key1,
+        LoadState: ebiten.Key2,
+        Console: ebiten.KeyTab,
 
-        ButtonA: sdl.K_a,
-        ButtonB: sdl.K_s,
-        ButtonTurboA: sdl.K_d,
-        ButtonTurboB: sdl.K_f,
-        ButtonSelect: sdl.K_q,
-        ButtonStart: sdl.K_RETURN,
-        ButtonUp:  sdl.K_UP,
-        ButtonDown: sdl.K_DOWN,
-        ButtonLeft: sdl.K_LEFT,
-        ButtonRight: sdl.K_RIGHT,
+        ButtonA: ebiten.KeyA,
+        ButtonB: ebiten.KeyS,
+        ButtonTurboA: ebiten.KeyD,
+        ButtonTurboB: ebiten.KeyF,
+        ButtonSelect: ebiten.KeyQ,
+        ButtonStart: ebiten.KeyEnter,
+        ButtonUp:  ebiten.KeyUp,
+        ButtonDown: ebiten.KeyDown,
+        ButtonLeft: ebiten.KeyLeft,
+        ButtonRight: ebiten.KeyRight,
     }
-    */
 }

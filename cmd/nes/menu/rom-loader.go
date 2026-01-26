@@ -881,7 +881,7 @@ func maxTextWidth(face text.Face, maxWidth int) int {
     return 1
 }
 
-func (loader *RomLoaderState) Render(maxWidth int, maxHeight int, font text.Face, smallFont text.Face, screen *ebiten.Image) error {
+func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen *ebiten.Image) error {
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
     defer loader.Lock.Unlock()

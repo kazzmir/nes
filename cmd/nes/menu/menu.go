@@ -15,11 +15,11 @@ import (
     "math"
     "math/rand/v2"
     "time"
-    // "bytes"
+    "bytes"
     "log"
     "sync"
-    // "strings"
-    // "text/template"
+    "strings"
+    "text/template"
     // "path/filepath"
 
     "crypto/md5"
@@ -818,7 +818,7 @@ func isAudioEnabled(quit context.Context, programActions chan<- common.ProgramAc
 type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
     Input(input MenuInput) SubMenu
-    MakeRenderer(maxWidth int, maxHeight int, font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction
+    MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction
     UpdateWindowSize(int, int)
     // RawInput(sdl.Event)
     PlayBeep()
@@ -845,7 +845,7 @@ func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
     return menu
 }
 
-func (buttons *MenuButtons) Render(startX int, startY int, maxWidth int, maxHeight int, font text.Face, renderer *ebiten.Image, clock uint64) (int, int, error) {
+func (buttons *MenuButtons) Render(startX int, startY int, font text.Face, renderer *ebiten.Image, clock uint64) (int, int, error) {
     buttons.Lock.Lock()
     defer buttons.Lock.Unlock()
 
@@ -923,39 +923,39 @@ func (menu *StaticMenu) Input(input MenuInput) SubMenu {
     }
 }
 
-/*
-func renderLines(renderer *sdl.Renderer, x int, y int, font *ttf.Font, info string) (int, int, error) {
-    aLength := gfx.TextWidth(font, "A")
-    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+func renderLines(screen *ebiten.Image, x int, y int, font text.Face, info string) (int, int, error) {
+    aLength, height := text.Measure("A", font, 1)
+    // white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 
     for _, line := range strings.Split(info, "\n") {
         parts := strings.Split(line, "\t")
+        var options text.DrawOptions
+        options.GeoM.Translate(float64(x), float64(y))
         for i, part := range parts {
-            gfx.WriteFont(font, renderer, x + i * aLength * 20, y, part, white)
+            options.GeoM.Translate(float64(i) * aLength * 20, 0)
+            text.Draw(screen, part, font, &options)
+            // gfx.WriteFont(font, renderer, x + i * aLength * 20, y, part, white)
         }
-        y += font.Height() + 2
+        y += int(height) + 2
     }
 
     return x, y, nil
 }
-*/
 
-func (menu *StaticMenu) MakeRenderer(maxWidth int, maxHeight int, font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
+func (menu *StaticMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
     
     return func(screen *ebiten.Image) error {
-        // FIXME
-        /*
         startX := 50
-        _, y, err := menu.Buttons.Render(startX, 50, maxWidth, maxHeight, buttonManager, textureManager, font, renderer, clock)
+        _, y, err := menu.Buttons.Render(startX, 50, font, screen, clock)
         // FIXME: handle err
 
-        x := startX
-        y += font.Height() * 3
+        _, height := text.Measure("A", font, 1)
 
-        _, _, err = renderLines(renderer, x, y, smallFont, menu.ExtraInfo)
+        x := startX
+        y += int(height * 3)
+
+        _, _, err = renderLines(screen, x, y, smallFont, menu.ExtraInfo)
         return err
-        */
-        return nil
     }
 }
 
@@ -1463,7 +1463,7 @@ func (menu *JoystickMenu) GetTexture(textureManager *TextureManager, text string
 }
 */
 
-func (menu *JoystickMenu) MakeRenderer(maxWidth int, maxHeight int, font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
+func (menu *JoystickMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
     menu.Lock.Lock()
     defer menu.Lock.Unlock()
 
@@ -1926,9 +1926,9 @@ func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
     }
 }
 
-func (loadRomMenu *LoadRomMenu) MakeRenderer(maxWidth int, maxHeight int, font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
+func (loadRomMenu *LoadRomMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
     return func(out *ebiten.Image) error {
-        return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, smallFont, out)
+        return loadRomMenu.LoaderState.Render(font, smallFont, out)
     }
 }
 
@@ -2014,8 +2014,8 @@ func niceSize(size int64) string {
     return fmt.Sprintf("%v%v", size, last)
 }
 
-func (loader *LoadRomInfoMenu) MakeRenderer(maxWidth int, maxHeight int, font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
-    old := loader.RomLoader.MakeRenderer(maxWidth, maxHeight, font, smallFont, clock)
+func (loader *LoadRomInfoMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
+    old := loader.RomLoader.MakeRenderer(font, smallFont, clock)
 
     return func(out *ebiten.Image) error {
         // render the rom loader in the background
@@ -2118,9 +2118,14 @@ func (loader *LoadRomInfoMenu) UpdateWindowSize(x int, y int){
     loader.RomLoader.UpdateWindowSize(x, y)
 }
 
-/*
 func keysInfo(keys *common.EmulatorKeys) string {
-    n := sdl.GetKeyName
+    /*
+    n := func (k ebiten.Key) string {
+        return k.String()
+    }
+    */
+    n := ebiten.Key.String
+
     info := template.New("keys")
 
     info.Funcs(map[string]any{
@@ -2155,7 +2160,6 @@ Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
     }
     return data.String()
 }
-*/
 
 type ChangeKeyMenu struct {
     MenuQuit context.Context
@@ -2295,7 +2299,7 @@ func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
     }
 }
 
-func (menu *ChangeKeyMenu) MakeRenderer(maxWidth int, maxHeight int, font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
+func (menu *ChangeKeyMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
     return func(out *ebiten.Image) error {
         /*
         startX := 50
@@ -2599,8 +2603,8 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
 
     main.Buttons.Add(&SubMenuButton{Name: "Joystick", Func: func() SubMenu { return joystickMenu } })
 
-    main.ExtraInfo = keysInfo(keys)
     */
+    main.ExtraInfo = keysInfo(keys)
 
     return main
 }
@@ -2750,20 +2754,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
 
     log.Printf("Starting menu system")
 
-    /* Draw a reddish overlay on the screen */
-    baseRenderer := func(out *ebiten.Image) error {
-        vector.FillRect(out, 0, 0, float32(out.Bounds().Dx()), float32(out.Bounds().Dy()), color.NRGBA{R: 32, G: 0, B: 0, A: 210}, true)
-
-        /*
-        err := renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
-        _ = err
-        renderer.SetDrawColor(32, 0, 0, 210)
-        renderer.FillRect(nil)
-        */
-
-        return nil
-    }
-
     renderSnow := func(out *ebiten.Image) error {
         for _, snow := range snow {
             c := snow.color
@@ -2842,18 +2832,22 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
         return nil
     }
 
+    var clock uint64 = 0
+
+    currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, emulatorKeys)
+
     draw := func(screen *ebiten.Image){
-        baseRenderer(screen)
+        /* Draw a reddish overlay on the screen */
+        vector.FillRect(screen, 0, 0, float32(screen.Bounds().Dx()), float32(screen.Bounds().Dy()), color.NRGBA{R: 32, G: 0, B: 0, A: 210}, true)
+
         renderSnow(screen)
         renderInfo(screen)
+
+        currentMenu.MakeRenderer(font, smallFont, clock)(screen)
     }
 
     drawManager.PushDraw(draw)
     defer drawManager.PopDraw()
-
-    currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, emulatorKeys)
-
-    var clock uint64 = 0
 
     /* Reset the default renderer */
     for menu.quit.Err() == nil {
