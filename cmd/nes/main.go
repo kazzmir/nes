@@ -22,6 +22,7 @@ import (
     // "runtime"
 
     nes "github.com/kazzmir/nes/lib"
+    "github.com/kazzmir/nes/lib/coroutine"
     "github.com/kazzmir/nes/util"
 
     "github.com/kazzmir/nes/cmd/nes/common"
@@ -33,6 +34,7 @@ import (
     // rdebug "runtime/debug"
 
     "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
@@ -58,6 +60,30 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
 }
 */
 
+
+type Engine struct {
+    Coroutine *coroutine.Coroutine
+}
+
+func (engine *Engine) Update() error {
+    keys := inpututil.AppendJustPressedKeys(nil)
+
+    for _, key := range keys {
+        switch key {
+            case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                return ebiten.Termination
+        }
+    }
+
+    return engine.Coroutine.Run()
+}
+
+func (engine *Engine) Layout(outsideWidth, outsideHeight int) (int, int) {
+    return nes.VideoWidth, nes.VideoHeight - nes.OverscanPixels * 2
+}
+
+func (engine *Engine) Draw(screen *ebiten.Image) {
+}
 
 func stripExtension(path string) string {
     extension := filepath.Ext(path)
@@ -1416,26 +1442,42 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
     */
 
-    for mainQuit.Err() == nil {
-        select {
-            case <-doMenu:
-                activeMenu := menu.MakeMenu(mainQuit, font)
-                emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
-                activeMenu.Run(mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, &emulatorKeys)
-                emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
-                select {
-                    case renderNow<-true:
-                    default:
-                }
-            default:
-                // sdl.Do(eventFunction)
+    menu := coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
+        for mainQuit.Err() == nil {
+            select {
+                case <-doMenu:
+                    activeMenu := menu.MakeMenu(mainQuit, font)
+                    emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
+                    activeMenu.Run(mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, &emulatorKeys)
+                    emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
+                    select {
+                        case renderNow<-true:
+                        default:
+                    }
+                default:
+                    // sdl.Do(eventFunction)
+            }
+
+            if yield() != nil {
+                return coroutine.CoroutineCancelled
+            }
         }
+
+        return nil
+    })
+
+    engine := &Engine{
+        Coroutine: menu,
     }
 
+    return ebiten.RunGame(engine)
+
+    /*
     log.Printf("Waiting to quit..")
     waiter.Wait()
+    */
 
-    return nil
+    // return nil
 }
 
 
