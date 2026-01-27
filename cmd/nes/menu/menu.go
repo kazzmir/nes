@@ -99,105 +99,6 @@ func MakeSnow(screenWidth int) Snow {
     }
 }
 
-/* We could juse use sdl.Texture.Query() to get the width/height. The downsides
- * of doing that are that it involves an extra cgo call.
- */
- /*
-type TextureInfo struct {
-    Texture *sdl.Texture
-    Width int
-    Height int
-}
-
-type TextureId uint64
-
-type TextureManager struct {
-    id TextureId
-    Textures map[TextureId]TextureInfo
-    Lock sync.Mutex
-}
-
-func (manager *TextureManager) NextId() TextureId {
-    manager.Lock.Lock()
-    defer manager.Lock.Unlock()
-    out := manager.id
-    manager.id += 1
-    return out
-}
-
-func MakeTextureManager() *TextureManager {
-    return &TextureManager{
-        id: 1, // so that clients can test if their texture id is 0, which means invalid
-        Textures: make(map[TextureId]TextureInfo),
-    }
-}
-
-func (manager *TextureManager) Destroy() {
-    manager.Lock.Lock()
-    defer manager.Lock.Unlock()
-
-    for _, info := range manager.Textures {
-        info.Texture.Destroy()
-    }
-
-    manager.Textures = nil
-}
-
-var TextureManagerDestroyed = fmt.Errorf("texture manager has been destroyed")
-
-type TextureMaker func() (TextureInfo, error)
-
-func (manager *TextureManager) GetCachedTexture(id TextureId, makeTexture TextureMaker) (TextureInfo, error) {
-    manager.Lock.Lock()
-    defer manager.Lock.Unlock()
-
-    if manager.Textures == nil {
-        return TextureInfo{}, TextureManagerDestroyed
-    }
-
-    info, ok := manager.Textures[id]
-    if ok {
-        return info, nil
-    }
-
-    var err error
-    info, err = makeTexture()
-    if err != nil {
-        return TextureInfo{}, err
-    }
-
-    manager.Textures[id] = info
-
-    return info, nil
-}
-
-func (manager *TextureManager) RenderText(font *ttf.Font, renderer *sdl.Renderer, text string, color sdl.Color, id TextureId) (TextureInfo, error) {
-    return manager.GetCachedTexture(id, func() (TextureInfo, error){
-        surface, err := font.RenderUTF8Blended(text, color)
-        if err != nil {
-            return TextureInfo{}, err
-        }
-
-        defer surface.Free()
-
-        texture, err := renderer.CreateTextureFromSurface(surface)
-        if err != nil {
-            return TextureInfo{}, err
-        }
-
-        bounds := surface.Bounds()
-
-        info := TextureInfo{
-            Texture: texture,
-            Width: bounds.Max.X,
-            Height: bounds.Max.Y,
-        }
-
-        return info, nil
-    })
-}
-*/
-
 /* an interactable button */
 func drawButton(font text.Face, out *ebiten.Image, x float64, y float64, message string, col color.Color) (float64, float64, error) {
     buttonInside := color.RGBA{R: 64, G: 64, B: 64, A: 255}
@@ -214,16 +115,6 @@ func drawButton(font text.Face, out *ebiten.Image, x float64, y float64, message
     options.GeoM.Translate(x + float64(margin) / 2, y + float64(margin) / 2)
     options.ColorScale.ScaleWithColor(col)
     text.Draw(out, message, font, &options)
-
-    /*
-    renderer.SetDrawColor(buttonOutline.R, buttonOutline.G, buttonOutline.B, buttonOutline.A)
-    renderer.FillRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(info.Width + margin), H: int32(info.Height + margin)})
-
-    renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
-    renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(info.Width + margin - 3), H: int32(info.Height + margin - 3)})
-
-    err = gfx.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
-    */
 
     return width, height, nil
 }
@@ -276,18 +167,6 @@ func drawConstButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *Tex
     return info.Width, info.Height, err
 }
 */
-
-func writeFontCached(font text.Face, out *ebiten.Image, x int, y int, message string, col color.Color) error {
-    // FIXME
-    /*
-    info, err := textureManager.RenderText(font, renderer, message, color, id)
-    if err != nil {
-        return err
-    }
-    return gfx.CopyTexture(info.Texture, renderer, info.Width, info.Height, x, y)
-    */
-    return nil
-}
 
 type MenuState int
 const (
@@ -2773,7 +2652,7 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
             wind = maxWind
         }
 
-        for i := 0; i < len(snow); i++ {
+        for i := range snow {
             snow[i].truey += snow[i].fallSpeed
             snow[i].truex += wind
             snow[i].x = snow[i].truex + float32(math.Cos(float64(snow[i].angle + 180) * math.Pi / 180.0) * 8)
@@ -2804,7 +2683,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
 
             snow[i].color = uint8(newColor)
         }
-
     }
 
     renderInfo := func(out *ebiten.Image) error {
@@ -2821,8 +2699,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
         drawOptions.GeoM.Translate(0, float64(height + 3))
         text.Draw(out, "Jon Rafkind", smallFont, &drawOptions)
 
-        // err := writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3, "NES Emulator", white)
-        // err = writeFontCached(smallFont, out, maxWidth - 130, maxHeight - smallFont.Height() * 3 + font.Height() + 3, "Jon Rafkind", white)
         return nil
     }
 
@@ -2832,7 +2708,7 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
 
     draw := func(screen *ebiten.Image){
         /* Draw a reddish overlay on the screen */
-        vector.FillRect(screen, 0, 0, float32(screen.Bounds().Dx()), float32(screen.Bounds().Dy()), color.NRGBA{R: 32, G: 0, B: 0, A: 210}, true)
+        vector.FillRect(screen, 0, 0, float32(screen.Bounds().Dx()), float32(screen.Bounds().Dy()), color.NRGBA{R: 32, G: 0, B: 0, A: 210}, false)
 
         renderSnow(screen)
         renderInfo(screen)
