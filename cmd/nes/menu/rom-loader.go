@@ -45,7 +45,7 @@ type RomLoaderAdd struct {
 
 type RomLoaderFrame struct {
     Id RomId
-    Frame nes.VirtualScreen
+    Frame *ebiten.Image
 }
 
 type RomLoaderInfo struct {
@@ -256,7 +256,7 @@ func getCachedThumbnails(loaderQuit context.Context, romId RomId, path string, a
 
         load := RomLoaderFrame{
             Id: romId,
-            Frame: imageToScreen(frame),
+            Frame: ebiten.NewImageFromImage(frame),
         }
 
         select {
@@ -314,7 +314,7 @@ func saveCachedFrame(count int, cachedSha256 string, path string, screen nes.Vir
     return png.Encode(out, image)
 }
 
-func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomId, path string, makeFile common.MakeFile, addFrame chan<- RomLoaderFrame, doCache bool){
+func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomId, path string, makeFile common.MakeFile, addFrame chan<- RomLoaderFrame, doCache bool, pixelPool sync.Pool){
     if loaderQuit.Err() != nil {
         return
     }
@@ -362,10 +362,12 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
                 count += 1
                 /* every 60 frames should be 1 second */
                 if count == 60 {
+                    raw_pixels := pixelPool.Get().([]byte)
                     frame := RomLoaderFrame{
                         Id: romId,
-                        Frame: screen.Copy(),
+                        Frame: nesToImage(screen, raw_pixels),
                     }
+                    pixelPool.Put(raw_pixels)
 
                     if doCache {
                         err := saveCachedFrame(frameNumber, cachedSha, path, screen)
@@ -432,6 +434,12 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
         })
     }
 
+    pixelPool := sync.Pool{
+        New: func() any {
+            return make([]byte, nes.VideoWidth * (nes.VideoHeight - nes.OverscanPixels * 2) * 4)
+        },
+    }
+
     /* Have 4 go routines running roms */
     for i := 0; i < 4; i++ {
         romGroup.Spawn(func(){
@@ -472,7 +480,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
                 /* Run the actual frame generation in a separate goroutine */
                 generator := func(){
                     if !getCachedThumbnails(loaderQuit, romId, add.Path, romLoaderState.AddFrame) {
-                        generateThumbnails(loaderQuit, cpu, romId, add.Path, possibleRom.File, romLoaderState.AddFrame, true)
+                        generateThumbnails(loaderQuit, cpu, romId, add.Path, possibleRom.File, romLoaderState.AddFrame, true, pixelPool)
                     }
                 }
 
@@ -1021,8 +1029,6 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
 
     MaxNameSize := maxTextWidth(smallFont, int(float32(width) / layout.Thumbnail))
 
-    // raw_pixels := make([]uint32, width * height * 4)
-
     for _, romIdAndPath := range showTiles[start:end+1] {
         // log.Printf("Rendering rom id %v path %v at x=%v y=%v", romIdAndPath.Id, romIdAndPath.Path, x, y)
 
@@ -1047,13 +1053,6 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
 
             vector.FillRect(screen, x1, y1, width, height, color.RGBA{R: 255, G: 255, B: 0, A: 255}, true)
         }
-
-        // common.RenderPixelsRGBA(frame, loader.raw_pixels, overscanPixels)
-
-        /*
-        view := loader.GetRomView(romIdAndPath.Id, width, height)
-        doRender(loader.raw_pixels, view)
-        */
 
         var options ebiten.DrawImageOptions
         options.GeoM.Scale(1.0 / float64(layout.Thumbnail), 1.0 / float64(layout.Thumbnail))
@@ -1118,6 +1117,16 @@ func (loader *RomLoaderState) AddNewRom(rom RomLoaderAdd) {
     }
 }
 
+func nesToImage(screen nes.VirtualScreen, raw_pixels []byte) *ebiten.Image {
+    width := nes.VideoWidth
+    height := nes.VideoHeight-nes.OverscanPixels*2
+    overscanPixels := 8
+    view := ebiten.NewImage(width, height)
+    common.RenderPixelsRGBA(screen, raw_pixels, overscanPixels)
+    view.WritePixels(raw_pixels)
+    return view
+}
+
 func (loader *RomLoaderState) AddRomFrame(frame RomLoaderFrame) {
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
@@ -1128,15 +1137,7 @@ func (loader *RomLoaderState) AddRomFrame(frame RomLoaderFrame) {
         return
     }
 
-    width := nes.VideoWidth
-    height := nes.VideoHeight-nes.OverscanPixels*2
-    overscanPixels := 8
-
-    view := ebiten.NewImage(width, height)
-    common.RenderPixelsRGBA(frame.Frame, loader.raw_pixels, overscanPixels)
-    view.WritePixels(loader.raw_pixels)
-
-    info.Frames = append(info.Frames, view)
+    info.Frames = append(info.Frames, frame.Frame)
 }
 
 func loadArrowPicture() (image.Image, error) {
