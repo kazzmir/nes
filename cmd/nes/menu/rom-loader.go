@@ -80,6 +80,8 @@ type RomLoaderState struct {
     CurrentScan string
     CurrentScanLock sync.Mutex
 
+    renderOnce sync.Once
+
     blankScreen *ebiten.Image
     raw_pixels []byte
     views map[RomId]*ebiten.Image
@@ -314,7 +316,7 @@ func saveCachedFrame(count int, cachedSha256 string, path string, screen nes.Vir
     return png.Encode(out, image)
 }
 
-func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomId, path string, makeFile common.MakeFile, addFrame chan<- RomLoaderFrame, doCache bool, pixelPool sync.Pool){
+func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomId, path string, makeFile common.MakeFile, addFrame chan<- RomLoaderFrame, doCache bool, pixelPool *sync.Pool){
     if loaderQuit.Err() != nil {
         return
     }
@@ -441,7 +443,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     }
 
     /* Have 4 go routines running roms */
-    for i := 0; i < 4; i++ {
+    for range 4 {
         romGroup.Spawn(func(){
             for possibleRom := range possibleRoms {
                 openFile, err := possibleRom.File()
@@ -480,7 +482,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
                 /* Run the actual frame generation in a separate goroutine */
                 generator := func(){
                     if !getCachedThumbnails(loaderQuit, romId, add.Path, romLoaderState.AddFrame) {
-                        generateThumbnails(loaderQuit, cpu, romId, add.Path, possibleRom.File, romLoaderState.AddFrame, true, pixelPool)
+                        generateThumbnails(loaderQuit, cpu, romId, add.Path, possibleRom.File, romLoaderState.AddFrame, true, &pixelPool)
                     }
                 }
 
@@ -909,6 +911,13 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
     /* FIXME: this coarse grained lock will slow things down a bit */
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
+
+    loader.renderOnce.Do(func(){
+        var options text.DrawOptions
+        options.GeoM.Translate(2, 2)
+        options.GeoM.Scale(2, 2)
+        text.Draw(loader.blankScreen, "No Image", font, &options)
+    })
 
     // white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
     green := color.RGBA{R: 0, G: 255, B: 0, A: 255}
