@@ -34,7 +34,7 @@ import (
     // rdebug "runtime/debug"
 
     "github.com/hajimehoshi/ebiten/v2"
-    "github.com/hajimehoshi/ebiten/v2/inpututil"
+    // "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
@@ -74,6 +74,7 @@ func (engine *Engine) Update() error {
         return ebiten.Termination
     }
 
+    /*
     keys := inpututil.AppendJustPressedKeys(nil)
 
     for _, key := range keys {
@@ -82,6 +83,7 @@ func (engine *Engine) Update() error {
                 return ebiten.Termination
         }
     }
+    */
 
     return engine.Coroutine.Run()
 }

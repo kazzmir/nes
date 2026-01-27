@@ -14,7 +14,6 @@ import (
     "fmt"
     "math"
     "math/rand/v2"
-    "time"
     "bytes"
     "log"
     "sync"
@@ -2747,18 +2746,12 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
     }
     */
 
-    /* Logic loop */
-    snowTicker := time.NewTicker(time.Second / 20)
-    defer snowTicker.Stop()
-
     var snow []Snow
-
-    log.Printf("Starting menu system")
 
     renderSnow := func(out *ebiten.Image) error {
         for _, snow := range snow {
             c := snow.color
-            vector.FillCircle(out, snow.x, snow.y, float32(1), color.NRGBA{R: c, G: c, B: c, A: 255}, true)
+            vector.FillCircle(out, snow.x, snow.y, float32(1), color.NRGBA{R: c, G: c, B: c, A: 255}, false)
         }
         return nil
     }
@@ -2857,6 +2850,8 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
         keys := inpututil.AppendJustPressedKeys(nil)
         for _, key := range keys {
             switch key {
+                case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                    currentMenu = currentMenu.Input(MenuQuit)
                 case ebiten.KeyLeft, ebiten.KeyH:
                     currentMenu = currentMenu.Input(MenuPrevious)
                 case ebiten.KeyRight, ebiten.KeyL:
