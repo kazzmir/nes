@@ -598,6 +598,14 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     doMenu := make(chan bool, 5)
     renderOverlayUpdate := make(chan string, 5)
 
+    // if mainCancel is called then the program should exit
+    mainQuit, mainCancel := context.WithCancel(context.Background())
+    defer mainCancel()
+
+    engine := Engine{
+        Quit: mainQuit,
+    }
+
     var renderManager gfx.RenderManager
 
     if path != "" {
@@ -644,16 +652,13 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
     */
 
-    var waiter sync.WaitGroup
-
-    mainQuit, mainCancel := context.WithCancel(context.Background())
-    defer mainCancel()
+    // var waiter sync.WaitGroup
 
     signalChannel := make(chan os.Signal, 10)
     signal.Notify(signalChannel, os.Interrupt)
 
     go func(){
-        for i := 0; i < 2; i++ {
+        for i := range 2 {
             select {
                 // case <-mainQuit.Done():
                 case <-signalChannel:
@@ -676,11 +681,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     toDraw := make(chan nes.VirtualScreen, 1)
     bufferReady := make(chan nes.VirtualScreen, 1)
-
-    /*
-    pixelFormat := gfx.FindPixelFormat()
-    log.Printf("Using pixel format %v\n", sdl.GetPixelFormatName(uint(pixelFormat)))
-    */
 
     fontSource, err := loadFontSource() 
     if err != nil {
@@ -747,25 +747,27 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     renderNow := make(chan bool, 2)
 
-    /* FIXME: kind of ugly to keep this here */
-    raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
+    // waiter.Add(1)
+    makeRenderScreen := func() func(*ebiten.Image) {
+        /* FIXME: kind of ugly to keep this here */
+        raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
 
-    waiter.Add(1)
-    go func(){
         buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
         bufferReady <- buffer
-        defer waiter.Done()
+        // defer waiter.Done()
         fpsCounter := 2.0
         fps := 0
         fpsTimer := time.NewTicker(time.Duration(fpsCounter) * time.Second)
-        defer fpsTimer.Stop()
+        // defer fpsTimer.Stop()
 
+        /*
         renderTimer := time.NewTicker(time.Second / time.Duration(desiredFps))
         defer renderTimer.Stop()
-        canRender := false
+        */
+        // canRender := false
 
+        /*
         render := func (){
-            /*
             renderer.SetDrawColor(0, 0, 0, 0)
             renderer.Clear()
 
@@ -781,23 +783,33 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
 
             renderer.Present()
-            */
         }
 
         _ = render
+        */
 
-        for {
+        bufferImage := ebiten.NewImage(nes.VideoWidth, nes.VideoHeight - nes.OverscanPixels * 2)
+
+        return func(screen *ebiten.Image){
+
+            // log.Printf("call draw")
+
             select {
-                case <-mainQuit.Done():
-                    return
-                case screen := <-toDraw:
-                    if canRender {
-                        fps += 1
-                        common.RenderPixelsRGBA(screen, raw_pixels, nes.OverscanPixels)
-                        // sdl.Do(render)
-                    }
-                    canRender = false
-                    bufferReady <- screen
+                case <-fpsTimer.C:
+                    /* FIXME: don't print this while the menu is running */
+                    log.Printf("FPS: %v", int(float64(fps) / fpsCounter))
+                    fps = 0
+                default:
+            }
+
+            select {
+                case nesScreen := <-toDraw:
+                    fps += 1
+                    // log.Printf("Render nes screen")
+                    common.RenderPixelsRGBA(nesScreen, raw_pixels, nes.OverscanPixels)
+                    bufferImage.WritePixels(raw_pixels)
+                    bufferReady <- nesScreen
+                    /*
                 case message := <-renderOverlayUpdate:
                     if message == "" {
                         renderManager.RemoveByIndex(2)
@@ -808,18 +820,17 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         })
                     }
                     // sdl.Do(render)
-                case <-renderNow:
-                    /* Force a rerender */
-                    // sdl.Do(render)
-                case <-renderTimer.C:
-                    canRender = true
-                case <-fpsTimer.C:
-                    /* FIXME: don't print this while the menu is running */
-                    log.Printf("FPS: %v", int(float64(fps) / fpsCounter))
-                    fps = 0
+                    */
+                default:
             }
+
+            var options ebiten.DrawImageOptions
+            screenBounds := screen.Bounds()
+            bufferBounds := bufferImage.Bounds()
+            options.GeoM.Scale(float64(screenBounds.Dx() / bufferBounds.Dx()), float64(screenBounds.Dy() / bufferBounds.Dy()))
+            screen.DrawImage(bufferImage, &options)
         }
-    }()
+    }
 
     emulatorActions := make(chan common.EmulatorAction, 50)
     emulatorActionsInput := (<-chan common.EmulatorAction)(emulatorActions)
@@ -844,7 +855,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     debugWindow := debug.MakeDebugWindow(mainQuit, font, smallFont)
 
-    startNES := func(nesFile nes.NESFile, quit context.Context){
+    startNES := func(nesFile nes.NESFile, quit context.Context, yield coroutine.YieldFunc){
         cpu, err := common.SetupCPU(nesFile, debugCpu, debugPpu)
 
         debugger := debug.MakeDebugger(&cpu, debugWindow)
@@ -926,7 +937,12 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 default:
             }
             log.Printf("Run NES")
-            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1, debugger)
+
+            engine.PushDraw(makeRenderScreen())
+            defer engine.PopDraw()
+
+            verbose := 0
+            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, verbose, debugger, yield)
             if err != nil {
                 if err == common.MaxCyclesReached {
                 } else {
@@ -939,6 +955,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
 
     /* runs the nes emulator */
+    /*
     waiter.Add(1)
     go func(){
         defer waiter.Done()
@@ -984,6 +1001,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
         // nesWaiter.Wait()
     }()
+    */
 
     recordQuit, recordCancel := context.WithCancel(mainQuit)
     if recordOnStart {
@@ -1065,23 +1083,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }()
 
     /* enable drag/drop events */
-    /*
-    sdl.Do(func(){
-        sdl.EventState(sdl.DROPFILE, sdl.ENABLE)
-    })
-    */
 
     /*
     console := MakeConsole(6, &renderManager, mainCancel, mainQuit, emulatorActionsOutput, nesChannel, renderNow)
     _ = console
-    */
-
-    /*
-    mainWindowId, err := window.GetID()
-    if err != nil {
-        log.Printf("Could not get main window id: %v", err)
-        return err
-    }
     */
 
     /*
@@ -1319,11 +1324,17 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
     */
 
-    engine := Engine{
-        Quit: mainQuit,
-    }
 
     menu := coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
+        var nesWaiter sync.WaitGroup
+        nesQuit, nesCancel := context.WithCancel(mainQuit)
+
+        defer nesCancel()
+
+        go common.RunDummyNES(nesQuit, emulatorActionsInput)
+
+        var currentFile nes.NESFile
+
         for mainQuit.Err() == nil {
             select {
                 case <-doMenu:
@@ -1337,6 +1348,28 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         default:
                     }
                     */
+                case action := <-nesChannel:
+                    doRestart := false
+                    switch action.(type) {
+                        case *NesActionLoad:
+                            load := action.(*NesActionLoad)
+                            currentFile = load.File
+                            doRestart = true
+                        case *NesActionRestart:
+                            doRestart = true
+                        case *NesActionDebugger:
+                            debugWindow.Open(mainQuit)
+                    }
+
+                    if doRestart && currentFile.Path != "" {
+                        nesCancel()
+                        nesWaiter.Wait()
+                        nesQuit, nesCancel = context.WithCancel(mainQuit)
+
+                        startNES(currentFile, nesQuit, yield)
+                    }
+
+
                 default:
                     // sdl.Do(eventFunction)
             }

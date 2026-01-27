@@ -13,6 +13,7 @@ import (
     "compress/gzip"
     "encoding/json"
     nes "github.com/kazzmir/nes/lib"
+    "github.com/kazzmir/nes/lib/coroutine"
     "github.com/kazzmir/nes/cmd/nes/debug"
 )
 
@@ -324,7 +325,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32,
             emulatorActions <-chan EmulatorAction, screenListeners *ScreenListeners,
             renderOverlayUpdate chan<- string,
-            sampleRate float32, verbose int, debugger debug.Debugger) error {
+            sampleRate float32, verbose int, debugger debug.Debugger, yield coroutine.YieldFunc) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
     screen := nes.MakeVirtualScreen(256, 240)
@@ -575,11 +576,20 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             select {
                 case buffer := <-bufferReady:
                     buffer.CopyFrom(&screen)
-                    toDraw <- buffer
+
+                    select {
+                        case toDraw <- buffer:
+                        default:
+                    }
+
                     if stepFrame {
                         paused = true
                     }
                 default:
+            }
+
+            if yield() != nil {
+                return nil
             }
         }
 
