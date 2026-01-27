@@ -2548,7 +2548,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
         // Beep: menu.Beep,
     }
 
-    // joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickManager)
+    joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickManager)
 
     main.Buttons.Add(&StaticButton{Name: "Quit", Func: func(button *StaticButton){
         mainCancel()
@@ -2579,17 +2579,17 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
         }
     }})
 
-    /*
-    main.Buttons.Add(&ToggleButton{State1: "Sound enabled", State2: "Sound disabled", state: isAudioEnabled(menu.quit, programActions),
-                              Func: func(value bool){
-                                  log.Printf("Set sound to %v", value)
-                                  programActions <- &common.ProgramToggleSound{}
-                              },
-                })
-                */
+    main.Buttons.Add(&ToggleButton{
+        State1: "Sound enabled",
+        State2: "Sound disabled",
+        // state: isAudioEnabled(menu.quit, programActions),
+        Func: func(value bool){
+            log.Printf("Set sound to %v", value)
+            programActions <- &common.ProgramToggleSound{}
+        },
+    })
 
     /* FIXME: this callback to update ExtraInfo feels a bit hacky */
-    /*
     keysMenu := MakeKeysMenu(menu, main, func (newKeys common.EmulatorKeys){
         main.ExtraInfo = keysInfo(&newKeys)
     }, keys)
@@ -2600,7 +2600,6 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
 
     main.Buttons.Add(&SubMenuButton{Name: "Joystick", Func: func() SubMenu { return joystickMenu } })
 
-    */
     main.ExtraInfo = keysInfo(keys)
 
     return main
