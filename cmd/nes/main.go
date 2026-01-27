@@ -659,6 +659,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         log.Printf("Shutting down due to signal")
                         mainCancel()
                         go func(){
+                            log.Printf("Will exit in at most 2 seconds")
                             time.Sleep(2 * time.Second)
                             log.Printf("Bailing..")
                             os.Exit(1)

@@ -331,6 +331,11 @@ func (menu *Menu) ToggleActive(){
     menu.active = ! menu.active
 }
 
+func doRender(raw_pixels []byte, out *ebiten.Image) error {
+    out.WritePixels(raw_pixels)
+    return nil
+}
+
 /*
 func doRender(width int, height int, raw_pixels []byte, destX int, destY int, destWidth int, destHeight int, pixelFormat gfx.PixelFormat, out *ebiten.Image) error {
     pixels := C.CBytes(raw_pixels)

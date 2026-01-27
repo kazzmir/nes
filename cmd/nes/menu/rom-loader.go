@@ -32,6 +32,7 @@ import (
 
     "github.com/hajimehoshi/ebiten/v2"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
+    "github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 type RomId uint64
@@ -74,10 +75,14 @@ type RomLoaderState struct {
     AddFrame chan RomLoaderFrame
     Lock sync.Mutex
 
-    Arrow imagelib.Image
+    Arrow *ebiten.Image
 
     CurrentScan string
     CurrentScanLock sync.Mutex
+
+    blankScreen nes.VirtualScreen
+    raw_pixels []byte
+    views map[RomId]*ebiten.Image
 
     /* Keep track of which tile to start with when rendering the rows
      * in the loading screen, and the last tile to render.
@@ -853,32 +858,43 @@ func (loader *RomLoaderState) ZoomOut() {
 
 // draw part of the string in a new color where the substring is from 'startPosition' and goes for 'length' characters
 func drawOverlayString(font text.Face, out *ebiten.Image, x int, y int, base string, startPosition int, length int, col color.Color) error {
-    // FIXME
-    /*
     rendered := base[0:startPosition+1]
     // get the length of the text minus the last character
-    startLength := gfx.TextWidth(font, rendered) - gfx.TextWidth(font, string(rendered[len(rendered)-1]))
+
+    width1, _ := text.Measure(rendered, font, 1)
+    width2, _ := text.Measure(string(rendered[len(rendered)-1]), font, 1)
+
+    startLength := width1 - width2
     matched := base[startPosition:startPosition+length]
     // show the matched part of the selected rom
-    return gfx.WriteFont(font, renderer, x + startLength, y, matched, color)
-    */
+
+    var options text.DrawOptions
+    options.GeoM.Translate(float64(x) + startLength, float64(y))
+    options.ColorScale.ScaleWithColor(col)
+    text.Draw(out, matched, font, &options)
     return nil
 }
 
 func maxTextWidth(face text.Face, maxWidth int) int {
-    // FIXME
-    /*
     if maxWidth <= 0 {
         return 0
     }
 
-    size := gfx.TextWidth(font, "A")
-    if size == 0 {
-        size = 1
+    width, _ := text.Measure("A", face, 1)
+
+    if width < 1 {
+        width = 1
     }
-    return maxWidth / size
-    */
-    return 1
+    return int(float64(maxWidth) / width)
+}
+
+func (loader *RomLoaderState) GetRomView(romId RomId, width int, height int) *ebiten.Image {
+    view, has := loader.views[romId]
+    if !has {
+        view = ebiten.NewImage(width, height)
+        loader.views[romId] = view
+    }
+    return view
 }
 
 func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen *ebiten.Image) error {
@@ -886,13 +902,19 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
 
-    /*
-    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-    green := sdl.Color{R: 0, G: 255, B: 0, A: 255}
+    // white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+    green := color.RGBA{R: 0, G: 255, B: 0, A: 255}
 
     showTiles := loader.GetFilteredRoms()
 
-    gfx.WriteFont(font, renderer, 1, 1, fmt.Sprintf("Press enter to load a rom. Roms found %v (%v filtered). %v", loader.RomIdsAndPaths.Size(), len(showTiles), loader.CurrentScanDescription((maxWidth / gfx.TextWidth(font, "A")) - 40)), white)
+    maxWidth := screen.Bounds().Dx()
+    maxHeight := screen.Bounds().Dy()
+
+    fontWidth, fontHeight := text.Measure("A", font, 1)
+
+    var textOptions text.DrawOptions
+    textOptions.GeoM.Translate(1, 1)
+    text.Draw(screen, fmt.Sprintf("Press enter to load a rom. Roms found %v (%v filtered). %v", loader.RomIdsAndPaths.Size(), len(showTiles), loader.CurrentScanDescription(int((float64(maxWidth) / fontWidth) - 40))), font, &textOptions)
 
     layout := loader.TileLayout()
 
@@ -912,10 +934,12 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
         selectedId = showTiles[selectedIndex].Id
 
         selectedX := 100
-        selectedY := font.Height() + 3
+        selectedY := fontHeight + 3
 
         // show the filename of the selected rom
-        gfx.WriteFont(font, renderer, selectedX, selectedY, showTiles[selectedIndex].Path, white)
+        var options text.DrawOptions
+        options.GeoM.Translate(float64(selectedX), float64(selectedY))
+        text.Draw(screen, showTiles[selectedIndex].Path, font, &options)
 
         if loader.RomIdsAndPaths.Filter() != "" {
             path := showTiles[selectedIndex].Path
@@ -925,22 +949,13 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
 
             index := strings.Index(strings.ToLower(base), strings.ToLower(loader.RomIdsAndPaths.Filter()))
             if index != -1 {
-                drawOverlayString(font, renderer, selectedX, selectedY, path, len(startPath) + index, len(loader.RomIdsAndPaths.Filter()), green)
+                drawOverlayString(font, screen, selectedX, int(selectedY), path, len(startPath) + index, len(loader.RomIdsAndPaths.Filter()), green)
             }
         }
     }
 
-    err := renderer.SetDrawBlendMode(sdl.BLENDMODE_NONE)
-    _ = err
-
-    raw_pixels := make([]byte, width*height * 4)
-    pixelFormat := gfx.FindPixelFormat()
-
-    / * if the rom doesn't have any frames loaded then show a blank thumbnail * /
-    blankScreen := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
-    blankScreen.ClearToColor(0, 0, 0)
-
     outlineSize := 3
+    _ = outlineSize
 
     start := loader.MinRenderIndex
     if start < 0 {
@@ -955,6 +970,7 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
         end = len(showTiles) - 1
     }
 
+    /*
     arrowInfo, _ := textureManager.GetCachedTexture(loader.ArrowId, func() (TextureInfo, error){
         if loader.Arrow != nil {
             arrowTexture, err := imageToTexture(loader.Arrow, renderer)
@@ -976,51 +992,83 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
             return TextureInfo{}, fmt.Errorf("No arrow image")
         }
     })
+    */
 
-    if loader.MinRenderIndex != 0 {
-        if arrowInfo.Texture != nil {
-            renderUpArrow(10, 30, arrowInfo.Texture, renderer)
-        }
+    if loader.MinRenderIndex != 0 && loader.Arrow != nil {
+        var options ebiten.DrawImageOptions
+        options.GeoM.Translate(10, 30)
+        screen.DrawImage(loader.Arrow, &options)
     }
 
     if loader.MinRenderIndex + loader.MaximumTiles() < len(showTiles) {
-        if arrowInfo.Texture != nil {
+        if loader.Arrow != nil {
             downY := maxHeight - 50
             if downY < 30 {
                 downY = 30
             }
-            renderDownArrow(10, downY, arrowInfo.Texture, renderer)
+
+            var options ebiten.DrawImageOptions
+            options.GeoM.Translate(10, float64(downY))
+            options.GeoM.Scale(1, -1)
+            screen.DrawImage(loader.Arrow, &options)
         }
     }
 
-    gfx.WriteFont(font, renderer, 30, maxHeight - 30, loader.RomIdsAndPaths.Filter(), green)
+    textOptions.GeoM.Reset()
+    textOptions.GeoM.Translate(30, float64(maxHeight - 30))
+    textOptions.ColorScale.ScaleWithColor(green)
+    text.Draw(screen, loader.RomIdsAndPaths.Filter(), font, &textOptions)
 
     MaxNameSize := maxTextWidth(smallFont, int(float32(width) / layout.Thumbnail))
 
+    // raw_pixels := make([]uint32, width * height * 4)
+
     for _, romIdAndPath := range showTiles[start:end+1] {
+        // log.Printf("Rendering rom id %v path %v at x=%v y=%v", romIdAndPath.Id, romIdAndPath.Path, x, y)
+
         info := loader.Roms[romIdAndPath.Id]
         frame, has := info.GetFrame()
         if !has {
-            frame = blankScreen
+            frame = loader.blankScreen
         }
 
-        / * Highlight the selected rom with a yellow outline * /
+        _ = frame
+
+        /* Highlight the selected rom with a yellow outline */
         if selectedId == romIdAndPath.Id {
+            /*
             renderer.SetDrawColor(255, 255, 0, 255)
             rect := sdl.Rect{X: int32(x-float32(outlineSize)), Y: int32(y-float32(outlineSize)), W: int32(float32(width) / layout.Thumbnail + float32(outlineSize*2)), H: int32(float32(height) / layout.Thumbnail + float32(outlineSize*2))}
             renderer.FillRect(&rect)
+            */
+
+            x1 := x - float32(outlineSize)
+            y1 := y - float32(outlineSize)
+            width := float32(nes.VideoWidth) / layout.Thumbnail + float32(outlineSize*2)
+            height := float32(nes.VideoHeight - nes.OverscanPixels*2) / layout.Thumbnail + float32(outlineSize*2)
+
+            vector.FillRect(screen, x1, y1, width, height, color.RGBA{R: 255, G: 255, B: 0, A: 255}, true)
         }
 
-        / * FIXME: cache these textures with the texture manager * /
-        common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
-        doRender(width, height, raw_pixels, int(x), int(y), int(float32(width) / layout.Thumbnail), int(float32(height) / layout.Thumbnail), pixelFormat, renderer)
+        common.RenderPixelsRGBA(frame, loader.raw_pixels, overscanPixels)
+
+        view := loader.GetRomView(romIdAndPath.Id, width, height)
+        doRender(loader.raw_pixels, view)
+
+        var options ebiten.DrawImageOptions
+        options.GeoM.Scale(1.0 / float64(layout.Thumbnail), 1.0 / float64(layout.Thumbnail))
+        options.GeoM.Translate(float64(x), float64(y))
+        screen.DrawImage(view, &options)
 
         name := filepath.Base(info.Path)
         if len(name) > MaxNameSize {
             name = fmt.Sprintf("%v..", name[0:MaxNameSize-2])
         }
 
-        gfx.WriteFont(smallFont, renderer, int(x), int(y + float32(height) / layout.Thumbnail + 1), name, white)
+        textOptions.GeoM.Reset()
+        textOptions.GeoM.Translate(float64(x), float64(y + float32(height) / layout.Thumbnail + 1))
+        textOptions.ColorScale.Reset()
+        text.Draw(screen, name, smallFont, &textOptions)
 
         x += float32(width) / layout.Thumbnail + float32(layout.XSpace)
         if x + float32(width) / layout.Thumbnail + 5 > float32(maxWidth) {
@@ -1032,7 +1080,6 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
             }
         }
     }
-    */
 
     return nil
 }
@@ -1094,10 +1141,13 @@ func loadArrowPicture() (image.Image, error) {
 }
 
 func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int) *RomLoaderState {
+    var arrowImg *ebiten.Image
     arrow, err := loadArrowPicture()
     if err != nil {
         log.Printf("Could not load arrow image: %v", err)
         arrow = nil
+    } else {
+        arrowImg = ebiten.NewImageFromImage(arrow)
     }
     state := RomLoaderState{
         Roms: make(map[RomId]*RomLoaderInfo),
@@ -1106,7 +1156,10 @@ func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int)
         MinRenderIndex: 0,
         WindowSizeWidth: windowWidth,
         WindowSizeHeight: windowHeight,
-        Arrow: arrow,
+        Arrow: arrowImg,
+        blankScreen: nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight),
+        views: make(map[RomId]*ebiten.Image),
+        raw_pixels: make([]byte, nes.VideoWidth * (nes.VideoHeight-nes.OverscanPixels*2) * 4),
         Layout: TileLayout{
             XStart: 50,
             YStart: 80,
@@ -1115,6 +1168,8 @@ func MakeRomLoaderState(quit context.Context, windowWidth int, windowHeight int)
             Thumbnail: 2,
         },
     }
+
+    state.blankScreen.ClearToColor(0, 0, 0)
 
     go func(){
         showFrameTimer := time.NewTicker(time.Second / 2)
