@@ -1367,6 +1367,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         nesQuit, nesCancel = context.WithCancel(mainQuit)
 
                         startNES(currentFile, nesQuit, yield)
+                        nesCancel()
                     }
 
 
