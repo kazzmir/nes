@@ -2870,7 +2870,10 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
             }
         }
 
-        updateSnow(drawManager.GetWindowSize())
+        windowSize := drawManager.GetWindowSize()
+        currentMenu.UpdateWindowSize(windowSize.X, windowSize.Y)
+
+        updateSnow(windowSize)
 
         if yield() != nil {
             return
