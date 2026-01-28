@@ -328,7 +328,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             sampleRate float32, verbose int, debugger debug.Debugger, yield coroutine.YieldFunc) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
-    screen := nes.MakeVirtualScreen(256, 240)
+    screen := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
 
     var cycleCounter float64
 
@@ -338,7 +338,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
      * anything higher than 1 seems ok, with 10 probably being an upper limit
      */
     hostTickSpeed := 5
-    cycleDiff := nes.CPUSpeed / (1000.0 / float64(hostTickSpeed))
+    // cycleDiff := nes.CPUSpeed / (1000.0 / float64(hostTickSpeed))
 
     /* about 20.292 */
     baseCyclesPerSample := nes.CPUSpeed / 2 / float64(sampleRate)
@@ -381,6 +381,8 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
     cycleCheck := time.NewTicker(time.Second * 2)
     defer cycleCheck.Stop()
     cycleStart := cpu.Cycle
+
+    buffer := <-bufferReady
 
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
@@ -509,6 +511,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             }
         }
 
+        /*
         for cycleCounter <= 0 {
             select {
                 case <-quit.Done():
@@ -523,6 +526,8 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                 cycleCounter = 0
             }
         }
+        */
+        cycleCounter += nes.CPUSpeed / 60
 
         if debugger != nil {
             if !debugger.Handle(cpu) {
@@ -544,62 +549,69 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
 
         // log.Printf("Cycle counter %v\n", cycleCounter)
 
-        err := cpu.Run(instructionTable)
-        if err != nil {
-            return err
-        }
-        usedCycles := cpu.Cycle
+        for cycleCounter > 0 {
+            err := cpu.Run(instructionTable)
+            if err != nil {
+                return err
+            }
+            usedCycles := cpu.Cycle
 
-        cycleCounter -= float64(usedCycles - lastCpuCycle)
+            cycleCounter -= float64(usedCycles - lastCpuCycle)
 
-        audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
+            audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
 
-        if audioData != nil {
-            screenListeners.ObserveAudio(audioData)
+            if audioData != nil {
+                screenListeners.ObserveAudio(audioData)
 
-            // log.Printf("Send audio data via channel")
-            select {
-                case audio<- audioData:
-                default:
-                    if verbose > 0 {
-                        log.Printf("Warning: audio falling behind")
-                    }
+                // log.Printf("Send audio data via channel")
+                select {
+                    case audio<- audioData:
+                    default:
+                        if verbose > 0 {
+                            log.Printf("Warning: audio falling behind")
+                        }
+                }
+            }
+
+            /* ppu runs 3 times faster than cpu */
+            nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen, cpu.Mapper.Mapper)
+
+            if drawn {
+                screenListeners.ObserveVideo(screen)
+
+                buffer.CopyFrom(&screen)
+
+                /*
+                select {
+                    case buffer := <-bufferReady:
+                        buffer.CopyFrom(&screen)
+
+                        select {
+                            case toDraw <- buffer:
+                            default:
+                        }
+
+                        if stepFrame {
+                            paused = true
+                        }
+                    default:
+                }
+                */
+
+            }
+
+            lastCpuCycle = usedCycles
+
+            if nmi {
+                if cpu.Debug > 0 && verbose > 0 {
+                    log.Printf("Cycle %v Do NMI\n", cpu.Cycle)
+                }
+                cpu.NMI()
             }
         }
 
-        /* ppu runs 3 times faster than cpu */
-        nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen, cpu.Mapper.Mapper)
-
-        if drawn {
-            screenListeners.ObserveVideo(screen)
-
-            select {
-                case buffer := <-bufferReady:
-                    buffer.CopyFrom(&screen)
-
-                    select {
-                        case toDraw <- buffer:
-                        default:
-                    }
-
-                    if stepFrame {
-                        paused = true
-                    }
-                default:
-            }
-
-            if yield() != nil {
-                return nil
-            }
-        }
-
-        lastCpuCycle = usedCycles
-
-        if nmi {
-            if cpu.Debug > 0 && verbose > 0 {
-                log.Printf("Cycle %v Do NMI\n", cpu.Cycle)
-            }
-            cpu.NMI()
+        if yield() != nil {
+            return nil
         }
     }
 

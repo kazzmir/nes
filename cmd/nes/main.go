@@ -798,13 +798,19 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 default:
             }
 
+            fps += 1
+            common.RenderPixelsRGBA(buffer, raw_pixels, nes.OverscanPixels)
+            bufferImage.WritePixels(raw_pixels)
+
             select {
+                /*
                 case nesScreen := <-toDraw:
                     fps += 1
                     // log.Printf("Render nes screen")
                     common.RenderPixelsRGBA(nesScreen, raw_pixels, nes.OverscanPixels)
                     bufferImage.WritePixels(raw_pixels)
                     bufferReady <- nesScreen
+                    */
                     /*
                 case message := <-renderOverlayUpdate:
                     if message == "" {
