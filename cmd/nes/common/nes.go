@@ -450,6 +450,9 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     /* nothing */
                 case EmulatorTurbo:
                     turboMultiplier = 3
+                    if verbose >= 0 {
+                        log.Printf("Emulator speed set to %v", turboMultiplier)
+                    }
                 case EmulatorInfinite:
                     infiniteSpeed = true
                 case EmulatorNormal:
@@ -527,6 +530,13 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             }
         }
         */
+
+        select {
+            case action := <-emulatorActions:
+                handleAction(action)
+            default:
+        }
+
         cycleCounter += nes.CPUSpeed / 60 * turboMultiplier
 
         if debugger != nil {

@@ -971,6 +971,12 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     switch key {
                         case ebiten.KeyEscape, ebiten.KeyCapsLock:
                             mainCancel()
+                        case emulatorKeys.Turbo:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
+                                default:
+                            }
+
                     }
 
                     input.HandleEvent(key, true)
@@ -978,6 +984,14 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                 keys = inpututil.AppendJustReleasedKeys(keys[:0])
                 for _, key := range keys {
+                    switch key {
+                        case emulatorKeys.Turbo:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
+                                default:
+                            }
+                    }
+
                     input.HandleEvent(key, false)
                 }
 
