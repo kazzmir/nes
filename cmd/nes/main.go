@@ -829,7 +829,12 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             var options ebiten.DrawImageOptions
             screenBounds := screen.Bounds()
             bufferBounds := bufferImage.Bounds()
-            options.GeoM.Scale(float64(screenBounds.Dx() / bufferBounds.Dx()), float64(screenBounds.Dy() / bufferBounds.Dy()))
+
+            scaleX := float64(screenBounds.Dx()) / float64(bufferBounds.Dx())
+            scaleY := float64(screenBounds.Dy()) / float64(bufferBounds.Dy())
+            scale := min(scaleX, scaleY)
+
+            options.GeoM.Scale(scale, scale)
             screen.DrawImage(bufferImage, &options)
         }
     }

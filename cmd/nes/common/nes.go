@@ -527,7 +527,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             }
         }
         */
-        cycleCounter += nes.CPUSpeed / 60
+        cycleCounter += nes.CPUSpeed / 60 * turboMultiplier
 
         if debugger != nil {
             if !debugger.Handle(cpu) {
