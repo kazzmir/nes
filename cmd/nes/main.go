@@ -9,11 +9,11 @@ import (
     // "io"
     // "io/fs"
     "path/filepath"
-    // "math"
+    "math"
     "strings"
     "bufio"
 
-    // "encoding/binary"
+    "encoding/binary"
     // "bytes"
     "time"
     "sync"
@@ -36,6 +36,7 @@ import (
     "github.com/hajimehoshi/ebiten/v2"
     "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
+    audiolib "github.com/hajimehoshi/ebiten/v2/audio"
 )
 
 /*
@@ -593,6 +594,46 @@ func loadFontSource() (*text.GoTextFaceSource, error) {
     return text.NewGoTextFaceSource(file)
 }
 
+type AudioPlayer struct {
+    AudioChannel <-chan []float32
+    Buffer []float32
+    position int
+}
+
+func (player *AudioPlayer) Read(output []byte) (int, error) {
+    select {
+        case samples := <-player.AudioChannel:
+            player.Buffer = append(player.Buffer, samples...)
+        default:
+    }
+
+    maxSamples := min(len(player.Buffer) - player.position, len(output) / 4 / 2)
+
+    count := 0
+    for count < maxSamples {
+        i := count * 2
+        sample := player.Buffer[player.position + count]
+        binary.LittleEndian.PutUint32(output[4*i:], math.Float32bits(sample))
+        binary.LittleEndian.PutUint32(output[4*(i+1):], math.Float32bits(sample))
+        count += 1
+    }
+    // log.Printf("Audio read %v samples\n", maxSamples)
+    player.position += maxSamples
+    if len(player.Buffer) > 1024 * 1024 {
+        player.Buffer = player.Buffer[player.position:]
+        player.position = 0
+    }
+
+    return maxSamples * 4 * 2, nil
+
+    /*
+    for i, sample := range samples {
+        binary.LittleEndian.PutUint32(output[4*i:], math.Float32bits(sample))
+    }
+    return len(samples) * 4, nil
+    */
+}
+
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
@@ -627,6 +668,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     log.Printf("Create window")
 
     const AudioSampleRate float32 = 44100
+
+    audio := audiolib.NewContext(int(AudioSampleRate))
 
     /*
     err = mix.Init(mix.INIT_OGG)
@@ -955,7 +998,21 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
             engine.PushDraw(makeRenderScreen(toDraw, bufferReady))
             defer engine.PopDraw()
-            verbose := 0
+            verbose := 1
+
+            nesAudio := AudioPlayer{
+                AudioChannel: audioInput,
+            }
+
+            musicPlayer, err := audio.NewPlayerF32(&nesAudio)
+            if err != nil {
+                log.Printf("Warning: could not create audio player: %v", err)
+            } else {
+                musicPlayer.SetBufferSize(1024 * 4 * 2)
+
+                musicPlayer.Play()
+                defer musicPlayer.Pause()
+            }
 
             runNes := func(nesYield coroutine.YieldFunc) error {
                 return common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, verbose, debugger, nesYield)
