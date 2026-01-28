@@ -12,6 +12,7 @@ import (
     "math"
     "strings"
     "bufio"
+    "errors"
 
     "encoding/binary"
     // "bytes"
@@ -609,6 +610,8 @@ func (player *AudioPlayer) Read(output []byte) (int, error) {
 
     maxSamples := min(len(player.Buffer) - player.position, len(output) / 4 / 2)
 
+    // log.Printf("Audio wants %v samples, will render %v", len(output) / 4 / 2, maxSamples)
+
     count := 0
     for count < maxSamples {
         i := count * 2
@@ -620,6 +623,7 @@ func (player *AudioPlayer) Read(output []byte) (int, error) {
     // log.Printf("Audio read %v samples\n", maxSamples)
     player.position += maxSamples
     if len(player.Buffer) > 1024 * 1024 {
+        log.Printf("reset audio buffer")
         player.Buffer = player.Buffer[player.position:]
         player.position = 0
     }
@@ -1008,7 +1012,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             if err != nil {
                 log.Printf("Warning: could not create audio player: %v", err)
             } else {
-                musicPlayer.SetBufferSize(1024 * 4 * 2)
+                musicPlayer.SetBufferSize(time.Millisecond * 50)
 
                 musicPlayer.Play()
                 defer musicPlayer.Pause()
@@ -1019,6 +1023,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
 
             nesCoroutine := coroutine.MakeCoroutine(runNes)
+            defer nesCoroutine.Stop()
 
             /*
             err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, verbose, debugger, yield)
@@ -1059,7 +1064,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                 err := nesCoroutine.Run()
                 if err != nil {
-                    if err == common.MaxCyclesReached {
+                    if err == common.MaxCyclesReached || errors.Is(err, coroutine.CoroutineCancelled) {
                     } else {
                         log.Printf("Error running NES: %v", err)
                     }

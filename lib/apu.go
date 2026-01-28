@@ -491,7 +491,7 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUSta
      * apu hz = cpu hz / 2
      * 1.789773e6 / 2 / 3728.5 = 240.01247
      */
-    apuCounter := 3728.5
+    apuCounter := 3728.75
     for apu.Cycles >= apuCounter {
         apu.Clock += 1
         apu.Cycles -= apuCounter
