@@ -835,6 +835,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             scale := min(scaleX, scaleY)
 
             options.GeoM.Scale(scale, scale)
+
+            xDiff := float64(screenBounds.Dx()) - float64(bufferBounds.Dx()) * scale
+            yDiff := float64(screenBounds.Dy()) - float64(bufferBounds.Dy()) * scale
+
+            options.GeoM.Translate(xDiff / 2, yDiff / 2)
             screen.DrawImage(bufferImage, &options)
         }
     }
