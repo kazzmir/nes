@@ -254,6 +254,33 @@ func (buttons *SDLKeyboardButtons) Get() nes.ButtonMapping {
     return mapping
 }
 
+func (buttons *SDLKeyboardButtons) HandleEvent(key ebiten.Key, set bool){
+    switch key {
+        case buttons.Keys.ButtonA: buttons.ButtonA = set
+        case buttons.Keys.ButtonB: buttons.ButtonB = set
+        case buttons.Keys.ButtonTurboA:
+            buttons.ButtonTurboA = set
+            /* if the user releases the turbo button the A/B button might be in
+             * a pressed state even though the user is not currently pressing it,
+             * so ensure that A/B is not pressed if turbo is released
+             */
+            if !set {
+                buttons.ButtonA = false
+            }
+        case buttons.Keys.ButtonTurboB:
+            buttons.ButtonTurboB = set
+            if !set {
+                buttons.ButtonB = false
+            }
+        case buttons.Keys.ButtonSelect: buttons.ButtonSelect = set
+        case buttons.Keys.ButtonStart: buttons.ButtonStart = set
+        case buttons.Keys.ButtonUp: buttons.ButtonUp = set
+        case buttons.Keys.ButtonDown: buttons.ButtonDown = set
+        case buttons.Keys.ButtonLeft: buttons.ButtonLeft = set
+        case buttons.Keys.ButtonRight: buttons.ButtonRight = set
+    }
+}
+
 /*
 func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
     set := false

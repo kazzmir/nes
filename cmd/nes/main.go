@@ -34,7 +34,7 @@ import (
     // rdebug "runtime/debug"
 
     "github.com/hajimehoshi/ebiten/v2"
-    // "github.com/hajimehoshi/ebiten/v2/inpututil"
+    "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
@@ -679,8 +679,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         }
     }()
 
-    toDraw := make(chan nes.VirtualScreen, 1)
-    bufferReady := make(chan nes.VirtualScreen, 1)
 
     fontSource, err := loadFontSource() 
     if err != nil {
@@ -743,12 +741,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     /* Show black bars on the sides or top/bottom when the window changes size */
     // renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
 
-    /* create a surface from the pixels in one call, then create a texture and render it */
-
     renderNow := make(chan bool, 2)
 
     // waiter.Add(1)
-    makeRenderScreen := func() func(*ebiten.Image) {
+    makeRenderScreen := func(toDraw chan nes.VirtualScreen, bufferReady chan nes.VirtualScreen) func(*ebiten.Image) {
         /* FIXME: kind of ugly to keep this here */
         raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
 
@@ -938,11 +934,58 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
             log.Printf("Run NES")
 
-            engine.PushDraw(makeRenderScreen())
-            defer engine.PopDraw()
+            toDraw := make(chan nes.VirtualScreen, 1)
+            bufferReady := make(chan nes.VirtualScreen, 1)
 
+            engine.PushDraw(makeRenderScreen(toDraw, bufferReady))
+            defer engine.PopDraw()
             verbose := 0
+
+            runNes := func(nesYield coroutine.YieldFunc) error {
+                return common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, verbose, debugger, nesYield)
+            }
+
+            nesCoroutine := coroutine.MakeCoroutine(runNes)
+
+            /*
             err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, verbose, debugger, yield)
+            */
+
+            var keys []ebiten.Key
+
+            for mainQuit.Err() == nil {
+
+                keys = inpututil.AppendJustPressedKeys(keys[:0])
+                for _, key := range keys {
+                    switch key {
+                        case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                            mainCancel()
+                    }
+
+                    input.HandleEvent(key, true)
+                }
+
+                keys = inpututil.AppendJustReleasedKeys(keys[:0])
+                for _, key := range keys {
+                    input.HandleEvent(key, false)
+                }
+
+                err := nesCoroutine.Run()
+                if err != nil {
+                    if err == common.MaxCyclesReached {
+                    } else {
+                        log.Printf("Error running NES: %v", err)
+                    }
+
+                    mainCancel()
+                }
+
+                if yield() != nil {
+                    mainCancel()
+                }
+            }
+
+            /*
             if err != nil {
                 if err == common.MaxCyclesReached {
                 } else {
@@ -951,6 +994,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                 mainCancel()
             }
+            */
         }
     }
 
