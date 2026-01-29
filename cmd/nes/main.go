@@ -869,7 +869,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     audioActions := make(chan AudioActions, 2)
     audioActionsInput := (<-chan AudioActions)(audioActions)
-    audioActionsOutput := (chan<- AudioActions)(audioActions)
+    // audioActionsOutput := (chan<- AudioActions)(audioActions)
 
     audioChannel := make(chan []float32, 2)
     audioInput := (<-chan []float32)(audioChannel)
@@ -998,7 +998,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
             pausedAudio := false
 
-            for mainQuit.Err() == nil {
+            for quit.Err() == nil {
                 if pausedAudio {
                     pausedAudio = false
                     musicPlayer.Play()
@@ -1131,11 +1131,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         log.Printf("Error running NES: %v", err)
                     }
 
-                    mainCancel()
+                    return
                 }
 
                 if yield() != nil {
-                    mainCancel()
+                    return
                 }
             }
         }
@@ -1159,6 +1159,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     // theMenu := menu.MakeMenu(font, smallFont, mainQuit, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
 
+    /*
     go func(){
         for {
             select {
@@ -1208,6 +1209,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
         }
     }()
+    */
 
     /* enable drag/drop events */
 
@@ -1387,7 +1389,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     */
 
     menu := coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
-        var nesWaiter sync.WaitGroup
         nesQuit, nesCancel := context.WithCancel(mainQuit)
 
         defer nesCancel()
@@ -1413,12 +1414,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
                     activeMenu.Run(mainCancel, font, smallFont, programActionsOutput, &renderManager, joystickManager, &emulatorKeys, yield, &engine)
                     // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
-                    /*
-                    select {
-                        case renderNow<-true:
-                        default:
-                    }
-                    */
                 case action := <-nesChannel:
                     doRestart := false
                     switch action.(type) {
@@ -1434,7 +1429,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                     if doRestart && currentFile.Path != "" {
                         nesCancel()
-                        nesWaiter.Wait()
                         nesQuit, nesCancel = context.WithCancel(mainQuit)
                         defer nesCancel()
 
@@ -1444,6 +1438,32 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             return nil
                         })
                     }
+
+                case action := <-programActionsInput:
+                    switch action.(type) {
+                        case *common.ProgramLoadRom:
+                            loadRom := action.(*common.ProgramLoadRom)
+                            file, err := loadRom.File()
+
+                            if err != nil {
+                                log.Printf("Could not load rom '%v'", loadRom.Name)
+                                break
+                            }
+
+                            nesFile, err := nes.ParseNes(file, true, loadRom.Name)
+                            file.Close()
+                            if err != nil {
+                                log.Printf("Could not load rom '%v'", path)
+                            } else {
+                                log.Printf("Loaded rom '%v'", loadRom.Name)
+                                nesChannel <- &NesActionLoad{File: nesFile}
+                                select {
+                                    case emulatorMessages.ReceiveMessages <- "Loaded rom":
+                                    default:
+                                }
+                            }
+                    }
+
 
                 default:
                     // sdl.Do(eventFunction)
