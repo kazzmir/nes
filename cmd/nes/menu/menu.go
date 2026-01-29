@@ -699,6 +699,7 @@ func isAudioEnabled(quit context.Context, programActions chan<- common.ProgramAc
 type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
     Input(input MenuInput) SubMenu
+    TextInput(text string)
     MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction
     UpdateWindowSize(int, int)
     // RawInput(sdl.Event)
@@ -795,6 +796,9 @@ func (menu *StaticMenu) PlayBeep() {
 
 func (menu *StaticMenu) UpdateWindowSize(x int, y int){
     // nothing
+}
+
+func (menu *StaticMenu) TextInput(text string){
 }
 
 func (menu *StaticMenu) Input(input MenuInput) SubMenu {
@@ -1309,6 +1313,9 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
 }
 */
 
+func (menu *JoystickMenu) TextInput(text string){
+}
+
 func (menu *JoystickMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuQuit:
@@ -1755,6 +1762,10 @@ func (loadRomMenu *LoadRomMenu) RawInput(event sdl.Event){
 }
 */
 
+func (loadRomMenu *LoadRomMenu) TextInput(text string){
+    loadRomMenu.LoaderState.SearchAdd(text)
+}
+
 func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuNext:
@@ -1832,6 +1843,9 @@ const (
     LoadRomInfoSelect = iota
     LoadRomInfoBack
 )
+
+func (loader *LoadRomInfoMenu) TextInput(text string){
+}
 
 func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
     inputs := 2
@@ -2161,6 +2175,9 @@ func (menu *ChangeKeyMenu) IsChoosing() bool {
     menu.Lock.Lock()
     defer menu.Lock.Unlock()
     return menu.Choosing
+}
+
+func (menu *ChangeKeyMenu) TextInput(text string){
 }
 
 func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
@@ -2717,6 +2734,8 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
     drawManager.PushDraw(draw, true)
     defer drawManager.PopDraw()
 
+    var runes []rune
+
     /* Reset the default renderer */
     for menu.quit.Err() == nil {
         clock += 1
@@ -2737,6 +2756,11 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
                 case ebiten.KeyEnter:
                     currentMenu = currentMenu.Input(MenuSelect)
             }
+        }
+
+        runes = ebiten.AppendInputChars(runes[:0])
+        if len(runes) > 0 {
+            currentMenu.TextInput(string(runes))
         }
 
         windowSize := drawManager.GetWindowSize()

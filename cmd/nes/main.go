@@ -1439,6 +1439,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         })
                     }
 
+                // FIXME: it feels ugly to convert ProgramLoadRom directly into NesActionLoad
                 case action := <-programActionsInput:
                     switch action.(type) {
                         case *common.ProgramLoadRom:
@@ -1466,7 +1467,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
 
                 default:
-                    // sdl.Do(eventFunction)
             }
 
             nesCoroutine.Run()
