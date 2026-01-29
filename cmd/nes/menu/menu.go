@@ -19,7 +19,7 @@ import (
     "sync"
     "strings"
     "text/template"
-    // "path/filepath"
+    "path/filepath"
 
     "crypto/md5"
 
@@ -1900,20 +1900,19 @@ func niceSize(size int64) string {
 func (loader *LoadRomInfoMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
     old := loader.RomLoader.MakeRenderer(font, smallFont, clock)
 
+    fontWidth, fontHeight := text.Measure("A", font, 1)
+    _ = fontWidth
+
     return func(out *ebiten.Image) error {
         // render the rom loader in the background
         err := old(out)
         if err != nil {
             return err
         }
-        /*
-
-        // render a semi-translucent black square on top of it
-        err = renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
-        _ = err
-        renderer.SetDrawColor(0, 0, 0, 240)
 
         // margin = 5%
+        maxWidth := float32(out.Bounds().Dx())
+        maxHeight := float32(out.Bounds().Dy())
         marginX := maxWidth * 5 / 100
         marginY := maxHeight * 5 / 100
         margin := marginY
@@ -1921,9 +1920,10 @@ func (loader *LoadRomInfoMenu) MakeRenderer(font text.Face, smallFont text.Face,
             margin = marginX
         }
 
-        renderer.FillRect(&sdl.Rect{X: int32(margin), Y: int32(margin), W: int32(maxWidth - margin*2), H: int32(maxHeight - margin*2)})
-        renderer.SetDrawColor(255, 255, 255, 255)
-        renderer.DrawRect(&sdl.Rect{X: int32(margin), Y: int32(margin), W: int32(maxWidth - margin*2), H: int32(maxHeight - margin*2)})
+        white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+
+        vector.FillRect(out, margin, margin, maxWidth - margin*2, maxHeight - margin*2, color.NRGBA{A: 240}, false)
+        vector.StrokeRect(out, margin, margin, maxWidth - margin*2, maxHeight - margin*2, 1, white, false)
 
         x := margin + 5
         y := margin + 5
@@ -1937,54 +1937,52 @@ func (loader *LoadRomInfoMenu) MakeRenderer(font text.Face, smallFont text.Face,
             thumbnail = maxX - x
         }
 
-        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-
         textY := y
         textX := x
-        gfx.WriteFont(font, renderer, textX, textY, fmt.Sprintf("%v", filepath.Base(loader.Info.Path)), white)
+        var textOptions text.DrawOptions
+        textOptions.GeoM.Translate(float64(textX), float64(textY))
 
-        textY += font.Height() + 2
+        text.Draw(out, filepath.Base(loader.Info.Path), font, &textOptions)
 
-        gfx.WriteFont(font, renderer, textX, textY, fmt.Sprintf("File size: %v", niceSize(loader.Filesize)), white)
-        textY += font.Height() + 2
+        textY += float32(fontHeight + 2)
+
+        textOptions.GeoM.Translate(0, fontHeight + 2)
+        text.Draw(out, fmt.Sprintf("File size: %v", niceSize(loader.Filesize)), font, &textOptions)
+        textOptions.GeoM.Translate(0, fontHeight + 2)
 
         if loader.Mapper == -1 {
-            gfx.WriteFont(font, renderer, textX, textY, "Mapper: unknown", white)
+            text.Draw(out, "Mapper: unknown", font, &textOptions)
         } else {
-            gfx.WriteFont(font, renderer, textX, textY, fmt.Sprintf("Mapper: %v", loader.Mapper), white)
+            text.Draw(out, fmt.Sprintf("Mapper: %v", loader.Mapper), font, &textOptions)
         }
-        textY += font.Height() + 2
 
         frame, ok := loader.Info.GetFrame()
         if ok {
-            width := frame.Width
-            height := frame.Height
+            width := frame.Bounds().Dx()
+            // height := frame.Bounds().Dy()
 
-            divider := float32(frame.Width) / float32(thumbnail)
+            divider := float32(width) / float32(thumbnail)
 
-            overscanPixels := 0
-            // FIXME: move this allocation into the object so its not repeated every draw frame
-            raw_pixels := make([]byte, width*height * 4)
-            common.RenderPixelsRGBA(frame, raw_pixels, overscanPixels)
-            pixelFormat := gfx.FindPixelFormat()
+            // overscanPixels := 0
 
-            romWidth := int(float32(width) / divider)
-            romHeight := int(float32(height) / divider)
-            doRender(width, height, raw_pixels, int(maxX - thumbnail - 2), int(y+10), romWidth, romHeight, pixelFormat, renderer)
-
-            renderer.SetDrawColor(255, 0, 0, 128)
-            renderer.DrawRect(&sdl.Rect{X: int32(maxX - thumbnail - 2), Y: int32(y+10), W: int32(romWidth), H: int32(romHeight)})
-
-            yPos := maxY - font.Height() * 4
-            gfx.WriteFont(font, renderer, x, yPos, "Load rom", loader.GetSelectionColor(LoadRomInfoSelect))
-            yPos += font.Height() + 2
-            gfx.WriteFont(font, renderer, x, yPos, "Back", loader.GetSelectionColor(LoadRomInfoBack))
+            var draw ebiten.DrawImageOptions
+            draw.GeoM.Scale(float64(1/divider), float64(1/divider))
+            draw.GeoM.Translate(float64(maxX - thumbnail - 2), float64(y+10))
+            out.DrawImage(frame, &draw)
         }
-        */
+
+        yPos := float64(maxY) - fontHeight * 4
+        textOptions.GeoM.Reset()
+        textOptions.GeoM.Translate(float64(x), yPos)
+        textOptions.ColorScale.ScaleWithColor(loader.GetSelectionColor(LoadRomInfoSelect))
+        text.Draw(out, "Load rom", font, &textOptions)
+
+        textOptions.GeoM.Translate(0, fontHeight + 2)
+        textOptions.ColorScale.Reset()
+        textOptions.ColorScale.ScaleWithColor(loader.GetSelectionColor(LoadRomInfoBack))
+        text.Draw(out, "Back", font, &textOptions)
 
         return nil
-
-        // return loadRomMenu.LoaderState.Render(maxWidth, maxHeight, font, smallFont, renderer, textureManager)
     }
 }
 
