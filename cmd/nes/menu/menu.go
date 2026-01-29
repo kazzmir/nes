@@ -2502,12 +2502,12 @@ func (layer *MenuRenderLayer) ZIndex() int {
 }
 
 type DrawManager interface {
-    PushDraw(func(*ebiten.Image))
+    PushDraw(func(*ebiten.Image), bool)
     PopDraw()
     GetWindowSize() common.WindowSize
 }
 
-func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions chan<- common.ProgramActions, renderNow chan bool, renderManager *gfx.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys, yield coroutine.YieldFunc, drawManager DrawManager){
+func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions chan<- common.ProgramActions, renderManager *gfx.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys, yield coroutine.YieldFunc, drawManager DrawManager){
 
     menuZIndex := 10
 
@@ -2716,7 +2716,7 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
         currentMenu.MakeRenderer(font, smallFont, clock)(screen)
     }
 
-    drawManager.PushDraw(draw)
+    drawManager.PushDraw(draw, true)
     defer drawManager.PopDraw()
 
     /* Reset the default renderer */

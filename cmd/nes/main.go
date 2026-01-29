@@ -64,9 +64,15 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
 
 // type DrawFunc func(screen *ebiten.Image)
 
+
+type DrawStep struct {
+    Draw func(*ebiten.Image)
+    DrawPrevious bool
+}
+
 type Engine struct {
     Coroutine *coroutine.Coroutine
-    Draws []func(screen *ebiten.Image)
+    Draws []DrawStep
     Quit context.Context
     WindowSize common.WindowSize
 }
@@ -101,14 +107,27 @@ func (engine *Engine) GetWindowSize() common.WindowSize {
 }
 
 func (engine *Engine) Draw(screen *ebiten.Image) {
-    if len(engine.Draws) > 0 {
-        last := engine.Draws[len(engine.Draws)-1]
-        last(screen)
+
+    var draw func(int)
+
+    draw = func(i int){
+        if i < 0 {
+            return
+        }
+
+        step := engine.Draws[i]
+        if step.DrawPrevious {
+            draw(i - 1)
+        }
+
+        step.Draw(screen)
     }
+
+    draw(len(engine.Draws) - 1)
 }
 
-func (engine *Engine) PushDraw(draw func(*ebiten.Image)) {
-    engine.Draws = append(engine.Draws, draw)
+func (engine *Engine) PushDraw(draw func(*ebiten.Image), drawPrevious bool) {
+    engine.Draws = append(engine.Draws, DrawStep{Draw: draw, DrawPrevious: drawPrevious})
 }
 
 func (engine *Engine) PopDraw() {
@@ -230,56 +249,6 @@ func makeAudioWorker(audio <-chan []float32, audioActions <-chan AudioActions, m
     */
     return func(){}
 }
-
-/* must be called in a sdl.Do */
-func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat gfx.PixelFormat, out *ebiten.Image) error {
-
-    /*
-    pixels := C.CBytes(raw_pixels)
-    defer C.free(pixels)
-
-    depth := 8 * 4 // RGBA8888
-    pitch := int(width) * int(depth) / 8
-
-    // pixelFormat := sdl.PIXELFORMAT_ABGR8888
-
-    / * pixelFormat should be ABGR8888 on little-endian (x86) and
-     * RBGA8888 on big-endian (arm)
-     * /
-
-    surface, err := sdl.CreateRGBSurfaceWithFormatFrom(pixels, int32(width), int32(height), int32(depth), int32(pitch), uint32(pixelFormat))
-    if err != nil {
-        return fmt.Errorf("Unable to create surface from pixels: %v", err)
-    }
-    if surface == nil {
-        return fmt.Errorf("Did not create a surface somehow")
-    }
-
-    defer surface.Free()
-
-    texture, err := renderer.CreateTextureFromSurface(surface)
-    if err != nil {
-        return fmt.Errorf("Could not create texture: %v", err)
-    }
-
-    defer texture.Destroy()
-
-    // texture_format, access, width, height, err := texture.Query()
-    // log.Printf("Texture format=%v access=%v width=%v height=%v err=%v\n", get_pixel_format(texture_format), access, width, height, err)
-
-
-    renderer.SetLogicalSize(int32(width), int32(height))
-    err = renderer.Copy(texture, nil, nil)
-    if err != nil {
-        log.Printf("Warning: could not copy texture to renderer: %v\n", err)
-    }
-
-    renderer.SetLogicalSize(0, 0)
-    */
-
-    return nil
-}
-
 
 type NesAction interface {
 }
@@ -788,8 +757,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     /* Show black bars on the sides or top/bottom when the window changes size */
     // renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
 
-    renderNow := make(chan bool, 2)
-
     // waiter.Add(1)
     makeRenderScreen := func(bufferReady chan bool, buffer nes.VirtualScreen) func(*ebiten.Image) {
         /* FIXME: kind of ugly to keep this here */
@@ -971,11 +938,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
         }
 
-        renderNes := func(info gfx.RenderInfo) error {
-            // return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, info.Renderer)
-            return nil
-        }
-
+        /*
         layer := &DefaultRenderLayer{
             RenderFunc: renderNes,
             Index: 0,
@@ -983,6 +946,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
         renderManager.AddLayer(layer)
         defer renderManager.RemoveLayer(layer)
+        */
 
         if err != nil {
             log.Printf("Error: CPU initialization error: %v", err)
@@ -1005,7 +969,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
             buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
 
-            engine.PushDraw(makeRenderScreen(bufferReady, buffer))
+            engine.PushDraw(makeRenderScreen(bufferReady, buffer), false)
             defer engine.PopDraw()
             verbose := 1
 
@@ -1030,10 +994,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             nesCoroutine := coroutine.MakeCoroutine(runNes)
             defer nesCoroutine.Stop()
 
-            /*
-            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, verbose, debugger, yield)
-            */
-
             var keys []ebiten.Key
 
             pausedAudio := false
@@ -1053,6 +1013,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                                     pausedAudio = true
                                     musicPlayer.Pause()
                                 default:
+                                    // couldn't launch menu, just abort
                                     mainCancel()
                             }
                             // mainCancel()
@@ -1450,7 +1411,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 case <-doMenu:
                     activeMenu := menu.MakeMenu(mainQuit, font)
                     // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
-                    activeMenu.Run(mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, &emulatorKeys, yield, &engine)
+                    activeMenu.Run(mainCancel, font, smallFont, programActionsOutput, &renderManager, joystickManager, &emulatorKeys, yield, &engine)
                     // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
                     /*
                     select {
@@ -1509,20 +1470,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     // return nil
 }
-
-
-/*
-func get_pixel_format(format uint32) string {
-    switch format {
-        case sdl.PIXELFORMAT_BGR888: return "BGR888"
-        case sdl.PIXELFORMAT_ARGB8888: return "ARGB8888"
-        case sdl.PIXELFORMAT_RGB888: return "RGB888"
-        case sdl.PIXELFORMAT_RGBA8888: return "RGBA8888"
-    }
-
-    return fmt.Sprintf("%v?", format)
-}
-*/
 
 type Arguments struct {
     NESPath string
