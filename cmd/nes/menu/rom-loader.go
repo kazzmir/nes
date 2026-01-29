@@ -331,11 +331,9 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
     var screenListeners common.ScreenListeners
     const AudioSampleRate float32 = 44100.0
 
-    toDraw := make(chan nes.VirtualScreen, 1)
-    bufferReady := make(chan nes.VirtualScreen, 1)
+    bufferReady := make(chan bool, 1)
 
     buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
-    bufferReady <- buffer
 
     var err error
     cachedSha := ""
@@ -353,26 +351,23 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
         }
     }
 
-    go func(){
-        frameNumber := 1
-        count := 0
-        for {
-            select {
-            case <-quit.Done():
-                return
-            case screen := <-toDraw:
+    frameNumber := 1
+    count := 0
+    handleDraw := func() error {
+        select {
+            case <-bufferReady:
                 count += 1
                 /* every 60 frames should be 1 second */
                 if count == 60 {
                     raw_pixels := pixelPool.Get().([]byte)
                     frame := RomLoaderFrame{
                         Id: romId,
-                        Frame: nesToImage(screen, raw_pixels),
+                        Frame: nesToImage(buffer, raw_pixels),
                     }
                     pixelPool.Put(raw_pixels)
 
                     if doCache {
-                        err := saveCachedFrame(frameNumber, cachedSha, path, screen)
+                        err := saveCachedFrame(frameNumber, cachedSha, path, buffer)
                         if err != nil {
                             log.Printf("Could not save cached frame: %v", err)
                         }
@@ -387,21 +382,22 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
                     select {
                         case addFrame <- frame:
                         case <-quit.Done():
-                            return
+                            return nil
                     }
                     count = 0
                 }
 
-                bufferReady <- screen
-            }
+            default:
         }
-    }()
+
+        return nil
+    }
 
     /* don't load more than 30s worth */
     const maxCycles = uint64(30 * nes.CPUSpeed)
 
     log.Printf("Start loading %v", path)
-    err = common.RunNES(path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, make(chan string, 100), AudioSampleRate, 0, nil, func() error { return nil })
+    err = common.RunNES(path, &cpu, maxCycles, quit, bufferReady, buffer, audioOutput, emulatorActionsInput, &screenListeners, make(chan string, 100), AudioSampleRate, 0, nil, handleDraw)
     if err == common.MaxCyclesReached {
         log.Printf("%v complete", path)
     }
@@ -428,7 +424,7 @@ func romLoader(mainQuit context.Context, romLoaderState *RomLoaderState) error {
     generatorGroup := thread.NewThreadGroup(loaderQuit)
     romGroup := thread.NewThreadGroup(loaderQuit)
 
-    for i := 0; i < 4; i++ {
+    for range 4 {
         generatorGroup.Spawn(func(){
             for generator := range generatorChannel {
                 generator()

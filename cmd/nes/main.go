@@ -791,12 +791,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     renderNow := make(chan bool, 2)
 
     // waiter.Add(1)
-    makeRenderScreen := func(toDraw chan nes.VirtualScreen, bufferReady chan nes.VirtualScreen) func(*ebiten.Image) {
+    makeRenderScreen := func(bufferReady chan bool, buffer nes.VirtualScreen) func(*ebiten.Image) {
         /* FIXME: kind of ugly to keep this here */
         raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
 
-        buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
-        bufferReady <- buffer
+        // buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
         // defer waiter.Done()
         fpsCounter := 2.0
         fps := 0
@@ -846,8 +845,12 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
 
             fps += 1
-            common.RenderPixelsRGBA(buffer, raw_pixels, nes.OverscanPixels)
-            bufferImage.WritePixels(raw_pixels)
+            select {
+                case <-bufferReady:
+                    common.RenderPixelsRGBA(buffer, raw_pixels, nes.OverscanPixels)
+                    bufferImage.WritePixels(raw_pixels)
+                default:
+            }
 
             select {
                 /*
@@ -997,10 +1000,12 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
             log.Printf("Run NES")
 
-            toDraw := make(chan nes.VirtualScreen, 1)
-            bufferReady := make(chan nes.VirtualScreen, 1)
+            // toDraw := make(chan nes.VirtualScreen, 1)
+            bufferReady := make(chan bool, 1)
 
-            engine.PushDraw(makeRenderScreen(toDraw, bufferReady))
+            buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
+
+            engine.PushDraw(makeRenderScreen(bufferReady, buffer))
             defer engine.PopDraw()
             verbose := 1
 
@@ -1019,7 +1024,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
 
             runNes := func(nesYield coroutine.YieldFunc) error {
-                return common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, verbose, debugger, nesYield)
+                return common.RunNES(nesFile.Path, &cpu, maxCycles, quit, bufferReady, buffer, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, verbose, debugger, nesYield)
             }
 
             nesCoroutine := coroutine.MakeCoroutine(runNes)

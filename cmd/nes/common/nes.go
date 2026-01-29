@@ -321,8 +321,9 @@ func loadCpuState(sha256 string) (*nes.CPUState, error) {
 }
 
 var MaxCyclesReached error = errors.New("maximum cycles reached")
-func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen,
-            bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32,
+func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Context,
+            bufferReady chan<- bool, buffer nes.VirtualScreen,
+            audio chan<-[]float32,
             emulatorActions <-chan EmulatorAction, screenListeners *ScreenListeners,
             renderOverlayUpdate chan<- string,
             sampleRate float32, verbose int, debugger debug.Debugger, yield coroutine.YieldFunc) error {
@@ -384,7 +385,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
     defer cycleCheck.Stop()
     cycleStart := cpu.Cycle
 
-    buffer := <-bufferReady
+    // buffer := <-bufferReady
 
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
@@ -592,6 +593,11 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                 screenListeners.ObserveVideo(screen)
 
                 buffer.CopyFrom(&screen)
+
+                select {
+                    case bufferReady <- true:
+                    default:
+                }
 
                 /*
                 select {
