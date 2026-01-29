@@ -1036,13 +1036,26 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
             var keys []ebiten.Key
 
+            pausedAudio := false
+
             for mainQuit.Err() == nil {
+                if pausedAudio {
+                    pausedAudio = false
+                    musicPlayer.Play()
+                }
 
                 keys = inpututil.AppendJustPressedKeys(keys[:0])
                 for _, key := range keys {
                     switch key {
                         case ebiten.KeyEscape, ebiten.KeyCapsLock:
-                            mainCancel()
+                            select {
+                                case doMenu <- true:
+                                    pausedAudio = true
+                                    musicPlayer.Pause()
+                                default:
+                                    mainCancel()
+                            }
+                            // mainCancel()
                         case emulatorKeys.Turbo:
                             select {
                                 case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
@@ -1164,68 +1177,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     mainCancel()
                 }
             }
-
-            /*
-            if err != nil {
-                if err == common.MaxCyclesReached {
-                } else {
-                    log.Printf("Error running NES: %v", err)
-                }
-
-                mainCancel()
-            }
-            */
         }
     }
-
-    /* runs the nes emulator */
-    /*
-    waiter.Add(1)
-    go func(){
-        defer waiter.Done()
-
-        var nesWaiter sync.WaitGroup
-        nesQuit, nesCancel := context.WithCancel(mainQuit)
-
-        go common.RunDummyNES(nesQuit, emulatorActionsInput)
-
-        var currentFile nes.NESFile
-
-        for {
-            select {
-                case <-mainQuit.Done():
-                    nesCancel()
-                    return
-                case action := <-nesChannel:
-                    doRestart := false
-                    switch action.(type) {
-                        case *NesActionLoad:
-                            load := action.(*NesActionLoad)
-                            currentFile = load.File
-                            doRestart = true
-                        case *NesActionRestart:
-                            doRestart = true
-                        case *NesActionDebugger:
-                            debugWindow.Open(mainQuit)
-                    }
-
-                    if doRestart && currentFile.Path != "" {
-                        nesCancel()
-                        nesWaiter.Wait()
-                        nesQuit, nesCancel = context.WithCancel(mainQuit)
-
-                        nesWaiter.Add(1)
-                        go func(nesFile nes.NESFile, quit context.Context){
-                            defer nesWaiter.Done()
-                            startNES(nesFile, quit)
-                        }(currentFile, nesQuit)
-                    }
-            }
-        }
-
-        // nesWaiter.Wait()
-    }()
-    */
 
     recordQuit, recordCancel := context.WithCancel(mainQuit)
     if recordOnStart {
@@ -1237,17 +1190,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     } else {
         recordCancel()
     }
-
-    /* FIXME: this would be good to do as a generic function.
-     *   reader, writer := makeChannel(common.WindowSize, 2)
-     * Where the reader gets the <-chan and the writer gets the chan<-
-     */
-    /* Notify the menu when the window changes size */
-    /*
-    windowSizeUpdates := make(chan common.WindowSize, 10)
-    windowSizeUpdatesInput := (<-chan common.WindowSize)(windowSizeUpdates)
-    windowSizeUpdatesOutput := (chan<- common.WindowSize)(windowSizeUpdates)
-    */
 
     /* Actions done in the menu that should affect the program */
     programActions := make(chan common.ProgramActions, 2)
@@ -1493,13 +1435,23 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
         var currentFile nes.NESFile
 
+        nesCoroutine := coroutine.MakeCoroutine(func(nesYield coroutine.YieldFunc) error {
+            for nesQuit.Err() == nil {
+                if nesYield() != nil {
+                    return coroutine.CoroutineCancelled
+                }
+            }
+
+            return nil
+        })
+
         for mainQuit.Err() == nil {
             select {
                 case <-doMenu:
                     activeMenu := menu.MakeMenu(mainQuit, font)
-                    emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
+                    // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
                     activeMenu.Run(mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, &emulatorKeys, yield, &engine)
-                    emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
+                    // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
                     /*
                     select {
                         case renderNow<-true:
@@ -1523,15 +1475,20 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         nesCancel()
                         nesWaiter.Wait()
                         nesQuit, nesCancel = context.WithCancel(mainQuit)
+                        defer nesCancel()
 
-                        startNES(currentFile, nesQuit, yield)
-                        nesCancel()
+                        nesCoroutine.Stop()
+                        nesCoroutine = coroutine.MakeCoroutine(func(nesYield coroutine.YieldFunc) error {
+                            startNES(currentFile, nesQuit, nesYield)
+                            return nil
+                        })
                     }
-
 
                 default:
                     // sdl.Do(eventFunction)
             }
+
+            nesCoroutine.Run()
 
             if yield() != nil {
                 return coroutine.CoroutineCancelled
