@@ -1043,7 +1043,90 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                                 case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
                                 default:
                             }
+                            /*
+                        case emulatorKeys.Console:
+                            console.Toggle()
+                            */
+                        case emulatorKeys.StepFrame:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorStepFrame):
+                                default:
+                            }
+                        case emulatorKeys.SaveState:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSaveState):
+                                    select {
+                                        case emulatorMessages.ReceiveMessages <- "Saved state":
+                                        default:
+                                    }
+                                default:
+                            }
+                        case emulatorKeys.LoadState:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorLoadState):
+                                    select {
+                                        case emulatorMessages.ReceiveMessages <- "Loaded state":
+                                        default:
+                                    }
+                                default:
+                            }
+                        case emulatorKeys.Record:
+                            /*
+                            if recordQuit.Err() == nil {
+                                recordCancel()
+                                select {
+                                    case emulatorMessages.ReceiveMessages <- "Stopped recording":
+                                    default:
+                                }
+                            } else {
+                                recordCancel()
 
+                                recordQuit, recordCancel = context.WithCancel(mainQuit)
+                                err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
+                                if err != nil {
+                                    log.Printf("Could not record video: %v", err)
+                                }
+                                select {
+                                    case emulatorMessages.ReceiveMessages <- "Started recording":
+                                    default:
+                                }
+                            }
+                            */
+                        case emulatorKeys.Pause:
+                            log.Printf("Pause/unpause")
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePause):
+                                default:
+                            }
+                        case emulatorKeys.PPUDebug:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePPUDebug):
+                                default:
+                            }
+                        case emulatorKeys.SlowDown:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSlowDown):
+                                default:
+                            }
+                        case emulatorKeys.SpeedUp:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSpeedUp):
+                                default:
+                            }
+                        case emulatorKeys.Normal:
+                            select {
+                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
+                                default:
+                            }
+                        case emulatorKeys.HardReset:
+                            log.Printf("Hard reset")
+                            nesChannel <- &NesActionRestart{}
+                            select {
+                                case emulatorMessages.ReceiveMessages <- "Hard reset":
+                                default:
+                            }
+
+                            return
                     }
 
                     input.HandleEvent(key, true)
@@ -1231,39 +1314,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     handleOneEvent := func(event sdl.Event){
         switch event.GetType() {
             case sdl.QUIT: mainCancel()
-            case sdl.WINDOWEVENT:
-                window_event := event.(*sdl.WindowEvent)
-                useWindowId := getWindowIdFromEvent(window_event)
-                switch window_event.Event {
-                    case sdl.WINDOWEVENT_EXPOSED:
-                        if useWindowId == mainWindowId {
-                            select {
-                                case renderNow <- true:
-                                default:
-                            }
-                        } else if debugWindow.IsWindow(useWindowId) {
-                            debugWindow.Redraw()
-                        }
-                    case sdl.WINDOWEVENT_CLOSE:
-                        if useWindowId == mainWindowId {
-                            mainCancel()
-                        } else if debugWindow.IsWindow(useWindowId) {
-                            debugWindow.Close()
-                        }
-                    case sdl.WINDOWEVENT_RESIZED:
-                        // log.Printf("Window resized")
-
-                }
-
-                / *
-                width, height := window.GetSize()
-                / * Not great but tolerate not updating the system when the window changes * /
-                select {
-                    case windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}:
-                    default:
-                        log.Printf("Warning: dropping a window event")
-                }
-                * /
             case sdl.TEXTINPUT, sdl.TEXTEDITING:
                 useWindowId := getWindowIdFromEvent(event)
 
@@ -1427,39 +1477,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         }
     }
     */
-
-    /* Process events */
-    /*
-    go func(){
-        for {
-            select {
-                case <-mainQuit.Done():
-                    return
-                case event := <-events:
-                    handleOneEvent(event)
-            }
-        }
-    }()
-    */
-
-    /* This function executes in a sdl.Do context */
-    /*
-    eventFunction := func(){
-        event := sdl.WaitEventTimeout(1)
-        if event != nil {
-            // log.Printf("Event %+v\n", event)
-            events <- event
-            / *
-            select {
-                case events <- event:
-                default:
-                    log.Printf("Dropping event %+v", event)
-            }
-            * /
-        }
-    }
-    */
-
 
     menu := coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
         var nesWaiter sync.WaitGroup

@@ -337,14 +337,16 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
      *
      * anything higher than 1 seems ok, with 10 probably being an upper limit
      */
-    hostTickSpeed := 5
+    // hostTickSpeed := 5
     // cycleDiff := nes.CPUSpeed / (1000.0 / float64(hostTickSpeed))
 
     /* about 20.292 */
     baseCyclesPerSample := nes.CPUSpeed / 2 / float64(sampleRate)
 
+    /*
     cycleTimer := time.NewTicker(time.Duration(hostTickSpeed) * time.Millisecond)
     defer cycleTimer.Stop()
+    */
 
     turboMultiplier := float64(1)
 
