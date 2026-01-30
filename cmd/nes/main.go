@@ -40,31 +40,6 @@ import (
     audiolib "github.com/hajimehoshi/ebiten/v2/audio"
 )
 
-/*
-func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
-    var audioSpec sdl.AudioSpec
-    var obtainedSpec sdl.AudioSpec
-
-    audioSpec.Freq = int32(sampleRate)
-    audioSpec.Format = sdl.AUDIO_F32LSB
-    audioSpec.Channels = 1
-    audioSpec.Samples = 1024
-    // audioSpec.Callback = sdl.AudioCallback(C.generate_audio_c)
-    audioSpec.Callback = nil
-    audioSpec.UserData = nil
-
-    var device sdl.AudioDeviceID
-    var err error
-    sdl.Do(func(){
-        device, err = sdl.OpenAudioDevice("", false, &audioSpec, &obtainedSpec, sdl.AUDIO_ALLOW_FORMAT_CHANGE)
-    })
-    return device, err
-}
-*/
-
-// type DrawFunc func(screen *ebiten.Image)
-
-
 type DrawStep struct {
     Draw func(*ebiten.Image)
     DrawPrevious bool
@@ -99,7 +74,6 @@ func (engine *Engine) Update() error {
 func (engine *Engine) Layout(outsideWidth, outsideHeight int) (int, int) {
     engine.WindowSize = common.WindowSize{X: outsideWidth, Y: outsideHeight}
     return outsideWidth, outsideHeight
-    // return nes.VideoWidth, nes.VideoHeight - nes.OverscanPixels * 2
 }
 
 func (engine *Engine) GetWindowSize() common.WindowSize {
@@ -1335,7 +1309,19 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         var currentFile nes.NESFile
 
         nesCoroutine := coroutine.MakeCoroutine(func(nesYield coroutine.YieldFunc) error {
+            var keys []ebiten.Key
             for nesQuit.Err() == nil {
+                keys = inpututil.AppendJustPressedKeys(keys[:0])
+                for _, key := range keys {
+                    switch key {
+                        case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                            select {
+                                case doMenu <- true:
+                                default:
+                            }
+                    }
+                }
+
                 if nesYield() != nil {
                     return coroutine.CoroutineCancelled
                 }
