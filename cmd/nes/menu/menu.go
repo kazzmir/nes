@@ -693,7 +693,7 @@ type SubMenu interface {
     TextInput(text string)
     MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction
     UpdateWindowSize(int, int)
-    // RawInput(sdl.Event)
+    KeyDown(ebiten.Key)
     PlayBeep()
 }
 
@@ -790,6 +790,9 @@ func (menu *StaticMenu) UpdateWindowSize(x int, y int){
 }
 
 func (menu *StaticMenu) TextInput(text string){
+}
+
+func (menu *StaticMenu) KeyDown(key ebiten.Key){
 }
 
 func (menu *StaticMenu) Input(input MenuInput) SubMenu {
@@ -1307,6 +1310,9 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
 func (menu *JoystickMenu) TextInput(text string){
 }
 
+func (menu *JoystickMenu) KeyDown(key ebiten.Key){
+}
+
 func (menu *JoystickMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuQuit:
@@ -1757,6 +1763,12 @@ func (loadRomMenu *LoadRomMenu) TextInput(text string){
     loadRomMenu.LoaderState.SearchAdd(text)
 }
 
+func (loadRomMenu *LoadRomMenu) KeyDown(key ebiten.Key){
+    if key == ebiten.KeyBackspace {
+        loadRomMenu.LoaderState.SearchBackspace()
+    }
+}
+
 func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuNext:
@@ -1836,6 +1848,9 @@ const (
 )
 
 func (loader *LoadRomInfoMenu) TextInput(text string){
+}
+
+func (loader *LoadRomInfoMenu) KeyDown(key ebiten.Key){
 }
 
 func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
@@ -2169,6 +2184,9 @@ func (menu *ChangeKeyMenu) IsChoosing() bool {
 }
 
 func (menu *ChangeKeyMenu) TextInput(text string){
+}
+
+func (menu *ChangeKeyMenu) KeyDown(key ebiten.Key){
 }
 
 func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
@@ -2746,6 +2764,8 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
                     currentMenu = currentMenu.Input(MenuDown)
                 case ebiten.KeyEnter:
                     currentMenu = currentMenu.Input(MenuSelect)
+                default:
+                    currentMenu.KeyDown(key)
             }
         }
 
