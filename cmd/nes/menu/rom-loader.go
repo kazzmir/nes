@@ -1,9 +1,5 @@
 package menu
 
-/*
-#include <stdlib.h>
-*/
-import "C"
 import (
     "sync"
     "context"
