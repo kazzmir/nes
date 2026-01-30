@@ -1825,11 +1825,6 @@ func (loader *LoadRomInfoMenu) PlayBeep() {
     loader.RomLoader.PlayBeep()
 }
 
-/*
-func (loader *LoadRomInfoMenu) RawInput(event sdl.Event){
-}
-*/
-
 func (loader *LoadRomInfoMenu) UpdateWindowSize(x int, y int){
     loader.RomLoader.UpdateWindowSize(x, y)
 }
