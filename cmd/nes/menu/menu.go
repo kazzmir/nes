@@ -1592,12 +1592,19 @@ func (loadRomMenu *LoadRomMenu) RawInput(event sdl.Event){
 */
 
 func (loadRomMenu *LoadRomMenu) TextInput(text string){
+    text = strings.ReplaceAll(text, "-", "")
+    text = strings.ReplaceAll(text, "=", "")
     loadRomMenu.LoaderState.SearchAdd(text)
 }
 
 func (loadRomMenu *LoadRomMenu) KeyDown(key ebiten.Key){
-    if key == ebiten.KeyBackspace {
-        loadRomMenu.LoaderState.SearchBackspace()
+    switch key {
+        case ebiten.KeyBackspace:
+            loadRomMenu.LoaderState.SearchBackspace()
+        case ebiten.KeyMinus:
+            loadRomMenu.LoaderState.ZoomOut()
+        case ebiten.KeyEqual:
+            loadRomMenu.LoaderState.ZoomIn()
     }
 }
 
