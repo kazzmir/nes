@@ -1134,7 +1134,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     handleOneEvent := func(event sdl.Event){
         switch event.GetType() {
-            case sdl.QUIT: mainCancel()
             case sdl.TEXTINPUT, sdl.TEXTEDITING:
                 useWindowId := getWindowIdFromEvent(event)
 
@@ -1189,87 +1188,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     switch keyboard_event.Keysym.Sym {
                         case emulatorKeys.Console:
                             console.Toggle()
-                        case emulatorKeys.Turbo:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
-                                default:
-                            }
-                        case emulatorKeys.StepFrame:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorStepFrame):
-                                default:
-                            }
-                        case emulatorKeys.SaveState:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSaveState):
-                                    select {
-                                        case emulatorMessages.ReceiveMessages <- "Saved state":
-                                        default:
-                                    }
-                                default:
-                            }
-                        case emulatorKeys.LoadState:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorLoadState):
-                                    select {
-                                        case emulatorMessages.ReceiveMessages <- "Loaded state":
-                                        default:
-                                    }
-                                default:
-                            }
-                        case emulatorKeys.Record:
-                            if recordQuit.Err() == nil {
-                                recordCancel()
-                                select {
-                                    case emulatorMessages.ReceiveMessages <- "Stopped recording":
-                                    default:
-                                }
-                            } else {
-                                recordCancel()
-
-                                recordQuit, recordCancel = context.WithCancel(mainQuit)
-                                err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
-                                if err != nil {
-                                    log.Printf("Could not record video: %v", err)
-                                }
-                                select {
-                                    case emulatorMessages.ReceiveMessages <- "Started recording":
-                                    default:
-                                }
-                            }
-                        case emulatorKeys.Pause:
-                            log.Printf("Pause/unpause")
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePause):
-                                default:
-                            }
-                        case emulatorKeys.PPUDebug:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePPUDebug):
-                                default:
-                            }
-                        case emulatorKeys.SlowDown:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSlowDown):
-                                default:
-                            }
-                        case emulatorKeys.SpeedUp:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSpeedUp):
-                                default:
-                            }
-                        case emulatorKeys.Normal:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
-                                default:
-                            }
-                        case emulatorKeys.HardReset:
-                            log.Printf("Hard reset")
-                            nesChannel <- &NesActionRestart{}
-                            select {
-                                case emulatorMessages.ReceiveMessages <- "Hard reset":
-                                default:
-                            }
                     }
                 } else if debugWindow.IsWindow(useWindowId) {
                     debugWindow.HandleKey(event)
