@@ -17,8 +17,6 @@ import (
     "text/template"
     "path/filepath"
 
-    "crypto/md5"
-
     "image"
     "image/png"
     "image/color"
@@ -53,7 +51,7 @@ type Menu struct {
     font text.Face
     Input chan MenuInput
     Lock sync.Mutex
-    // Beep *mix.Music
+    AudioManager AudioManager
 }
 
 type MenuAction int
@@ -99,6 +97,10 @@ type ProgramActions interface {
     LoadRom(name string, file common.MakeFile)
     SetSoundEnabled(enabled bool)
     IsSoundEnabled() bool
+}
+
+type AudioManager interface {
+    PlayBeep()
 }
 
 /* an interactable button */
@@ -216,80 +218,6 @@ func doRender(raw_pixels []byte, out *ebiten.Image) error {
     return nil
 }
 
-/*
-func doRender(width int, height int, raw_pixels []byte, destX int, destY int, destWidth int, destHeight int, pixelFormat gfx.PixelFormat, out *ebiten.Image) error {
-    pixels := C.CBytes(raw_pixels)
-    defer C.free(pixels)
-
-    depth := 8 * 4 // RGBA8888
-    pitch := int(width) * int(depth) / 8
-
-    // pixelFormat := sdl.PIXELFORMAT_ABGR8888
-
-    / * pixelFormat should be ABGR8888 on little-endian (x86) and
-     * RBGA8888 on big-endian (arm)
-     * /
-
-    surface, err := sdl.CreateRGBSurfaceWithFormatFrom(pixels, int32(width), int32(height), int32(depth), int32(pitch), uint32(pixelFormat))
-    if err != nil {
-        return fmt.Errorf("Unable to create surface from pixels: %v", err)
-    }
-    if surface == nil {
-        return fmt.Errorf("Did not create a surface somehow")
-    }
-
-    defer surface.Free()
-
-    texture, err := renderer.CreateTextureFromSurface(surface)
-    if err != nil {
-        return fmt.Errorf("Could not create texture: %v", err)
-    }
-
-    defer texture.Destroy()
-
-    // texture_format, access, width, height, err := texture.Query()
-    // log.Printf("Texture format=%v access=%v width=%v height=%v err=%v\n", get_pixel_format(texture_format), access, width, height, err)
-
-    destRect := sdl.Rect{X: int32(destX), Y: int32(destY), W: int32(destWidth), H: int32(destHeight)}
-    renderer.Copy(texture, nil, &destRect)
-
-    return nil
-}
-*/
-
-/* FIXME: cache the resulting texture */
-/*
-func imageToTexture(data image.Image, renderer *sdl.Renderer) (*sdl.Texture, error) {
-    / * encode image to bmp to a raw memory stream
-     * use sdl.RWFromMem to get an rwops
-     * use sdl.LoadBMPRW from rwops to get a surface
-     * convert surface to texture
-     *
-     * could we go directly from an image to a surface and skip the bmp step?
-     * probably, but this way is much simpler to implement.
-     * /
-
-    var memory bytes.Buffer
-    err := bmp.Encode(&memory, data)
-    if err != nil {
-        return nil, err
-    }
-
-    rwops, err := sdl.RWFromMem(memory.Bytes())
-    if err != nil {
-        return nil, err
-    }
-
-    surface, err := sdl.LoadBMPRW(rwops, false)
-    if err != nil {
-        return nil, err
-    }
-    defer surface.Free()
-
-    return renderer.CreateTextureFromSurface(surface)
-}
-*/
-
 func loadPng(path string) (image.Image, error) {
     file, err := os.Open(path)
     if err != nil {
@@ -300,98 +228,9 @@ func loadPng(path string) (image.Image, error) {
     return png.Decode(file)
 }
 
-/* Maps a hash of a string and the 32-bit representation of a color to a texture id */
-/*
-type ButtonManager struct {
-    Ids map[uint64]map[uint32]TextureId
-    Lock sync.Mutex
-}
-
-func MakeButtonManager() ButtonManager {
-    return ButtonManager{
-        Ids: make(map[uint64]map[uint32]TextureId),
-    }
-}
-*/
-
-/* md5 the string then add up the first 8 bytes to produce a 64-bit value */
-func computeStringHash(value string) uint64 {
-    hash := md5.Sum([]byte(value))
-    var out uint64
-    for i := 0; i < 8; i++ {
-        out = (out << 8) + uint64(hash[i])
-    }
-
-    return out
-}
-
-/*
-func (manager *ButtonManager) GetButtonTextureId(textureManager *TextureManager, message string, color sdl.Color) TextureId {
-    manager.Lock.Lock()
-    defer manager.Lock.Unlock()
-
-    stringHash := computeStringHash(message)
-    colorValue := (uint32(color.R) << 24) | (uint32(color.G) << 16) | (uint32(color.B) << 8) | uint32(color.A)
-
-    colorMap, ok := manager.Ids[stringHash]
-    if !ok {
-        colorMap = make(map[uint32]TextureId)
-        manager.Ids[stringHash] = colorMap
-    }
-
-    id, ok := colorMap[colorValue]
-    if ok {
-        return id
-    }
-
-    id = textureManager.NextId()
-    colorMap[colorValue] = id
-    return id
-}
-*/
-
-/*
-func loadBeep() (*mix.Music, error) {
-    file, err := data.OpenFile("beep.ogg")
-    if err != nil {
-        return nil, err
-    }
-
-    memory, err := io.ReadAll(file)
-    if err != nil {
-        return nil, err
-    }
-
-    rwops, err := sdl.RWFromMem(memory)
-    if err != nil {
-        return nil, err
-    }
-
-    music, err := mix.LoadMUSRW(rwops, 1)
-    if err != nil {
-        rwops.Close()
-        return nil, err
-    }
-
-    runtime.SetFinalizer(music, func(music *mix.Music){
-        memory = nil
-    })
-
-    return music, nil
-}
-*/
-
-func MakeMenu(mainQuit context.Context, font text.Face) Menu {
+func MakeMenu(mainQuit context.Context, font text.Face, audioManager AudioManager) Menu {
     quit, cancel := context.WithCancel(mainQuit)
     menuInput := make(chan MenuInput, 5)
-
-    /*
-    beep, err := loadBeep()
-    if err != nil {
-        log.Printf("Could not load data/beep.ogg: %v\n", err)
-        beep = nil
-    }
-    */
 
     return Menu{
         active: false,
@@ -399,7 +238,7 @@ func MakeMenu(mainQuit context.Context, font text.Face) Menu {
         cancel: cancel,
         font: font,
         Input: menuInput,
-        // Beep: beep,
+        AudioManager: audioManager,
     }
 }
 
@@ -773,16 +612,11 @@ type StaticMenu struct {
     Buttons MenuButtons
     Quit MenuQuitFunc
     ExtraInfo string
-    // Beep *mix.Music
+    AudioManager AudioManager
 }
 
 func (menu *StaticMenu) PlayBeep() {
-    // FIXME
-    /*
-    if menu.Beep != nil {
-        menu.Beep.Play(0)
-    }
-    */
+    menu.AudioManager.PlayBeep()
 }
 
 func (menu *StaticMenu) UpdateWindowSize(x int, y int){
@@ -1118,12 +952,13 @@ type JoystickMenu struct {
     Released chan int
     ConfigurePrevious context.CancelFunc
     JoystickManager *common.JoystickManager
+    AudioManager AudioManager
 }
 
 const JoystickMaxPartialCounter = 20
 
 func (menu *JoystickMenu) PlayBeep() {
-    /* TODO */
+    menu.AudioManager.PlayBeep()
 }
 
 func (menu *JoystickMenu) UpdateWindowSize(x int, y int){
@@ -1602,7 +1437,7 @@ func forkJoystickInput(channel <-chan JoystickState) (<-chan JoystickState, <-ch
     return copy1, copy2
 }
 
-func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager) SubMenu {
+func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, audioManager AudioManager) SubMenu {
     menu := &JoystickMenu{
         Quit: func(current SubMenu) SubMenu {
             return parent
@@ -1610,6 +1445,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
         // JoystickName: "No joystick found",
         // Textures: make(map[string]TextureId),
         // JoystickIndex: -1,
+        AudioManager: audioManager,
         Mapping: JoystickButtonMapping{
             Inputs: make(map[string]JoystickInputType),
             ExtraInputs: make(map[string]JoystickInputType),
@@ -1724,15 +1560,11 @@ type LoadRomMenu struct {
     Back MenuQuitFunc
     SelectRom func()
     LoaderState *RomLoaderState
-    // Beep *mix.Music
+    AudioManager AudioManager
 }
 
 func (loadRomMenu *LoadRomMenu) PlayBeep() {
-    /*
-    if loadRomMenu.Beep != nil {
-        loadRomMenu.Beep.Play(0)
-    }
-    */
+    loadRomMenu.AudioManager.PlayBeep()
 }
 
 /*
@@ -2452,10 +2284,10 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions Prog
             menu.cancel()
             return current
         },
-        // Beep: menu.Beep,
+        AudioManager: menu.AudioManager,
     }
 
-    joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickManager)
+    joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickManager, menu.AudioManager)
 
     main.Buttons.Add(&StaticButton{Name: "Quit", Func: func(button *StaticButton){
         mainCancel()
@@ -2482,7 +2314,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions Prog
             LoaderCancel: loadRomCancel,
             MenuCancel: menu.cancel,
             LoaderState: romLoaderState,
-            // Beep: menu.Beep,
+            AudioManager: menu.AudioManager,
         }
     }})
 

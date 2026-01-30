@@ -6,7 +6,7 @@ import (
     "strconv"
     "os"
     "os/signal"
-    // "io"
+    "io"
     // "io/fs"
     "path/filepath"
     "math"
@@ -15,7 +15,7 @@ import (
     "errors"
 
     "encoding/binary"
-    // "bytes"
+    "bytes"
     "time"
     "sync"
     "context"
@@ -38,6 +38,7 @@ import (
     "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/text/v2"
     audiolib "github.com/hajimehoshi/ebiten/v2/audio"
+    "github.com/hajimehoshi/ebiten/v2/audio/vorbis"
 )
 
 type DrawStep struct {
@@ -559,6 +560,39 @@ func (messages *OverlayMessages) Process() {
     }
 }
 
+type AudioManager struct {
+    Beep *audiolib.Player
+}
+
+func (audioManager *AudioManager) PlayBeep() {
+    audioManager.Beep.Rewind()
+    audioManager.Beep.Play()
+}
+
+func MakeAudioManager(context *audiolib.Context) *AudioManager {
+    beep := context.NewPlayerFromBytes([]byte{})
+    file, err := data.OpenFile("beep.ogg")
+    if err != nil {
+    } else {
+        defer file.Close()
+
+        allData, err := io.ReadAll(file)
+        if err == nil {
+            reader, err := vorbis.DecodeWithSampleRate(context.SampleRate(), bytes.NewReader(allData))
+            if err == nil {
+                beep, err = context.NewPlayer(reader)
+                if err != nil {
+                    log.Printf("Warning: could not create beep audio player: %v", err)
+                }
+            }
+        }
+    }
+
+    return &AudioManager{
+        Beep: beep,
+    }
+}
+
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
@@ -601,6 +635,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     const AudioSampleRate float32 = 44100
 
     audio := audiolib.NewContext(int(AudioSampleRate))
+
+    audioManager := MakeAudioManager(audio)
 
     signalChannel := make(chan os.Signal, 10)
     signal.Notify(signalChannel, os.Interrupt)
@@ -1234,7 +1270,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             select {
                 case <-doMenu:
 
-                    activeMenu := menu.MakeMenu(mainQuit, font)
+                    activeMenu := menu.MakeMenu(mainQuit, font, audioManager)
                     // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
                     activeMenu.Run(mainCancel, font, smallFont, &programActions, &renderManager, joystickManager, &emulatorKeys, yield, &engine)
                     // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
