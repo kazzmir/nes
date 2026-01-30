@@ -99,6 +99,12 @@ func MakeSnow(screenWidth int) Snow {
     }
 }
 
+type ProgramActions interface {
+    LoadRom(name string, file common.MakeFile)
+    SetSoundEnabled(enabled bool)
+    IsSoundEnabled() bool
+}
+
 /* an interactable button */
 func drawButton(font text.Face, out *ebiten.Image, x float64, y float64, message string, col color.Color) (float64, float64, error) {
     buttonInside := color.RGBA{R: 64, G: 64, B: 64, A: 255}
@@ -683,17 +689,6 @@ func (buttons *MenuButtons) Select(item MenuItem){
 
 func (buttons *MenuButtons) Add(item MenuItem){
     buttons.Items = append(buttons.Items, item)
-}
-
-func isAudioEnabled(quit context.Context, programActions chan<- common.ProgramActions) bool {
-    response := make(chan bool)
-    programActions <- &common.ProgramQueryAudioState{Response: response}
-    select {
-        case value := <-response:
-            return value
-        case <-quit.Done():
-            return false
-    }
 }
 
 type SubMenu interface {
@@ -2436,7 +2431,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
     return keyMenu
 }
 
-func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan<- common.ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, keys *common.EmulatorKeys) SubMenu {
+func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions ProgramActions, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, keys *common.EmulatorKeys) SubMenu {
     main := &StaticMenu{
         Quit: func(current SubMenu) SubMenu {
             /* quit the entire menu system if the user presses escape at the top level */
@@ -2466,7 +2461,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
                 romName, romFile, ok := romLoaderState.GetSelectedRom()
                 if ok {
                     menu.cancel()
-                    programActions <- &common.ProgramLoadRom{Name: romName, File: romFile}
+                    programActions.LoadRom(romName, romFile)
                 }
             },
             Quit: loadRomQuit,
@@ -2480,10 +2475,10 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions chan
     main.Buttons.Add(&ToggleButton{
         State1: "Sound enabled",
         State2: "Sound disabled",
-        // state: isAudioEnabled(menu.quit, programActions),
+        state: programActions.IsSoundEnabled(),
         Func: func(value bool){
             log.Printf("Set sound to %v", value)
-            programActions <- &common.ProgramToggleSound{}
+            programActions.SetSoundEnabled(value)
         },
     })
 
@@ -2522,7 +2517,7 @@ type DrawManager interface {
     GetWindowSize() common.WindowSize
 }
 
-func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions chan<- common.ProgramActions, renderManager *gfx.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys, yield coroutine.YieldFunc, drawManager DrawManager){
+func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions ProgramActions, renderManager *gfx.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys, yield coroutine.YieldFunc, drawManager DrawManager){
 
     menuZIndex := 10
 

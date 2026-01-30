@@ -169,85 +169,15 @@ func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleR
 type AudioActions interface {
 }
 
+type AudioState struct {
+    Enabled bool
+}
+
 type AudioToggle struct {
 }
 
 type AudioQueryEnabled struct {
     Response chan bool
-}
-
-func makeAudioWorker(audio <-chan []float32, audioActions <-chan AudioActions, mainQuit context.Context) func() {
-    /* FIXME convert to ebiten
-    if audioDevice != 0 {
-        / * runNES will generate arrays of samples that we enqueue into the SDL audio system * /
-        return func(){
-            // var buffer bytes.Buffer
-            var audioBytes []byte
-            enabled := true
-            for {
-                select {
-                    case <-mainQuit.Done():
-                        return
-                    case action := <-audioActions:
-                        switch action.(type) {
-                            case *AudioToggle:
-                                enabled = !enabled
-                            case *AudioQueryEnabled:
-                                query := action.(*AudioQueryEnabled)
-                                query.Response <- enabled
-                        }
-                    case samples := <-audio:
-                        if !enabled {
-                            break
-                        }
-                        // log.Printf("Prepare audio to queue")
-                        // log.Printf("Enqueue data %v", samples)
-                        // buffer.Reset()
-                        / * convert []float32 into []byte * /
-                        // slow method that does allocations
-                        // binary.Write(&buffer, binary.LittleEndian, samples)
-
-                        // fast method with no allocations, copied from binary.Write
-                        totalSize := len(samples) * 4
-                        for len(audioBytes) < totalSize {
-                            audioBytes = append(audioBytes, 0)
-                        }
-
-                        for i, sample := range samples {
-                            binary.LittleEndian.PutUint32(audioBytes[4*i:], math.Float32bits(sample))
-                        }
-
-                        // log.Printf("Enqueue audio")
-                        var err error
-                        sdl.Do(func(){
-                            err = sdl.QueueAudio(audioDevice, audioBytes[:totalSize])
-                        })
-                        if err != nil {
-                            log.Printf("Error: could not queue audio data: %v", err)
-                            return
-                        }
-                }
-            }
-        }
-    } else {
-        return func(){
-            for {
-                select {
-                    case <-mainQuit.Done():
-                        return
-                    case action := <-audioActions:
-                        switch action.(type) {
-                            case *AudioQueryEnabled:
-                                query := action.(*AudioQueryEnabled)
-                                query.Response <- false
-                        }
-                    case <-audio:
-                }
-            }
-        }
-    }
-    */
-    return func(){}
 }
 
 type NesAction interface {
@@ -607,6 +537,27 @@ func (player *AudioPlayer) Read(output []byte) (int, error) {
     */
 }
 
+type ProgramState struct {
+    loadRom chan common.ProgramLoadRom
+    audioEnabled bool
+}
+
+func (state *ProgramState) IsSoundEnabled() bool {
+    return state.audioEnabled
+}
+
+func (state *ProgramState) LoadRom(name string, file common.MakeFile) {
+    select {
+        case state.loadRom <- common.ProgramLoadRom{Name: name, File: file}:
+        default:
+            log.Printf("Warning: could not send load rom request")
+    }
+}
+
+func (state *ProgramState) SetSoundEnabled(enabled bool) {
+    state.audioEnabled = enabled
+}
+
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
@@ -618,6 +569,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     engine := Engine{
         Quit: mainQuit,
+    }
+
+    programActions := ProgramState{
+        loadRom: make(chan common.ProgramLoadRom, 1),
+        audioEnabled: true,
     }
 
     var renderManager gfx.RenderManager
@@ -643,32 +599,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     const AudioSampleRate float32 = 44100
 
     audio := audiolib.NewContext(int(AudioSampleRate))
-
-    /*
-    err = mix.Init(mix.INIT_OGG)
-    if err != nil {
-        log.Printf("Could not initialize SDL mixer: %v", err)
-    } else {
-        err = mix.OpenAudio(int(AudioSampleRate), sdl.AUDIO_F32LSB, 2, 4096)
-        if err != nil {
-            log.Printf("Could not open mixer audio: %v", err)
-        }
-    }
-    */
-
-    /*
-    audioDevice, err := setupAudio(AudioSampleRate)
-    if err != nil {
-        log.Printf("Warning: could not set up audio: %v", err)
-        audioDevice = 0
-    } else {
-        defer sdl.CloseAudioDevice(audioDevice)
-        log.Printf("Opened SDL audio device %v", audioDevice)
-        sdl.PauseAudioDevice(audioDevice, false)
-    }
-    */
-
-    // var waiter sync.WaitGroup
 
     signalChannel := make(chan os.Signal, 10)
     signal.Notify(signalChannel, os.Interrupt)
@@ -738,13 +668,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
     */
 
-    /*
-    err = renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
-    if err != nil {
-        log.Printf("Could not set blend mode: %v", err)
-    }
-    */
-
     emulatorMessages := EmulatorMessageLayer{
         ReceiveMessages: make(chan string, 10),
         Index: 1,
@@ -754,10 +677,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     renderManager.AddLayer(&emulatorMessages)
 
-    /* Show black bars on the sides or top/bottom when the window changes size */
-    // renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
-
-    // waiter.Add(1)
     makeRenderScreen := func(bufferReady chan bool, buffer nes.VirtualScreen) func(*ebiten.Image) {
         /* FIXME: kind of ugly to keep this here */
         raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
@@ -869,13 +788,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     audioActions := make(chan AudioActions, 2)
     audioActionsInput := (<-chan AudioActions)(audioActions)
-    // audioActionsOutput := (chan<- AudioActions)(audioActions)
+    audioActionsOutput := (chan<- AudioActions)(audioActions)
 
     audioChannel := make(chan []float32, 2)
     audioInput := (<-chan []float32)(audioChannel)
     audioOutput := (chan<- []float32)(audioChannel)
-
-    go makeAudioWorker(audioInput, audioActionsInput, mainQuit)()
 
     emulatorKeys := common.LoadEmulatorKeys()
     input := &common.SDLKeyboardButtons{
@@ -985,6 +902,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                 musicPlayer.Play()
                 defer musicPlayer.Pause()
+
+                if ! programActions.IsSoundEnabled() {
+                    musicPlayer.SetVolume(0)
+                }
             }
 
             runNes := func(nesYield coroutine.YieldFunc) error {
@@ -1002,6 +923,20 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 if pausedAudio {
                     pausedAudio = false
                     musicPlayer.Play()
+                }
+
+                select {
+                    case action := <-audioActionsInput:
+                        switch action.(type) {
+                            case *AudioState:
+                                state := action.(*AudioState)
+                                if state.Enabled {
+                                    musicPlayer.SetVolume(1.0)
+                                } else {
+                                    musicPlayer.SetVolume(0)
+                                }
+                        }
+                    default:
                 }
 
                 keys = inpututil.AppendJustPressedKeys(keys[:0])
@@ -1153,9 +1088,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
 
     /* Actions done in the menu that should affect the program */
+    /*
     programActions := make(chan common.ProgramActions, 2)
     programActionsInput := (<-chan common.ProgramActions)(programActions)
     programActionsOutput := (chan<- common.ProgramActions)(programActions)
+    */
 
     // theMenu := menu.MakeMenu(font, smallFont, mainQuit, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
 
@@ -1410,10 +1347,42 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         for mainQuit.Err() == nil {
             select {
                 case <-doMenu:
+
                     activeMenu := menu.MakeMenu(mainQuit, font)
                     // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
-                    activeMenu.Run(mainCancel, font, smallFont, programActionsOutput, &renderManager, joystickManager, &emulatorKeys, yield, &engine)
+                    activeMenu.Run(mainCancel, font, smallFont, &programActions, &renderManager, joystickManager, &emulatorKeys, yield, &engine)
                     // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
+
+                    select {
+                        case audioActionsOutput <- &AudioState{Enabled: programActions.IsSoundEnabled()}:
+                        default:
+                    }
+
+                    select {
+                        case loadRom := <-programActions.loadRom:
+                            file, err := loadRom.File()
+
+                            if err != nil {
+                                log.Printf("Could not load rom '%v'", loadRom.Name)
+                                break
+                            }
+
+                            nesFile, err := nes.ParseNes(file, true, loadRom.Name)
+                            file.Close()
+                            if err != nil {
+                                log.Printf("Could not load rom '%v'", path)
+                            } else {
+                                log.Printf("Loaded rom '%v'", loadRom.Name)
+                                nesChannel <- &NesActionLoad{File: nesFile}
+                                select {
+                                    case emulatorMessages.ReceiveMessages <- "Loaded rom":
+                                    default:
+                                }
+                            }
+
+                        default:
+                    }
+
                 case action := <-nesChannel:
                     doRestart := false
                     switch action.(type) {
@@ -1438,33 +1407,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             return nil
                         })
                     }
-
-                // FIXME: it feels ugly to convert ProgramLoadRom directly into NesActionLoad
-                case action := <-programActionsInput:
-                    switch action.(type) {
-                        case *common.ProgramLoadRom:
-                            loadRom := action.(*common.ProgramLoadRom)
-                            file, err := loadRom.File()
-
-                            if err != nil {
-                                log.Printf("Could not load rom '%v'", loadRom.Name)
-                                break
-                            }
-
-                            nesFile, err := nes.ParseNes(file, true, loadRom.Name)
-                            file.Close()
-                            if err != nil {
-                                log.Printf("Could not load rom '%v'", path)
-                            } else {
-                                log.Printf("Loaded rom '%v'", loadRom.Name)
-                                nesChannel <- &NesActionLoad{File: nesFile}
-                                select {
-                                    case emulatorMessages.ReceiveMessages <- "Loaded rom":
-                                    default:
-                                }
-                            }
-                    }
-
 
                 default:
             }
