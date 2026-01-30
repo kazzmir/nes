@@ -320,12 +320,16 @@ func loadCpuState(sha256 string) (*nes.CPUState, error) {
     return out.State, nil
 }
 
+type OverlayMessage interface {
+    Add(string)
+}
+
 var MaxCyclesReached error = errors.New("maximum cycles reached")
 func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Context,
             bufferReady chan<- bool, buffer nes.VirtualScreen,
             audio chan<-[]float32,
             emulatorActions <-chan EmulatorAction, screenListeners *ScreenListeners,
-            renderOverlayUpdate chan<- string,
+            renderOverlayUpdate OverlayMessage,
             sampleRate float32, verbose int, debugger debug.Debugger, yield coroutine.YieldFunc) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
@@ -486,25 +490,16 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
 
                     message := "Paused"
                     if !paused {
-                        message = ""
+                        message = "Unpaused"
                     }
-                    select {
-                        case renderOverlayUpdate <- message:
-                        default:
-                    }
+                    renderOverlayUpdate.Add(message)
 
                 case EmulatorSetPause:
                     paused = true
-                    select {
-                        case renderOverlayUpdate <- "Paused":
-                        default:
-                    }
+                    renderOverlayUpdate.Add("Paused")
                 case EmulatorUnpause:
                     paused = false
-                    select {
-                        case renderOverlayUpdate <- "":
-                        default:
-                    }
+                    renderOverlayUpdate.Add("Unpaused")
                 case EmulatorTogglePPUDebug:
                     cpu.PPU.ToggleDebug()
                 case EmulatorGetDebugger:

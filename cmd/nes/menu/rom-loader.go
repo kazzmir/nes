@@ -312,6 +312,9 @@ func saveCachedFrame(count int, cachedSha256 string, path string, screen nes.Vir
     return png.Encode(out, image)
 }
 
+type IgnoreMessages struct {}
+func (ignore *IgnoreMessages) Add(message string) {}
+
 func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomId, path string, makeFile common.MakeFile, addFrame chan<- RomLoaderFrame, doCache bool, pixelPool *sync.Pool){
     if loaderQuit.Err() != nil {
         return
@@ -393,7 +396,7 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
     const maxCycles = uint64(30 * nes.CPUSpeed)
 
     log.Printf("Start loading %v", path)
-    err = common.RunNES(path, &cpu, maxCycles, quit, bufferReady, buffer, audioOutput, emulatorActionsInput, &screenListeners, make(chan string, 100), AudioSampleRate, 0, nil, handleDraw)
+    err = common.RunNES(path, &cpu, maxCycles, quit, bufferReady, buffer, audioOutput, emulatorActionsInput, &screenListeners, &IgnoreMessages{}, AudioSampleRate, 0, nil, handleDraw)
     if err == common.MaxCyclesReached {
         log.Printf("%v complete", path)
     }

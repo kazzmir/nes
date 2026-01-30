@@ -532,10 +532,36 @@ func (state *ProgramState) SetSoundEnabled(enabled bool) {
     state.audioEnabled = enabled
 }
 
+type MessageTime struct {
+    Message string
+    Time time.Time
+}
+
+type OverlayMessages struct {
+    Messages []MessageTime
+}
+
+func (messages *OverlayMessages) Add(message string) {
+    messages.Messages = append(messages.Messages, MessageTime{Message: message, Time: time.Now()})
+}
+
+func (messages *OverlayMessages) Clear() {
+    messages.Messages = nil
+}
+
+func (messages *OverlayMessages) Process() {
+    for len(messages.Messages) > 0 {
+        if time.Since(messages.Messages[0].Time) > time.Second * 2 {
+            messages.Messages = messages.Messages[1:]
+        } else {
+            break
+        }
+    }
+}
+
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
-    renderOverlayUpdate := make(chan string, 5)
 
     // if mainCancel is called then the program should exit
     mainQuit, mainCancel := context.WithCancel(context.Background())
@@ -544,6 +570,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     engine := Engine{
         Quit: mainQuit,
     }
+
+    var overlayMessages OverlayMessages
 
     programActions := ProgramState{
         loadRom: make(chan common.ProgramLoadRom, 1),
@@ -562,7 +590,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     } else {
         /* if no nes file given then just load the main menu */
         doMenu <- true
-        renderOverlayUpdate <- "No ROM loaded"
+        overlayMessages.Add("No ROM loaded")
     }
 
     var err error
@@ -642,6 +670,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
     */
 
+    /*
     emulatorMessages := EmulatorMessageLayer{
         ReceiveMessages: make(chan string, 10),
         Index: 1,
@@ -650,6 +679,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     go emulatorMessages.Run(mainQuit)
 
     renderManager.AddLayer(&emulatorMessages)
+    */
 
     makeRenderScreen := func(bufferReady chan bool, buffer nes.VirtualScreen) func(*ebiten.Image) {
         /* FIXME: kind of ugly to keep this here */
@@ -661,34 +691,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         fps := 0
         fpsTimer := time.NewTicker(time.Duration(fpsCounter) * time.Second)
         // defer fpsTimer.Stop()
-
-        /*
-        renderTimer := time.NewTicker(time.Second / time.Duration(desiredFps))
-        defer renderTimer.Stop()
-        */
-        // canRender := false
-
-        /*
-        render := func (){
-            renderer.SetDrawColor(0, 0, 0, 0)
-            renderer.Clear()
-
-            err := renderManager.RenderAll(gfx.RenderInfo{
-                Renderer: renderer,
-                Font: font,
-                SmallFont: smallFont,
-                Window: window,
-            })
-
-            if err != nil {
-                log.Printf("Warning: could not render: %v", err)
-            }
-
-            renderer.Present()
-        }
-
-        _ = render
-        */
 
         bufferImage := ebiten.NewImage(nes.VideoWidth, nes.VideoHeight - nes.OverscanPixels * 2)
 
@@ -709,30 +711,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 case <-bufferReady:
                     common.RenderPixelsRGBA(buffer, raw_pixels, nes.OverscanPixels)
                     bufferImage.WritePixels(raw_pixels)
-                default:
-            }
-
-            select {
-                /*
-                case nesScreen := <-toDraw:
-                    fps += 1
-                    // log.Printf("Render nes screen")
-                    common.RenderPixelsRGBA(nesScreen, raw_pixels, nes.OverscanPixels)
-                    bufferImage.WritePixels(raw_pixels)
-                    bufferReady <- nesScreen
-                    */
-                    /*
-                case message := <-renderOverlayUpdate:
-                    if message == "" {
-                        renderManager.RemoveByIndex(2)
-                    } else {
-                        renderManager.Replace(2, &OverlayMessageLayer{
-                            Message: message,
-                            Index: 2,
-                        })
-                    }
-                    // sdl.Do(render)
-                    */
                 default:
             }
 
@@ -842,26 +820,47 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         if err != nil {
             log.Printf("Error: CPU initialization error: %v", err)
             /* The main loop below is waiting for an event so we push the quit event */
-            select {
-                case renderOverlayUpdate <- "Unable to load":
-                default:
-            }
+            overlayMessages.Add("Unable to load")
             common.RunDummyNES(quit, emulatorActionsInput)
         } else {
             /* make sure no message appears on the screen in front of the nes output */
-            select {
-                case renderOverlayUpdate <- "":
-                default:
-            }
             log.Printf("Run NES")
 
-            // toDraw := make(chan nes.VirtualScreen, 1)
             bufferReady := make(chan bool, 1)
 
             buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
 
             engine.PushDraw(makeRenderScreen(bufferReady, buffer), false)
             defer engine.PopDraw()
+
+            _, fontHeight := text.Measure("A", font, 1)
+            engine.PushDraw(func(screen *ebiten.Image){
+                var textOptions text.DrawOptions
+                textOptions.GeoM.Translate(float64(screen.Bounds().Dx()), float64(screen.Bounds().Dy() - 1))
+                for i := len(overlayMessages.Messages) - 1; i >= 0; i-- {
+                    message := overlayMessages.Messages[i]
+
+                    width, _ := text.Measure(message.Message, font, 1)
+                    textOptions.GeoM.Translate(-width - 1, -float64(fontHeight) - 1)
+
+                    alpha := float32(1.0)
+
+                    textOptions.ColorScale.Reset()
+
+                    elapsed := time.Since(message.Time)
+                    if elapsed > time.Second {
+                        alpha = min(1.0, max(0, float32(1.0 - float32(elapsed - time.Second) / float32(time.Second))))
+                    }
+
+                    textOptions.ColorScale.ScaleAlpha(alpha)
+
+                    text.Draw(screen, message.Message, font, &textOptions)
+
+                    textOptions.GeoM.Translate(width + 1, 0)
+                }
+            }, true)
+            defer engine.PopDraw()
+
             verbose := 1
 
             nesAudio := AudioPlayer{
@@ -883,7 +882,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
 
             runNes := func(nesYield coroutine.YieldFunc) error {
-                return common.RunNES(nesFile.Path, &cpu, maxCycles, quit, bufferReady, buffer, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, verbose, debugger, nesYield)
+                return common.RunNES(nesFile.Path, &cpu, maxCycles, quit, bufferReady, buffer, audioOutput, emulatorActionsInput, &screenListeners, &overlayMessages, AudioSampleRate, verbose, debugger, nesYield)
             }
 
             nesCoroutine := coroutine.MakeCoroutine(runNes)
@@ -912,6 +911,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         }
                     default:
                 }
+
+                overlayMessages.Process()
 
                 keys = inpututil.AppendJustPressedKeys(keys[:0])
                 for _, key := range keys {
@@ -943,19 +944,13 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         case emulatorKeys.SaveState:
                             select {
                                 case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSaveState):
-                                    select {
-                                        case emulatorMessages.ReceiveMessages <- "Saved state":
-                                        default:
-                                    }
+                                    overlayMessages.Add("Saved state")
                                 default:
                             }
                         case emulatorKeys.LoadState:
                             select {
                                 case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorLoadState):
-                                    select {
-                                        case emulatorMessages.ReceiveMessages <- "Loaded state":
-                                        default:
-                                    }
+                                    overlayMessages.Add("Loaded state")
                                 default:
                             }
                         case emulatorKeys.Record:
@@ -1009,11 +1004,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         case emulatorKeys.HardReset:
                             log.Printf("Hard reset")
                             nesChannel <- &NesActionRestart{}
-                            select {
-                                case emulatorMessages.ReceiveMessages <- "Hard reset":
-                                default:
-                            }
-
+                            overlayMessages.Add("Hard reset")
                             return
                     }
 
@@ -1278,10 +1269,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             } else {
                                 log.Printf("Loaded rom '%v'", loadRom.Name)
                                 nesChannel <- &NesActionLoad{File: nesFile}
-                                select {
-                                    case emulatorMessages.ReceiveMessages <- "Loaded rom":
-                                    default:
-                                }
+                                overlayMessages.Add("Loaded rom")
                             }
 
                         default:
