@@ -1567,30 +1567,6 @@ func (loadRomMenu *LoadRomMenu) PlayBeep() {
     loadRomMenu.AudioManager.PlayBeep()
 }
 
-/*
-func (loadRomMenu *LoadRomMenu) RawInput(event sdl.Event){
-    switch event.GetType() {
-        case sdl.KEYDOWN:
-            keyboard_event := event.(*sdl.KeyboardEvent)
-            if keyboard_event.Keysym.Sym == sdl.K_BACKSPACE {
-                loadRomMenu.LoaderState.SearchBackspace()
-            } else if keyboard_event.Keysym.Sym == sdl.K_SPACE {
-                loadRomMenu.LoaderState.SearchAdd(" ")
-            } else if keyboard_event.Keysym.Sym == sdl.K_MINUS {
-                loadRomMenu.LoaderState.ZoomOut()
-            } else if keyboard_event.Keysym.Sym == sdl.K_EQUALS {
-                loadRomMenu.LoaderState.ZoomIn()
-            } else {
-                name := sdl.GetKeyName(keyboard_event.Keysym.Sym)
-                if len(name) == 1 {
-                    loadRomMenu.LoaderState.SearchAdd(strings.ToLower(name))
-                }
-            }
-
-    }
-}
-*/
-
 func (loadRomMenu *LoadRomMenu) TextInput(text string){
     text = strings.ReplaceAll(text, "-", "")
     text = strings.ReplaceAll(text, "=", "")
