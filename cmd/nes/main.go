@@ -1052,15 +1052,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         recordCancel()
     }
 
-    /* Actions done in the menu that should affect the program */
-    /*
-    programActions := make(chan common.ProgramActions, 2)
-    programActionsInput := (<-chan common.ProgramActions)(programActions)
-    programActionsOutput := (chan<- common.ProgramActions)(programActions)
-    */
-
-    // theMenu := menu.MakeMenu(font, smallFont, mainQuit, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
-
     /*
     go func(){
         for {
@@ -1316,13 +1307,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     engine.Coroutine = menu
 
     return ebiten.RunGame(&engine)
-
-    /*
-    log.Printf("Waiting to quit..")
-    waiter.Wait()
-    */
-
-    // return nil
 }
 
 type Arguments struct {
