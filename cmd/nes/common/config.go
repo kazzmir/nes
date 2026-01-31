@@ -7,6 +7,8 @@ import (
     "path/filepath"
 )
 
+const CurrentVersion = 2
+
 type ConfigJoystickData struct {
     A string `json:"a,omitempty"`
     B string `json:"b,omitempty"`
@@ -69,7 +71,7 @@ func GetOrCreateConfigDir() (string, error) {
 
 func DefaultConfigData() ConfigData {
     return ConfigData{
-        Version: 1,
+        Version: CurrentVersion,
     }
 }
 
@@ -92,6 +94,11 @@ func LoadConfigData() (ConfigData, error) {
         log.Printf("Could not load config data: %v", err)
         return DefaultConfigData(), err
     }
+
+    if data.Version != CurrentVersion {
+        return DefaultConfigData(), nil
+    }
+
     return data, nil
 }
 

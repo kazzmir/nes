@@ -3,7 +3,7 @@ package common
 import (
     "sync"
     // "strings"
-    // "log"
+    "log"
     "fmt"
     "errors"
 
@@ -604,14 +604,17 @@ func (keys EmulatorKeys) AllKeys() []EmulatorKey {
 }
 
 func LoadEmulatorKeys() EmulatorKeys {
-    // data, _ := LoadConfigData()
+    data, _ := LoadConfigData()
 
     out := DefaultEmulatorKeys()
 
-    /*
-    convert := func(key string, default_ sdl.Keycode) sdl.Keycode {
+    convert := func(key string, default_ ebiten.Key) ebiten.Key {
         if key != "" {
-            return sdl.GetKeyFromName(key)
+            var out ebiten.Key
+            err := out.UnmarshalText([]byte(key))
+            if err == nil {
+                return out
+            }
         }
         return default_
     }
@@ -638,44 +641,51 @@ func LoadEmulatorKeys() EmulatorKeys {
     out.ButtonDown = convert(data.Player1Keys.ButtonDown, out.ButtonDown)
     out.ButtonLeft = convert(data.Player1Keys.ButtonLeft, out.ButtonLeft)
     out.ButtonRight = convert(data.Player1Keys.ButtonRight, out.ButtonRight)
-    */
 
     return out
 }
 
 func SaveEmulatorKeys(keys EmulatorKeys){
-    /*
     data, _ := LoadConfigData()
-    data.Player1Keys.Turbo = sdl.GetKeyName(keys.Turbo)
-    data.Player1Keys.Pause = sdl.GetKeyName(keys.Pause)
 
-    data.Player1Keys.HardReset = sdl.GetKeyName(keys.HardReset)
-    data.Player1Keys.PPUDebug = sdl.GetKeyName(keys.PPUDebug)
-    data.Player1Keys.SlowDown = sdl.GetKeyName(keys.SlowDown)
-    data.Player1Keys.SpeedUp = sdl.GetKeyName(keys.SpeedUp)
-    data.Player1Keys.Normal = sdl.GetKeyName(keys.Normal)
-    data.Player1Keys.StepFrame = sdl.GetKeyName(keys.StepFrame)
-    data.Player1Keys.Record = sdl.GetKeyName(keys.Record)
-    data.Player1Keys.SaveState = sdl.GetKeyName(keys.SaveState)
-    data.Player1Keys.LoadState = sdl.GetKeyName(keys.LoadState)
-    data.Player1Keys.Console = sdl.GetKeyName(keys.Console)
+    marshalKey := func(key ebiten.Key) string {
+        text, err := key.MarshalText()
+        if err != nil {
+            log.Printf("Warning: could not marshal key: %v\n", err)
+            return ""
+        }
+        return string(text)
+    }
 
-    data.Player1Keys.ButtonA = sdl.GetKeyName(keys.ButtonA)
-    data.Player1Keys.ButtonB = sdl.GetKeyName(keys.ButtonB)
-    data.Player1Keys.ButtonTurboA = sdl.GetKeyName(keys.ButtonTurboA)
-    data.Player1Keys.ButtonTurboB = sdl.GetKeyName(keys.ButtonTurboB)
-    data.Player1Keys.ButtonSelect = sdl.GetKeyName(keys.ButtonSelect)
-    data.Player1Keys.ButtonStart = sdl.GetKeyName(keys.ButtonStart)
-    data.Player1Keys.ButtonUp = sdl.GetKeyName(keys.ButtonUp)
-    data.Player1Keys.ButtonDown = sdl.GetKeyName(keys.ButtonDown)
-    data.Player1Keys.ButtonLeft = sdl.GetKeyName(keys.ButtonLeft)
-    data.Player1Keys.ButtonRight = sdl.GetKeyName(keys.ButtonRight)
+    data.Player1Keys.Turbo = marshalKey(keys.Turbo)
+    data.Player1Keys.Pause = marshalKey(keys.Pause)
+
+    data.Player1Keys.HardReset = marshalKey(keys.HardReset)
+    data.Player1Keys.PPUDebug = marshalKey(keys.PPUDebug)
+    data.Player1Keys.SlowDown = marshalKey(keys.SlowDown)
+    data.Player1Keys.SpeedUp = marshalKey(keys.SpeedUp)
+    data.Player1Keys.Normal = marshalKey(keys.Normal)
+    data.Player1Keys.StepFrame = marshalKey(keys.StepFrame)
+    data.Player1Keys.Record = marshalKey(keys.Record)
+    data.Player1Keys.SaveState = marshalKey(keys.SaveState)
+    data.Player1Keys.LoadState = marshalKey(keys.LoadState)
+    data.Player1Keys.Console = marshalKey(keys.Console)
+
+    data.Player1Keys.ButtonA = marshalKey(keys.ButtonA)
+    data.Player1Keys.ButtonB = marshalKey(keys.ButtonB)
+    data.Player1Keys.ButtonTurboA = marshalKey(keys.ButtonTurboA)
+    data.Player1Keys.ButtonTurboB = marshalKey(keys.ButtonTurboB)
+    data.Player1Keys.ButtonSelect = marshalKey(keys.ButtonSelect)
+    data.Player1Keys.ButtonStart = marshalKey(keys.ButtonStart)
+    data.Player1Keys.ButtonUp = marshalKey(keys.ButtonUp)
+    data.Player1Keys.ButtonDown = marshalKey(keys.ButtonDown)
+    data.Player1Keys.ButtonLeft = marshalKey(keys.ButtonLeft)
+    data.Player1Keys.ButtonRight = marshalKey(keys.ButtonRight)
 
     err := SaveConfigData(data)
     if err != nil {
         log.Printf("Warning: could not save config: %v", err)
     }
-    */
 }
 
 func DefaultEmulatorKeys() EmulatorKeys {
