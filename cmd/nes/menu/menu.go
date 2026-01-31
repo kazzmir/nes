@@ -123,29 +123,31 @@ func drawButton(font text.Face, out *ebiten.Image, x float64, y float64, message
     return width, height, nil
 }
 
-/*
-func drawFixedWidthButton(font *ttf.Font, renderer *sdl.Renderer, textureManager *TextureManager, textureId TextureId, width int, x int, y int, message string, color sdl.Color) (int, int, error) {
-    buttonInside := sdl.Color{R: 64, G: 64, B: 64, A: 255}
-    buttonOutline := sdl.Color{R: 32, G: 32, B: 32, A: 255}
+func drawFixedWidthButton(font text.Face, out *ebiten.Image, width float64, x float64, y float64, message string, col color.Color) (float64, float64, error) {
+    buttonInside := color.RGBA{R: 64, G: 64, B: 64, A: 255}
+    buttonOutline := color.RGBA{R: 32, G: 32, B: 32, A: 255}
 
+    _, height := text.Measure(message, font, 1)
+
+    /*
     info, err := textureManager.RenderText(font, renderer, message, color, textureId)
     if err != nil {
         return 0, 0, err
     }
+    */
 
-    margin := 12
+    margin := 12.0
 
-    renderer.SetDrawColor(buttonOutline.R, buttonOutline.G, buttonOutline.B, buttonOutline.A)
-    renderer.FillRect(&sdl.Rect{X: int32(x), Y: int32(y), W: int32(width + margin), H: int32(info.Height + margin)})
+    vector.FillRect(out, float32(x), float32(y), float32(width) + float32(margin), float32(height) + float32(margin), buttonOutline, true)
+    vector.FillRect(out, float32(x + 1), float32(y + 1), float32(width) + float32(margin) - 3, float32(height) + float32(margin) - 3, buttonInside, true)
 
-    renderer.SetDrawColor(buttonInside.R, buttonInside.G, buttonInside.B, buttonInside.A)
-    renderer.FillRect(&sdl.Rect{X: int32(x+1), Y: int32(y+1), W: int32(width + margin - 3), H: int32(info.Height + margin - 3)})
+    var textOptions text.DrawOptions
+    textOptions.GeoM.Translate(x + float64(margin) / 2, y + float64(margin) / 2)
+    textOptions.ColorScale.ScaleWithColor(col)
+    text.Draw(out, message, font, &textOptions)
 
-    err = gfx.CopyTexture(info.Texture, renderer, info.Width, info.Height, x + margin/2, y + margin/2)
-
-    return width + margin, info.Height, err
+    return width + margin, height, nil
 }
-*/
 
 /* a button that cannot be interacted with */
 /*
@@ -414,57 +416,53 @@ func (button *StaticFixedWidthButton) Interact(menu SubMenu) SubMenu {
 }
 
 func (button *StaticFixedWidthButton) Render(font text.Face, screen *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
-    // FIXME
-    /*
-    yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
-    red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
-    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
+    yellow := color.RGBA{R: 255, G: 255, B: 0, A: 255}
+    red := color.RGBA{R: 255, G: 0, B: 0, A: 255}
+    white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 
-    color := white
+    var col color.Color = white
     if selected {
-        color = gfx.Glow(red, yellow, 15, clock)
+        col = gfx.Glow(red, yellow, 15, clock)
     }
 
+    /*
     button.Lock.Lock()
     parts := gfx.CopyArray(button.Parts)
     button.Lock.Unlock()
+    */
 
-    totalLength := 0
-    for _, part := range parts {
-        totalLength += gfx.TextWidth(font, part)
+    totalLength := 0.0
+    for _, part := range button.Parts {
+        width, _ := text.Measure(part, font, 1)
+        totalLength += width
     }
 
-    space := gfx.TextWidth(font, " ")
+    space, _ := text.Measure(" ", font, 1)
 
-    left := button.Width - totalLength
+    left := float64(button.Width) - totalLength
     var out string
     if left > 0 {
         spaces := left / space
 
-        if len(parts) > 0 {
-            out = parts[0]
-            if len(parts) > 1 {
-                out += strings.Repeat(" ", spaces)
-                for _, part := range parts[1:] {
+        if len(button.Parts) > 0 {
+            out = button.Parts[0]
+            if len(button.Parts) > 1 {
+                out += strings.Repeat(" ", int(spaces))
+                for _, part := range button.Parts[1:] {
                     out += part
                 }
             }
         }
     } else {
-        for _, part := range parts {
+        for _, part := range button.Parts {
             out += part
         }
     }
 
-    textureId := buttonManager.GetButtonTextureId(textureManager, out, color)
-
-    width, height, err := drawFixedWidthButton(font, renderer, textureManager, textureId, button.Width, x, y, out, color)
+    width, height, err := drawFixedWidthButton(font, screen, float64(button.Width), x, y, out, col)
 
     return width, height, err
-    */
-    return 0, 0, nil
 }
-
 
 func (button *SubMenuButton) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
     return _doRenderButton(button, font, out, x, y, selected, clock)
@@ -1634,10 +1632,6 @@ func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
             } else {
                 return loadRomMenu
             }
-            /*
-            loadRomMenu.SelectRom()
-            return loadRomMenu
-            */
         default:
             return loadRomMenu
     }
@@ -1832,11 +1826,6 @@ func (loader *LoadRomInfoMenu) UpdateWindowSize(x int, y int){
 }
 
 func keysInfo(keys *common.EmulatorKeys) string {
-    /*
-    n := func (k ebiten.Key) string {
-        return k.String()
-    }
-    */
     n := ebiten.Key.String
 
     info := template.New("keys")
@@ -1879,7 +1868,6 @@ type ChangeKeyMenu struct {
     Quit MenuQuitFunc
     Buttons MenuButtons
     ExtraInfo string
-    // Beep *mix.Music
     // Chooser *ChooseButton
     Choosing bool
     ChoosingKey string
@@ -1891,18 +1879,19 @@ type ChangeKeyMenu struct {
     ChooseDone context.Context
     ChooseCancel context.CancelFunc
 
-    // TempChoice sdl.Keycode
+    TempChoice ebiten.Key
+
+    AudioManager AudioManager
 
     Keys *common.EmulatorKeys
     Lock sync.Mutex
 }
 
 func (menu *ChangeKeyMenu) PlayBeep() {
-    /*
-    if menu.Beep != nil {
-        menu.Beep.Play(0)
-    }
-    */
+    menu.AudioManager.PlayBeep()
+}
+
+func (menu *ChangeKeyMenu) UpdateWindowSize(x int, y int){
 }
 
 /*
@@ -1976,10 +1965,6 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
 }
 */
 
-func (menu *ChangeKeyMenu) UpdateWindowSize(x int, y int){
-    // nothing
-}
-
 func (menu *ChangeKeyMenu) SetChoosing(v bool, key string, button *StaticFixedWidthButton){
     menu.Lock.Lock()
     defer menu.Lock.Unlock()
@@ -2016,47 +2001,54 @@ func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
 }
 
 func (menu *ChangeKeyMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
+    _, fontHeight := text.Measure("A", font, 1)
+
+    wideWidth, _ := text.Measure(strings.Repeat("A", 20), font, 1)
+
     return func(out *ebiten.Image) error {
-        /*
+        bounds := out.Bounds()
+        maxWidth := bounds.Dx()
+        maxHeight := bounds.Dy()
+
         startX := 50
-        _, y, err := menu.Buttons.Render(startX, 50, maxWidth, maxHeight, font, out, clock)
+        _, y, err := menu.Buttons.Render(float64(startX), 50, font, out, clock)
 
         _ = err
 
         x := startX
-        y += font.Height() * 3
+        y += fontHeight * 3
 
-        _, _, err = renderLines(renderer, x, y, smallFont, menu.ExtraInfo)
+        _, _, err = renderLines(out, float64(x), y, smallFont, menu.ExtraInfo)
         // FIXME: handle err
 
         if menu.IsChoosing() {
-            yellow := sdl.Color{R: 255, G: 255, B: 0, A: 255}
-            red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
-            white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-            renderer.SetDrawColor(5, 5, 5, 230)
+            yellow := color.RGBA{R: 255, G: 255, B: 0, A: 255}
+            red := color.RGBA{R: 255, G: 0, B: 0, A: 255}
+            white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 
             line := "Press a key"
-            width := gfx.TextWidth(font, strings.Repeat("A", 20))
-            height := font.Height()
 
-            midX := maxWidth / 2
-            midY := maxHeight / 2
+            midX := float64(maxWidth / 2)
+            midY := float64(maxHeight / 2)
 
-            margin := font.Height() * 3
-            x1 := midX - width / 2 - margin
-            y1 := midY - height / 2 - margin
-            x2 := midX + width / 2 + margin
-            y2 := midY + height / 2 + margin
+            margin := fontHeight * 3
+            x1 := midX - wideWidth / 2 - margin
+            y1 := midY - fontHeight / 2 - margin
+            x2 := midX + fontHeight / 2 + margin
+            y2 := midY + fontHeight / 2 + margin
 
-            renderer.FillRect(&sdl.Rect{X: int32(x1), Y: int32(y1), W: int32(x2 - x1), H: int32(y2 - y1)})
-            renderer.SetDrawColor(255, 255, 255, 250)
-            renderer.DrawRect(&sdl.Rect{X: int32(x1), Y: int32(y1), W: int32(x2 - x1), H: int32(y2 - y1)})
+            vector.FillRect(out, float32(x1), float32(y1), float32(x2 - x1), float32(y2 - y1), color.NRGBA{R: 5, G: 5, B: 5, A: 230}, false)
+            vector.StrokeRect(out, float32(x1), float32(y1), float32(x2 - x1), float32(y2 - y1), 1, white, false)
 
-            textX := midX - width / 2
-            textY := midY - height / 2
-            gfx.WriteFont(font, renderer, midX - width / 2, midY - height / 2, line, white)
+            textX := midX - wideWidth / 2
+            textY := midY - fontHeight / 2
+            var textOptions text.DrawOptions
+            textOptions.GeoM.Translate(textX, textY)
+            
+            text.Draw(out, line, font, &textOptions)
+            // gfx.WriteFont(font, renderer, midX - width / 2, midY - height / 2, line, white)
 
-            textY += font.Height() + 2
+            textY += fontHeight + 2
 
             menu.Lock.Lock()
             tempChoice := menu.TempChoice
@@ -2064,15 +2056,21 @@ func (menu *ChangeKeyMenu) MakeRenderer(font text.Face, smallFont text.Face, clo
             warning := menu.Warning
             menu.Lock.Unlock()
 
-            gfx.WriteFont(font, renderer, textX, textY, sdl.GetKeyName(tempChoice), gfx.Glow(red, yellow, 15, current))
+            textOptions.GeoM.Translate(0, fontHeight + 2)
+            textOptions.ColorScale.ScaleWithColor(gfx.Glow(red, yellow, 15, current))
+            text.Draw(out, tempChoice.String(), font, &textOptions)
+            //
+            // gfx.WriteFont(font, renderer, textX, textY, sdl.GetKeyName(tempChoice), gfx.Glow(red, yellow, 15, current))
 
-            textY += font.Height() + 2
+            textY += fontHeight + 2
 
             if warning != "" {
-                gfx.WriteFont(font, renderer, textX, textY, warning, white)
+                textOptions.GeoM.Translate(0, fontHeight + 2)
+                textOptions.ColorScale.Reset()
+                text.Draw(out, warning, font, &textOptions)
+                // gfx.WriteFont(font, renderer, textX, textY, warning, white)
             }
         }
-        */
 
         return nil
     }
@@ -2110,24 +2108,23 @@ func (choose *ChooseButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
-func (choose *ChooseButton) Render(font text.Face, out *ebiten.Image, x int, y int, selected bool, clock uint64) (int, int, error) {
+func (choose *ChooseButton) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
     // FIXME
-    /*
     if choose.IsEnabled() {
 
-        size := 10
-        gfx.DrawEquilateralTriange(renderer, x-size*2, y + size + font.Height() / 4, float64(size), 180.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
-        width, height, err := _doRenderButton(choose, font, renderer, buttonManager, textureManager, x, y, selected, clock)
+        size := 10.0
+        // gfx.DrawEquilateralTriange(renderer, x-size*2, y + size + font.Height() / 4, float64(size), 180.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
+        width, height, err := _doRenderButton(choose, font, out, x, y, selected, clock)
         x += width
         _ = height
-        gfx.DrawEquilateralTriange(renderer, x+size*2, y + size + font.Height() / 4, float64(size), 0.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
+        // gfx.DrawEquilateralTriange(renderer, x+size*2, y + size + font.Height() / 4, float64(size), 0.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
 
-        return x + size*2 + size*2, font.Height(), err
+        _, fontHeight := text.Measure("A", font, 1)
+
+        return x + size*2 + size*2, fontHeight, err
     } else {
         return x, y, nil
     }
-    */
-    return 0, 0, nil
 }
 
 func (choose *ChooseButton) IsEnabled() bool {
@@ -2157,13 +2154,11 @@ func (choose *ChooseButton) Enable() {
 
 func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKeys), keys *common.EmulatorKeys) SubMenu {
 
-    /*
     var items []string
 
     for _, key := range keys.AllKeys() {
-        items = append(items, fmt.Sprintf("%v: %v", key.Name, sdl.GetKeyName(key.Code)))
+        items = append(items, fmt.Sprintf("%v: %v", key.Name, key.Code.String()))
     }
-    */
 
     // chooseButton := &ChooseButton{Items: items}
 
@@ -2175,6 +2170,7 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
             update(*keys)
             return parentMenu
         },
+        AudioManager: menu.AudioManager,
         // ExtraInfo: keysInfo(keys),
         // Beep: menu.Beep,
         ChooseDone: chooseDone,
@@ -2188,14 +2184,13 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
     keyMenu.Buttons.Add(back)
 
     changeButtons := make(map[string]*StaticFixedWidthButton)
-        /*
     for _, key := range keys.AllKeys() {
         name := key.Name
         code := key.Code
 
         button := &StaticFixedWidthButton{
             Width: 200,
-            Parts: []string{name, sdl.GetKeyName(code)},
+            Parts: []string{name, code.String()},
             // Name: fmt.Sprintf("%v: %v", name, sdl.GetKeyCode(code)),
             Func: func(self *StaticFixedWidthButton){
                 keyMenu.SetChoosing(true, name, self)
@@ -2204,7 +2199,6 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
 
         changeButtons[name] = button
     }
-        */
 
     defaults := &StaticButton{
         Name: "Reset to defaults",
@@ -2212,12 +2206,10 @@ func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKey
             keyMenu.Keys.UpdateAll(common.DefaultEmulatorKeys())
             common.SaveEmulatorKeys(*keyMenu.Keys)
 
-            /*
             for _, key := range keyMenu.Keys.AllKeys() {
                 button := changeButtons[key.Name]
-                button.Update(fmt.Sprintf("%v: %v", key.Name, sdl.GetKeyName(key.Code)))
+                button.Update(fmt.Sprintf("%v: %v", key.Name, key.Code.String()))
             }
-            */
         },
     }
 
