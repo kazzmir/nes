@@ -853,7 +853,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             log.Printf("Error: CPU initialization error: %v", err)
             /* The main loop below is waiting for an event so we push the quit event */
             overlayMessages.Add("Unable to load")
-            common.RunDummyNES(quit, emulatorActionsInput)
+            // common.RunDummyNES(quit, emulatorActionsInput)
         } else {
             /* make sure no message appears on the screen in front of the nes output */
             log.Printf("Run NES")
@@ -1241,11 +1241,19 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
         defer nesCancel()
 
-        go common.RunDummyNES(nesQuit, emulatorActionsInput)
-
         var currentFile nes.NESFile
 
         nesCoroutine := coroutine.MakeCoroutine(func(nesYield coroutine.YieldFunc) error {
+            var textOptions text.DrawOptions
+            engine.PushDraw(func(screen *ebiten.Image){
+                textOptions.GeoM.Reset()
+                textOptions.GeoM.Translate(20, 20)
+                text.Draw(screen, "Drag and drop a rom", font, &textOptions)
+                textOptions.GeoM.Translate(0, 30)
+                text.Draw(screen, "or press Escape/CapsLock to open the menu", font, &textOptions)
+            }, true)
+            defer engine.PopDraw()
+
             var keys []ebiten.Key
             for nesQuit.Err() == nil {
                 keys = inpututil.AppendJustPressedKeys(keys[:0])
@@ -1258,6 +1266,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             }
                     }
                 }
+
+                common.RunDummyNES(emulatorActionsInput)
 
                 if nesYield() != nil {
                     return coroutine.CoroutineCancelled

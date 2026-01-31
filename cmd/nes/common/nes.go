@@ -637,18 +637,15 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
     return nil
 }
 
-func RunDummyNES(quit context.Context, actions <-chan EmulatorAction){
-    for {
-        select {
-            case <-quit.Done():
-                return
-            case action := <-actions:
-                switch action.Value() {
-                    case EmulatorGetInfo:
-                        info := action.(EmulatorActionGetInfo)
-                        close(info.Response)
-                }
-        }
+func RunDummyNES(actions <-chan EmulatorAction){
+    select {
+        case action := <-actions:
+            switch action.Value() {
+                case EmulatorGetInfo:
+                    info := action.(EmulatorActionGetInfo)
+                    close(info.Response)
+            }
+        default:
     }
 }
 
