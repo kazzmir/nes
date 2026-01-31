@@ -6,6 +6,7 @@ import (
     // "io"
     // "io/fs"
     // "runtime"
+    "time"
     "os"
     "fmt"
     "math"
@@ -128,13 +129,6 @@ func drawFixedWidthButton(font text.Face, out *ebiten.Image, width float64, x fl
     buttonOutline := color.RGBA{R: 32, G: 32, B: 32, A: 255}
 
     _, height := text.Measure(message, font, 1)
-
-    /*
-    info, err := textureManager.RenderText(font, renderer, message, color, textureId)
-    if err != nil {
-        return 0, 0, err
-    }
-    */
 
     margin := 12.0
 
@@ -284,14 +278,7 @@ func (label *MenuLabel) Text() string {
 }
 
 func (label *MenuLabel) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
-    // color := sdl.Color{R: 255, G: 0, B: 0, A: 255}
-    /*
-    textureId := buttonManager.GetButtonTextureId(textureManager, label.Text(), label.Color)
-    width, height, err := drawButton(font, renderer, textureManager, textureId, x, y, label.Text(), label.Color)
-    return width, height, err
-    */
-    // FIXME
-    return 0, 0, nil
+    return drawButton(font, out, x, y, label.Text(), label.Color)
 }
 
 type Button interface {
@@ -422,7 +409,7 @@ func (button *StaticFixedWidthButton) Render(font text.Face, screen *ebiten.Imag
 
     var col color.Color = white
     if selected {
-        col = gfx.Glow(red, yellow, 15, clock)
+        col = gfx.Glow(red, yellow, 40, clock)
     }
 
     /*
@@ -1880,11 +1867,11 @@ type ChangeKeyMenu struct {
     ChooseCancel context.CancelFunc
 
     TempChoice ebiten.Key
+    LastTime time.Time
 
     AudioManager AudioManager
 
     Keys *common.EmulatorKeys
-    Lock sync.Mutex
 }
 
 func (menu *ChangeKeyMenu) PlayBeep() {
@@ -1966,8 +1953,6 @@ func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
 */
 
 func (menu *ChangeKeyMenu) SetChoosing(v bool, key string, button *StaticFixedWidthButton){
-    menu.Lock.Lock()
-    defer menu.Lock.Unlock()
     menu.Choosing = v
     menu.ChoosingKey = key
     menu.ChoosingButton = button
@@ -1975,12 +1960,35 @@ func (menu *ChangeKeyMenu) SetChoosing(v bool, key string, button *StaticFixedWi
 }
 
 func (menu *ChangeKeyMenu) IsChoosing() bool {
-    menu.Lock.Lock()
-    defer menu.Lock.Unlock()
     return menu.Choosing
 }
 
 func (menu *ChangeKeyMenu) Update(){
+    if menu.IsChoosing() {
+        keys := inpututil.AppendJustPressedKeys(nil)
+        for _, key := range keys {
+            if key != menu.TempChoice {
+                menu.TempChoice = key
+                menu.LastTime = time.Now()
+            }
+        }
+
+        keys = inpututil.AppendJustReleasedKeys(nil)
+        for _, key := range keys {
+            if key == menu.TempChoice {
+                menu.TempChoice = ebiten.Key(-1)
+                menu.LastTime = time.Time{}
+                menu.Warning = ""
+            }
+        }
+
+        if !menu.LastTime.IsZero() && time.Since(menu.LastTime) >= 500 * time.Millisecond {
+            menu.Keys.Update(menu.ChoosingKey, menu.TempChoice)
+            menu.ChoosingButton.Update(menu.ChoosingKey, menu.TempChoice.String())
+            common.SaveEmulatorKeys(*menu.Keys)
+            menu.SetChoosing(false, "", nil)
+        }
+    }
 }
 
 func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
@@ -2050,14 +2058,12 @@ func (menu *ChangeKeyMenu) MakeRenderer(font text.Face, smallFont text.Face, clo
 
             textY += fontHeight + 2
 
-            menu.Lock.Lock()
             tempChoice := menu.TempChoice
-            current := menu.Current
+            // current := menu.Current
             warning := menu.Warning
-            menu.Lock.Unlock()
 
             textOptions.GeoM.Translate(0, fontHeight + 2)
-            textOptions.ColorScale.ScaleWithColor(gfx.Glow(red, yellow, 15, current))
+            textOptions.ColorScale.ScaleWithColor(gfx.InterpolateColor(red, yellow, 15, int(time.Since(menu.LastTime)/time.Millisecond / (500 / 15))))
             text.Draw(out, tempChoice.String(), font, &textOptions)
             //
             // gfx.WriteFont(font, renderer, textX, textY, sdl.GetKeyName(tempChoice), gfx.Glow(red, yellow, 15, current))
@@ -2154,11 +2160,13 @@ func (choose *ChooseButton) Enable() {
 
 func MakeKeysMenu(menu *Menu, parentMenu SubMenu, update func(common.EmulatorKeys), keys *common.EmulatorKeys) SubMenu {
 
+    /*
     var items []string
 
     for _, key := range keys.AllKeys() {
         items = append(items, fmt.Sprintf("%v: %v", key.Name, key.Code.String()))
     }
+    */
 
     // chooseButton := &ChooseButton{Items: items}
 

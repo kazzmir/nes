@@ -543,8 +543,7 @@ type EmulatorKey struct {
     Code ebiten.Key
 }
 
-    /*
-func (keys *EmulatorKeys) Update(key string, value sdl.Keycode) {
+func (keys *EmulatorKeys) Update(key string, value ebiten.Key) {
     switch key {
         case "A": keys.ButtonA = value
         case "B": keys.ButtonB = value
@@ -571,7 +570,6 @@ func (keys *EmulatorKeys) Update(key string, value sdl.Keycode) {
 
     }
 }
-    */
 
 func (keys *EmulatorKeys) UpdateAll(other EmulatorKeys){
     *keys = other
