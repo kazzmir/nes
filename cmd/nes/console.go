@@ -117,7 +117,6 @@ func firstString(strings []string) string {
 }
 
 func (console *Console) Render(screen *ebiten.Image, font text.Face) {
-
     if console.Size == 0 {
         return
     }
@@ -142,62 +141,16 @@ func (console *Console) Render(screen *ebiten.Image, font text.Face) {
             text.Draw(screen, line, font, &textOptions)
         }
     }
-
-/*
-    renderer := info.Renderer
-    var alpha uint8 = 200
-    renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
-    renderer.SetDrawColor(255, 0, 0, alpha)
-
-    windowWidth, windowHeight := info.Window.GetSize()
-    _ = windowHeight
-
-    y := layer.Size * 22
-
-    renderer.FillRect(&sdl.Rect{X: int32(0), Y: int32(0), W: int32(windowWidth), H: int32(y)})
-    renderer.SetDrawColor(255, 255, 255, alpha)
-    renderer.DrawLine(0, int32(y), int32(windowWidth), int32(y))
-
-    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-    grey := sdl.Color{R: 200, G: 200, B: 200, A: 255}
-
-    yPos := y - info.SmallFont.Height() - 1
-
-    gfx.WriteFont(info.SmallFont, renderer, 1, yPos, fmt.Sprintf("> %s|", layer.GetText()), white)
-
-    layer.Lock.Lock()
-    max := len(layer.Lines)
-    if max > 30 {
-        max = 30
-    }
-    lines := gfx.CopyArray(layer.Lines[len(layer.Lines)-max:len(layer.Lines)])
-    layer.Lock.Unlock()
-    gfx.Reverse(lines)
-
-    / * show all previous lines * /
-    for _, line := range lines {
-        yPos -= info.SmallFont.Height() - 1
-        if yPos < -info.SmallFont.Height() {
-            break
-        }
-        gfx.WriteFont(info.SmallFont, renderer, 1, yPos, line, grey)
-    }
-    */
-
 }
 
 func (console *Console) Update(mainCancel context.CancelFunc, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, pressedKeys []ebiten.Key, toggleKey ebiten.Key) {
-    /*
-    normalTime := time.Millisecond * 13
-    slowTime := time.Hour * 100
-    ticker := time.NewTicker(slowTime)
-    defer ticker.Stop()
-    */
     maxSize := 10
 
     if console.State == StateOpen || console.State == StateOpening {
-        typed := ebiten.AppendInputChars(nil)
-        console.Current += string(typed)
+        add_chars := true
+        control := ebiten.IsKeyPressed(ebiten.KeyControlLeft)
+        key_w := false
+        key_u := false
 
         for _, key := range pressedKeys {
             switch key {
@@ -205,6 +158,10 @@ func (console *Console) Update(mainCancel context.CancelFunc, emulatorActions ch
                     if len(console.Current) > 0 {
                         console.Current = console.Current[0:len(console.Current)-1]
                     }
+                case ebiten.KeyW:
+                    key_w = true
+                case ebiten.KeyU:
+                    key_u = true
                 case toggleKey:
                     console.Toggle()
                 case ebiten.KeyEnter:
@@ -219,6 +176,29 @@ func (console *Console) Update(mainCancel context.CancelFunc, emulatorActions ch
                         console.Current = ""
                     }
             }
+        }
+
+        if control && key_w {
+            // Remove last word
+            text := strings.TrimRight(console.Current, " ")
+            last := strings.LastIndex(text, " ")
+            if last == -1 {
+                last = 0
+            } else {
+                last += 1
+            }
+            console.Current = text[0:last]
+            add_chars = false
+        }
+
+        if control && key_u {
+            // Clear line
+            console.Current = ""
+        }
+
+        if add_chars {
+            typed := ebiten.AppendInputChars(nil)
+            console.Current += string(typed)
         }
     }
 
