@@ -448,6 +448,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                         Cycles: cpu.Cycle,
                         Pc: cpu.PC,
                     }
+                    // info.Response had better be a buffered channel
                     select {
                         case info.Response<-data:
                         default:

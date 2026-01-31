@@ -679,6 +679,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         Size: 15,
     }
 
+    consoleFont := &text.GoTextFace{
+        Source: fontSource,
+        Size: 17,
+    }
+
     joystickManager := common.NewJoystickManager()
     /*
     log.Printf("Found joysticks: %v\n", sdl.NumJoysticks())
@@ -889,7 +894,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             defer engine.PopDraw()
 
             engine.PushDraw(func(screen *ebiten.Image){
-                console.Render(screen, smallFont)
+                console.Render(screen, consoleFont)
             }, true)
             defer engine.PopDraw()
 

@@ -3,6 +3,9 @@ package main
 import (
     "context"
     "strings"
+    "fmt"
+    // "log"
+    "sync"
     "image/color"
     "github.com/kazzmir/nes/cmd/nes/common"
     "github.com/kazzmir/nes/cmd/nes/debug"
@@ -74,6 +77,7 @@ type Console struct {
     Lines []string
     Current string
     Size int
+    Lock sync.Mutex
 }
 
 func MakeConsole(cancel context.CancelFunc, quit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction) *Console {
@@ -93,6 +97,18 @@ info: show emulator info
 reload, restart: reload the current rom
 debug: open debug window
 `
+
+func (console *Console) AddLine(line string) {
+    console.Lock.Lock()
+    defer console.Lock.Unlock()
+    console.Lines = append(console.Lines, line)
+}
+
+func (console *Console) ClearLines() {
+    console.Lock.Lock()
+    defer console.Lock.Unlock()
+    console.Lines = nil
+}
 
 func (console *Console) GetDebugger(emulatorActions chan<- common.EmulatorAction) debug.Debugger {
     data := make(chan debug.Debugger)
@@ -135,7 +151,11 @@ func (console *Console) Render(screen *ebiten.Image, font text.Face) {
 
     textOptions.ColorScale.ScaleWithColor(color.NRGBA{R: 200, G: 200, B: 200, A: 255})
 
-    for _, line := range console.Lines {
+    console.Lock.Lock()
+    defer console.Lock.Unlock()
+
+    for i := len(console.Lines) - 1; i >= 0; i-- {
+        line := console.Lines[i]
         textOptions.GeoM.Translate(0, -float64(fontHeight) - 1)
         if yPos >= 0 {
             text.Draw(screen, line, font, &textOptions)
@@ -166,15 +186,129 @@ func (console *Console) Update(mainCancel context.CancelFunc, emulatorActions ch
                     console.Toggle()
                 case ebiten.KeyEnter:
                     if len(console.Current) > 0 {
-                        parts := strings.Fields(console.Current)
+
+                        console.AddLine(console.Current)
+                        last := console.Current
+                        console.Current = ""
+
+                        parts := strings.Fields(last)
                         switch strings.ToLower(parts[0]) {
                             case "exit", "quit":
                                 mainCancel()
+                            case "clear":
+                                console.ClearLines()
+                            case "sup":
+                                console.AddLine("nm, u?")
+                            case "reload", "restart":
+                                select {
+                                    case nesActions <- &NesActionRestart{}:
+                                        console.AddLine("Reloading..")
+                                    default:
+                                        console.AddLine("Error: input dropped. Try again")
+                                }
+                            case "info":
+                                data := make(chan common.EmulatorInfo, 1)
+                                getInfo := common.EmulatorActionGetInfo{
+                                    Response: data,
+                                }
+                                select {
+                                    case emulatorActions<-getInfo:
+                                        go func() {
+                                            ok := false
+                                            for info := range data {
+                                                ok = true
+                                                console.AddLine("Emulator Info")
+                                                console.AddLine(fmt.Sprintf("Cycles: %v", info.Cycles))
+                                                console.AddLine(fmt.Sprintf("PC: 0x%x", info.Pc))
+                                                break
+                                            }
+                                            if !ok {
+                                                console.AddLine("No ROM loaded")
+                                            }
+                                        }()
+                                    default:
+                                }
+
+                                /*
+                        case "debug", "debugger":
+                            select {
+                                case nesActions <- &NesActionDebugger{}:
+                                    layer.AddLine("Opening the debug window..")
+                                default:
+                                    layer.AddLine("Error: input dropped. Try again")
+                            }
+                        case "break":
+                            debugger := console.GetDebugger(emulatorActions)
+                            if debugger != nil {
+                                if len(args) > 1 {
+                                    if strings.ToLower(args[1]) == "list" {
+                                        layer.AddLine("Breakpoints")
+                                        breakpoints := debugger.GetBreakpoints()
+                                        for _, breakpoint := range breakpoints {
+                                            layer.AddLine(fmt.Sprintf(" %v: enabled=%v 0x%x", breakpoint.Id, breakpoint.Enabled, breakpoint.PC))
+                                        }
+                                    } else {
+                                        pc, err := strconv.ParseInt(args[1], 0, 32)
+                                        if err != nil {
+                                            layer.AddLine(fmt.Sprintf("Invalid address '%v': %v", args[1], err))
+                                        } else {
+                                            breakpoint := debugger.AddPCBreakpoint(uint16(pc))
+                                            layer.AddLine(fmt.Sprintf("Breakpoint %v added at 0x%x", breakpoint.Id, breakpoint.PC))
+                                        }
+                                    }
+                                } else {
+                                    breakpoint := debugger.AddCurrentPCBreakpoint()
+                                    layer.AddLine(fmt.Sprintf("Breakpoint %v added at 0x%x", breakpoint.Id, breakpoint.PC))
+                                }
+                            } else {
+                                layer.AddLine("No debugger available")
+                            }
+                        case "step":
+                            debugger := console.GetDebugger(emulatorActions)
+                            if debugger != nil {
+                                debugger.Step(1)
+                                layer.AddLine("Step")
+                            } else {
+                                layer.AddLine("No debugger available")
+                            }
+                        case "delete":
+                            if len(args) == 2 {
+                                id, err := strconv.Atoi(args[1])
+                                if err != nil {
+                                    layer.AddLine(fmt.Sprintf("Bad breakpoint '%v'", args[1]))
+                                } else {
+                                    debugger := console.GetDebugger(emulatorActions)
+                                    if debugger != nil {
+                                        debugger.RemoveBreakpoint(uint64(id))
+                                        layer.AddLine(fmt.Sprintf("Removed breakpoint %v", id))
+                                    } else {
+                                        layer.AddLine("No debugger available")
+                                    }
+                                }
+                            } else {
+                                layer.AddLine("Give a breakpoint id to delete")
+                            }
+                        case "continue":
+                            debugger := console.GetDebugger(emulatorActions)
+                            if debugger != nil {
+                                debugger.Continue()
+                                layer.AddLine("Continue")
+                            } else {
+                                layer.AddLine("No debugger available")
+                            }
+                        case "help", "?":
+                            help := strings.Split(helpText, "\n")
+                            for _, line := range help {
+                                if line != "" {
+                                    layer.AddLine(line)
+                                }
+                            }
+                        
                         }
 
-                        console.Lines = append(console.Lines, console.Current)
-                        console.Current = ""
+                        */
                     }
+                }
             }
         }
 
