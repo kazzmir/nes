@@ -468,6 +468,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     if verbose > 0 {
                         log.Printf("Emulator speed set to %v", turboMultiplier)
                     }
+                    renderOverlayUpdate.Add("Speed: 1x")
                 case EmulatorSlowDown:
                     turboMultiplier -= 0.1
                     if turboMultiplier < 0.1 {
@@ -476,6 +477,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     if verbose > 0 {
                         log.Printf("Emulator speed set to %v", turboMultiplier)
                     }
+                    renderOverlayUpdate.Add(fmt.Sprintf("Speed: %.1fx", turboMultiplier))
                 case EmulatorStepFrame:
                     stepFrame = !stepFrame
                     if verbose > 0 {
@@ -486,6 +488,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     if verbose > 0 {
                         log.Printf("Emulator speed set to %v", turboMultiplier)
                     }
+                    renderOverlayUpdate.Add(fmt.Sprintf("Speed: %.1fx", turboMultiplier))
                 case EmulatorTogglePause:
                     paused = !paused
 
