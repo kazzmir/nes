@@ -7,7 +7,7 @@ import (
     "os"
     "os/signal"
     "io"
-    // "io/fs"
+    "io/fs"
     "path/filepath"
     "math"
     "strings"
@@ -1268,6 +1268,38 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         })
 
         for mainQuit.Err() == nil {
+            droppedFiles := ebiten.DroppedFiles()
+            if droppedFiles != nil {
+                entries, err := fs.ReadDir(droppedFiles, ".")
+                if err == nil {
+                    for _, droppedFile := range entries {
+                        func(){
+                            name := droppedFile.Name()
+                            file, err := droppedFiles.Open(name)
+                            if err != nil {
+                                log.Printf("Could not load dropped rom '%v'", name)
+                                return
+                            }
+                            defer file.Close()
+                            nesFile, err := nes.ParseNes(file, true, name)
+                            if err != nil {
+                                log.Printf("Could not load dropped rom '%v'", name)
+                                return
+                            }
+
+                            log.Printf("Loaded rom '%v'", name)
+
+                            select {
+                                case nesChannel <- &NesActionLoad{File: nesFile}:
+                                    overlayMessages.Add("Loaded rom")
+                                default:
+                                    log.Printf("Could not send load rom request for dropped file '%v'", name)
+                            }
+                        }()
+                    }
+                }
+            }
+
             select {
                 case <-doMenu:
 
