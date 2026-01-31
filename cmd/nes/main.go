@@ -788,6 +788,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
 
     debugWindow := debug.MakeDebugWindow(mainQuit, font, smallFont)
+    console := MakeConsole(mainCancel, mainQuit, emulatorActionsOutput, nesChannel)
 
     startNES := func(nesFile nes.NESFile, quit context.Context, yield coroutine.YieldFunc){
         cpu, err := common.SetupCPU(nesFile, debugCpu, debugPpu)
@@ -843,16 +844,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
         }
 
-        /*
-        layer := &DefaultRenderLayer{
-            RenderFunc: renderNes,
-            Index: 0,
-        }
-
-        renderManager.AddLayer(layer)
-        defer renderManager.RemoveLayer(layer)
-        */
-
         if err != nil {
             log.Printf("Error: CPU initialization error: %v", err)
             /* The main loop below is waiting for an event so we push the quit event */
@@ -894,6 +885,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                     textOptions.GeoM.Translate(width + 1, 0)
                 }
+            }, true)
+            defer engine.PopDraw()
+
+            engine.PushDraw(func(screen *ebiten.Image){
+                console.Render(screen)
             }, true)
             defer engine.PopDraw()
 
@@ -948,6 +944,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     default:
                 }
 
+                console.Update(mainCancel, emulatorActionsOutput, nesChannel)
                 overlayMessages.Process()
 
                 keys = inpututil.AppendJustPressedKeys(keys[:0])
@@ -968,10 +965,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                                 case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
                                 default:
                             }
-                            /*
                         case emulatorKeys.Console:
                             console.Toggle()
-                            */
                         case emulatorKeys.StepFrame:
                             select {
                                 case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorStepFrame):
@@ -1141,11 +1136,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     */
 
     /* enable drag/drop events */
-
-    /*
-    console := MakeConsole(6, &renderManager, mainCancel, mainQuit, emulatorActionsOutput, nesChannel, renderNow)
-    _ = console
-    */
 
     /*
     events := make(chan sdl.Event, 20)
