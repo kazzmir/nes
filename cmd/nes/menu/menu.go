@@ -529,11 +529,11 @@ func (buttons *MenuButtons) Add(item MenuItem){
 type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
     Input(input MenuInput) SubMenu
-    TextInput(text string)
     MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction
     UpdateWindowSize(int, int)
     KeyDown(ebiten.Key)
     PlayBeep()
+    Update()
 }
 
 func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
@@ -623,10 +623,10 @@ func (menu *StaticMenu) UpdateWindowSize(x int, y int){
     // nothing
 }
 
-func (menu *StaticMenu) TextInput(text string){
+func (menu *StaticMenu) KeyDown(key ebiten.Key){
 }
 
-func (menu *StaticMenu) KeyDown(key ebiten.Key){
+func (menu *StaticMenu) Update(){
 }
 
 func (menu *StaticMenu) Input(input MenuInput) SubMenu {
@@ -1142,10 +1142,10 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
 }
 */
 
-func (menu *JoystickMenu) TextInput(text string){
+func (menu *JoystickMenu) KeyDown(key ebiten.Key){
 }
 
-func (menu *JoystickMenu) KeyDown(key ebiten.Key){
+func (menu *JoystickMenu) Update(){
 }
 
 func (menu *JoystickMenu) Input(input MenuInput) SubMenu {
@@ -1573,6 +1573,13 @@ func (loadRomMenu *LoadRomMenu) TextInput(text string){
     loadRomMenu.LoaderState.SearchAdd(text)
 }
 
+func (loadRomMenu *LoadRomMenu) Update() {
+    runes := ebiten.AppendInputChars(nil)
+    if len(runes) > 0 {
+        loadRomMenu.TextInput(string(runes))
+    }
+}
+
 func (loadRomMenu *LoadRomMenu) KeyDown(key ebiten.Key){
     switch key {
         case ebiten.KeyBackspace:
@@ -1662,10 +1669,10 @@ const (
     LoadRomInfoBack
 )
 
-func (loader *LoadRomInfoMenu) TextInput(text string){
+func (loader *LoadRomInfoMenu) KeyDown(key ebiten.Key){
 }
 
-func (loader *LoadRomInfoMenu) KeyDown(key ebiten.Key){
+func (loader *LoadRomInfoMenu) Update(){
 }
 
 func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
@@ -1993,10 +2000,10 @@ func (menu *ChangeKeyMenu) IsChoosing() bool {
     return menu.Choosing
 }
 
-func (menu *ChangeKeyMenu) TextInput(text string){
+func (menu *ChangeKeyMenu) KeyDown(key ebiten.Key){
 }
 
-func (menu *ChangeKeyMenu) KeyDown(key ebiten.Key){
+func (menu *ChangeKeyMenu) Update(){
 }
 
 func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
@@ -2347,15 +2354,11 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
 
     defer renderManager.RemoveByIndex(menuZIndex)
 
-    // windowSizeUpdates := make(chan common.WindowSize, 10)
-
     userInput := make(chan MenuInput, 3)
     defer close(userInput)
 
     joystickStateChanges := make(chan JoystickState, 3)
     defer close(joystickStateChanges)
-
-    // rawEvents := make(chan sdl.Event, 100)
 
     /*
     eventFunction := func(){
@@ -2369,7 +2372,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
 
             // log.Printf("Event %+v type %v\n", event)
             switch event.GetType() {
-                case sdl.QUIT: mainCancel()
                 case sdl.JOYDEVICEADDED:
                     add_event := event.(*sdl.JoyDeviceAddedEvent)
                     joystickStateChanges <- &JoystickStateAdd{
@@ -2398,61 +2400,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
                             log.Printf("drop complete '%v'\n", drop_event.File)
                         case sdl.DROPTEXT:
                             log.Printf("drop text '%v'\n", drop_event.File)
-                    }
-
-                case sdl.WINDOWEVENT:
-                    window_event := event.(*sdl.WindowEvent)
-                    switch window_event.Event {
-                        case sdl.WINDOWEVENT_EXPOSED:
-                            select {
-                                case renderNow <- true:
-                                default:
-                            }
-                        case sdl.WINDOWEVENT_RESIZED:
-                            // log.Printf("Window resized")
-
-                    }
-
-                    width, height := window.GetSize()
-                    / * Not great but tolerate not updating the system when the window changes * /
-                    select {
-                        case windowSizeUpdates <- common.WindowSize{X: int(width), Y: int(height)}:
-                        default:
-                            log.Printf("Warning: dropping a window event")
-                    }
-
-                case sdl.KEYDOWN:
-                    keyboard_event := event.(*sdl.KeyboardEvent)
-                    // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
-                    quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
-
-                    if quit_pressed {
-                        // menu.cancel()
-                        userInput <- MenuQuit
-                    }
-
-                    / * allow vi input * /
-                    switch keyboard_event.Keysym.Sym {
-                        case sdl.K_LEFT, sdl.K_h:
-                            select {
-                                case userInput <- MenuPrevious:
-                            }
-                        case sdl.K_RIGHT, sdl.K_l:
-                            select {
-                                case userInput <- MenuNext:
-                            }
-                        case sdl.K_UP, sdl.K_k:
-                            select {
-                                case userInput <- MenuUp:
-                            }
-                        case sdl.K_DOWN, sdl.K_j:
-                            select {
-                                case userInput <- MenuDown:
-                            }
-                        case sdl.K_RETURN:
-                            select {
-                                case userInput <- MenuSelect:
-                            }
                     }
             }
         }
@@ -2553,8 +2500,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
     drawManager.PushDraw(draw, true)
     defer drawManager.PopDraw()
 
-    var runes []rune
-
     /* Reset the default renderer */
     for menu.quit.Err() == nil {
         clock += 1
@@ -2579,10 +2524,7 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
             }
         }
 
-        runes = ebiten.AppendInputChars(runes[:0])
-        if len(runes) > 0 {
-            currentMenu.TextInput(string(runes))
-        }
+        currentMenu.Update()
 
         windowSize := drawManager.GetWindowSize()
         currentMenu.UpdateWindowSize(windowSize.X, windowSize.Y)
