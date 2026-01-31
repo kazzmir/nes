@@ -889,7 +889,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             defer engine.PopDraw()
 
             engine.PushDraw(func(screen *ebiten.Image){
-                console.Render(screen)
+                console.Render(screen, smallFont)
             }, true)
             defer engine.PopDraw()
 
@@ -944,115 +944,118 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                     default:
                 }
 
-                console.Update(mainCancel, emulatorActionsOutput, nesChannel)
+                keys = inpututil.AppendJustPressedKeys(keys[:0])
+
+                console.Update(mainCancel, emulatorActionsOutput, nesChannel, keys, emulatorKeys.Console)
                 overlayMessages.Process()
 
-                keys = inpututil.AppendJustPressedKeys(keys[:0])
-                for _, key := range keys {
-                    switch key {
-                        case ebiten.KeyEscape, ebiten.KeyCapsLock:
-                            select {
-                                case doMenu <- true:
-                                    pausedAudio = true
-                                    musicPlayer.Pause()
-                                default:
-                                    // couldn't launch menu, just abort
-                                    mainCancel()
-                            }
-                            // mainCancel()
-                        case emulatorKeys.Turbo:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
-                                default:
-                            }
-                        case emulatorKeys.Console:
-                            console.Toggle()
-                        case emulatorKeys.StepFrame:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorStepFrame):
-                                default:
-                            }
-                        case emulatorKeys.SaveState:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSaveState):
-                                    overlayMessages.Add("Saved state")
-                                default:
-                            }
-                        case emulatorKeys.LoadState:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorLoadState):
-                                    overlayMessages.Add("Loaded state")
-                                default:
-                            }
-                        case emulatorKeys.Record:
-                            /*
-                            if recordQuit.Err() == nil {
-                                recordCancel()
+                if !console.IsActive() {
+                    for _, key := range keys {
+                        switch key {
+                            case ebiten.KeyEscape, ebiten.KeyCapsLock:
                                 select {
-                                    case emulatorMessages.ReceiveMessages <- "Stopped recording":
+                                    case doMenu <- true:
+                                        pausedAudio = true
+                                        musicPlayer.Pause()
+                                    default:
+                                        // couldn't launch menu, just abort
+                                        mainCancel()
+                                }
+                                // mainCancel()
+                            case emulatorKeys.Turbo:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
                                     default:
                                 }
-                            } else {
-                                recordCancel()
-
-                                recordQuit, recordCancel = context.WithCancel(mainQuit)
-                                err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
-                                if err != nil {
-                                    log.Printf("Could not record video: %v", err)
-                                }
+                            case emulatorKeys.Console:
+                                console.Toggle()
+                            case emulatorKeys.StepFrame:
                                 select {
-                                    case emulatorMessages.ReceiveMessages <- "Started recording":
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorStepFrame):
                                     default:
                                 }
-                            }
-                            */
-                        case emulatorKeys.Pause:
-                            log.Printf("Pause/unpause")
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePause):
-                                default:
-                            }
-                        case emulatorKeys.PPUDebug:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePPUDebug):
-                                default:
-                            }
-                        case emulatorKeys.SlowDown:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSlowDown):
-                                default:
-                            }
-                        case emulatorKeys.SpeedUp:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSpeedUp):
-                                default:
-                            }
-                        case emulatorKeys.Normal:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
-                                default:
-                            }
-                        case emulatorKeys.HardReset:
-                            log.Printf("Hard reset")
-                            nesChannel <- &NesActionRestart{}
-                            overlayMessages.Add("Hard reset")
-                            return
+                            case emulatorKeys.SaveState:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSaveState):
+                                        overlayMessages.Add("Saved state")
+                                    default:
+                                }
+                            case emulatorKeys.LoadState:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorLoadState):
+                                        overlayMessages.Add("Loaded state")
+                                    default:
+                                }
+                            case emulatorKeys.Record:
+                                /*
+                                if recordQuit.Err() == nil {
+                                    recordCancel()
+                                    select {
+                                        case emulatorMessages.ReceiveMessages <- "Stopped recording":
+                                        default:
+                                    }
+                                } else {
+                                    recordCancel()
+
+                                    recordQuit, recordCancel = context.WithCancel(mainQuit)
+                                    err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
+                                    if err != nil {
+                                        log.Printf("Could not record video: %v", err)
+                                    }
+                                    select {
+                                        case emulatorMessages.ReceiveMessages <- "Started recording":
+                                        default:
+                                    }
+                                }
+                                */
+                            case emulatorKeys.Pause:
+                                log.Printf("Pause/unpause")
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePause):
+                                    default:
+                                }
+                            case emulatorKeys.PPUDebug:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePPUDebug):
+                                    default:
+                                }
+                            case emulatorKeys.SlowDown:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSlowDown):
+                                    default:
+                                }
+                            case emulatorKeys.SpeedUp:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSpeedUp):
+                                    default:
+                                }
+                            case emulatorKeys.Normal:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
+                                    default:
+                                }
+                            case emulatorKeys.HardReset:
+                                log.Printf("Hard reset")
+                                nesChannel <- &NesActionRestart{}
+                                overlayMessages.Add("Hard reset")
+                                return
+                        }
+
+                        input.HandleEvent(key, true)
                     }
 
-                    input.HandleEvent(key, true)
-                }
+                    keys = inpututil.AppendJustReleasedKeys(keys[:0])
+                    for _, key := range keys {
+                        switch key {
+                            case emulatorKeys.Turbo:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
+                                    default:
+                                }
+                        }
 
-                keys = inpututil.AppendJustReleasedKeys(keys[:0])
-                for _, key := range keys {
-                    switch key {
-                        case emulatorKeys.Turbo:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
-                                default:
-                            }
+                        input.HandleEvent(key, false)
                     }
-
-                    input.HandleEvent(key, false)
                 }
 
                 err := nesCoroutine.Run()

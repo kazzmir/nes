@@ -2,15 +2,15 @@ package main
 
 import (
     "context"
-    "log"
+    "strings"
     "image/color"
-    "sync"
     "github.com/kazzmir/nes/cmd/nes/common"
-    "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/debug"
 
     "github.com/hajimehoshi/ebiten/v2"
+    // "github.com/hajimehoshi/ebiten/v2/inpututil"
     "github.com/hajimehoshi/ebiten/v2/vector"
+    "github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 type ConsoleState int
@@ -70,104 +70,19 @@ func (enter EnterMessage) ConsoleMessage() {
 }
 
 type Console struct {
-    RenderManager *gfx.RenderManager
     State ConsoleState
-    Messages chan Message
+    Lines []string
+    Current string
     Size int
 }
 
 func MakeConsole(cancel context.CancelFunc, quit context.Context, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction) *Console {
     console := Console{
         State: StateClosed,
-        Messages: make(chan Message, 5),
         Size: 0,
     }
 
-    // go console.run(cancel, quit, emulatorActions, nesActions, renderNow)
-
     return &console
-}
-
-type RenderConsoleLayer struct {
-    Index int
-    Size int
-    Lines []string
-    Text string
-    Lock sync.Mutex
-}
-
-func (layer *RenderConsoleLayer) ZIndex() int {
-    return layer.Index
-}
-
-func (layer *RenderConsoleLayer) GetText() string {
-    layer.Lock.Lock()
-    defer layer.Lock.Unlock()
-
-    return layer.Text
-}
-
-func (layer *RenderConsoleLayer) AddLine(line string){
-    layer.Lock.Lock()
-    defer layer.Lock.Unlock()
-    layer.Lines = append(layer.Lines, line)
-}
-
-func (layer *RenderConsoleLayer) ClearLines(){
-    layer.Lock.Lock()
-    defer layer.Lock.Unlock()
-    layer.Lines = nil
-}
-
-func (layer *RenderConsoleLayer) SetText(text string){
-    layer.Lock.Lock()
-    defer layer.Lock.Unlock()
-    layer.Text = text
-}
-
-func (layer *RenderConsoleLayer) Render(info gfx.RenderInfo) error {
-    /*
-    renderer := info.Renderer
-    var alpha uint8 = 200
-    renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
-    renderer.SetDrawColor(255, 0, 0, alpha)
-
-    windowWidth, windowHeight := info.Window.GetSize()
-    _ = windowHeight
-
-    y := layer.Size * 22
-
-    renderer.FillRect(&sdl.Rect{X: int32(0), Y: int32(0), W: int32(windowWidth), H: int32(y)})
-    renderer.SetDrawColor(255, 255, 255, alpha)
-    renderer.DrawLine(0, int32(y), int32(windowWidth), int32(y))
-
-    white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-    grey := sdl.Color{R: 200, G: 200, B: 200, A: 255}
-
-    yPos := y - info.SmallFont.Height() - 1
-
-    gfx.WriteFont(info.SmallFont, renderer, 1, yPos, fmt.Sprintf("> %s|", layer.GetText()), white)
-
-    layer.Lock.Lock()
-    max := len(layer.Lines)
-    if max > 30 {
-        max = 30
-    }
-    lines := gfx.CopyArray(layer.Lines[len(layer.Lines)-max:len(layer.Lines)])
-    layer.Lock.Unlock()
-    gfx.Reverse(lines)
-
-    / * show all previous lines * /
-    for _, line := range lines {
-        yPos -= info.SmallFont.Height() - 1
-        if yPos < -info.SmallFont.Height() {
-            break
-        }
-        gfx.WriteFont(info.SmallFont, renderer, 1, yPos, line, grey)
-    }
-    */
-
-    return nil
 }
 
 const helpText string = `
@@ -201,7 +116,7 @@ func firstString(strings []string) string {
     return ""
 }
 
-func (console *Console) Render(screen *ebiten.Image) {
+func (console *Console) Render(screen *ebiten.Image, font text.Face) {
 
     if console.Size == 0 {
         return
@@ -211,6 +126,20 @@ func (console *Console) Render(screen *ebiten.Image) {
 
     vector.FillRect(screen, 0, 0, float32(screen.Bounds().Dx()), height, color.NRGBA{R: 255, G: 0, B: 0, A: 200}, false)
     vector.StrokeLine(screen, 0, height, float32(screen.Bounds().Dx()), height, 1, color.NRGBA{R: 255, G: 255, B: 255, A: 200}, false)
+
+    _, fontHeight := text.Measure("A", font, 1)
+
+    yPos := height - float32(fontHeight) - 1
+    var textOptions text.DrawOptions
+    textOptions.GeoM.Translate(1, float64(yPos))
+    text.Draw(screen, "> " + console.Current + "|", font, &textOptions)
+
+    for _, line := range console.Lines {
+        textOptions.GeoM.Translate(0, -float64(fontHeight) - 1)
+        if yPos >= 0 {
+            text.Draw(screen, line, font, &textOptions)
+        }
+    }
 
 /*
     renderer := info.Renderer
@@ -255,7 +184,7 @@ func (console *Console) Render(screen *ebiten.Image) {
 
 }
 
-func (console *Console) Update(mainCancel context.CancelFunc, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction){
+func (console *Console) Update(mainCancel context.CancelFunc, emulatorActions chan<- common.EmulatorAction, nesActions chan NesAction, pressedKeys []ebiten.Key, toggleKey ebiten.Key) {
     /*
     normalTime := time.Millisecond * 13
     slowTime := time.Hour * 100
@@ -263,6 +192,33 @@ func (console *Console) Update(mainCancel context.CancelFunc, emulatorActions ch
     defer ticker.Stop()
     */
     maxSize := 10
+
+    if console.State == StateOpen || console.State == StateOpening {
+        typed := ebiten.AppendInputChars(nil)
+        console.Current += string(typed)
+
+        for _, key := range pressedKeys {
+            switch key {
+                case ebiten.KeyBackspace:
+                    if len(console.Current) > 0 {
+                        console.Current = console.Current[0:len(console.Current)-1]
+                    }
+                case toggleKey:
+                    console.Toggle()
+                case ebiten.KeyEnter:
+                    if len(console.Current) > 0 {
+                        parts := strings.Fields(console.Current)
+                        switch strings.ToLower(parts[0]) {
+                            case "exit", "quit":
+                                mainCancel()
+                        }
+
+                        console.Lines = append(console.Lines, console.Current)
+                        console.Current = ""
+                    }
+            }
+        }
+    }
 
     select {
             /*
