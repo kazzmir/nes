@@ -531,7 +531,6 @@ type SubMenu interface {
     Input(input MenuInput) SubMenu
     MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction
     UpdateWindowSize(int, int)
-    KeyDown(ebiten.Key)
     PlayBeep()
     Update()
 }
@@ -621,9 +620,6 @@ func (menu *StaticMenu) PlayBeep() {
 
 func (menu *StaticMenu) UpdateWindowSize(x int, y int){
     // nothing
-}
-
-func (menu *StaticMenu) KeyDown(key ebiten.Key){
 }
 
 func (menu *StaticMenu) Update(){
@@ -1142,9 +1138,6 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
 }
 */
 
-func (menu *JoystickMenu) KeyDown(key ebiten.Key){
-}
-
 func (menu *JoystickMenu) Update(){
 }
 
@@ -1574,6 +1567,11 @@ func (loadRomMenu *LoadRomMenu) TextInput(text string){
 }
 
 func (loadRomMenu *LoadRomMenu) Update() {
+    keys := inpututil.AppendJustPressedKeys(nil)
+    for _, key := range keys {
+        loadRomMenu.KeyDown(key)
+    }
+
     runes := ebiten.AppendInputChars(nil)
     if len(runes) > 0 {
         loadRomMenu.TextInput(string(runes))
@@ -1668,9 +1666,6 @@ const (
     LoadRomInfoSelect = iota
     LoadRomInfoBack
 )
-
-func (loader *LoadRomInfoMenu) KeyDown(key ebiten.Key){
-}
 
 func (loader *LoadRomInfoMenu) Update(){
 }
@@ -1998,9 +1993,6 @@ func (menu *ChangeKeyMenu) IsChoosing() bool {
     menu.Lock.Lock()
     defer menu.Lock.Unlock()
     return menu.Choosing
-}
-
-func (menu *ChangeKeyMenu) KeyDown(key ebiten.Key){
 }
 
 func (menu *ChangeKeyMenu) Update(){
@@ -2519,8 +2511,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
                     currentMenu = currentMenu.Input(MenuDown)
                 case ebiten.KeyEnter:
                     currentMenu = currentMenu.Input(MenuSelect)
-                default:
-                    currentMenu.KeyDown(key)
             }
         }
 
