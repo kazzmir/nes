@@ -95,8 +95,8 @@ exit, quit: quit the program
 clear: clear console text
 info: show emulator info
 reload, restart: reload the current rom
-debug: open debug window
 `
+// debug: open debug window
 
 func (console *Console) AddLine(line string) {
     console.Lock.Lock()
@@ -213,6 +213,7 @@ func (console *Console) Update(mainCancel context.CancelFunc, emulatorActions ch
                                 }
                                 select {
                                     case emulatorActions<-getInfo:
+                                        // this could leak if we never get a response
                                         go func() {
                                             ok := false
                                             for info := range data {
@@ -228,6 +229,14 @@ func (console *Console) Update(mainCancel context.CancelFunc, emulatorActions ch
                                         }()
                                     default:
                                 }
+                            case "help", "?":
+                                help := strings.Split(helpText, "\n")
+                                for _, line := range help {
+                                    if line != "" {
+                                        console.AddLine(line)
+                                    }
+                                }
+
 
                                 /*
                         case "debug", "debugger":
@@ -296,14 +305,7 @@ func (console *Console) Update(mainCancel context.CancelFunc, emulatorActions ch
                             } else {
                                 layer.AddLine("No debugger available")
                             }
-                        case "help", "?":
-                            help := strings.Split(helpText, "\n")
-                            for _, line := range help {
-                                if line != "" {
-                                    layer.AddLine(line)
-                                }
-                            }
-                        
+                                                
                         }
 
                         */
