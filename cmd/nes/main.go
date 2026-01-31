@@ -20,7 +20,7 @@ import (
     "sync"
     "context"
     "runtime/pprof"
-    // "runtime"
+    "runtime"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/lib/coroutine"
@@ -483,6 +483,15 @@ func (player *AudioPlayer) Read(output []byte) (int, error) {
     }
 
     maxSamples := min(len(player.Buffer) - player.position, len(output) / 4 / 2)
+
+    // in the browser we have to return something
+    if runtime.GOOS == "js" && maxSamples == 0 {
+        for _, i := range output {
+            output[i] = 0
+        }
+
+        return len(output), nil
+    }
 
     // log.Printf("Audio wants %v samples, will render %v", len(output) / 4 / 2, maxSamples)
 
