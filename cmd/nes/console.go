@@ -134,6 +134,8 @@ func (console *Console) Render(screen *ebiten.Image, font text.Face) {
     textOptions.GeoM.Translate(1, float64(yPos))
     text.Draw(screen, "> " + console.Current + "|", font, &textOptions)
 
+    textOptions.ColorScale.ScaleWithColor(color.NRGBA{R: 200, G: 200, B: 200, A: 255})
+
     for _, line := range console.Lines {
         textOptions.GeoM.Translate(0, -float64(fontHeight) - 1)
         if yPos >= 0 {

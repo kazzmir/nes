@@ -946,10 +946,13 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                 keys = inpututil.AppendJustPressedKeys(keys[:0])
 
+                // toggling the console could lead to re-enabling it, so check if we should skip normal input
+                skipInput := console.IsActive()
+
                 console.Update(mainCancel, emulatorActionsOutput, nesChannel, keys, emulatorKeys.Console)
                 overlayMessages.Process()
 
-                if !console.IsActive() {
+                if !skipInput {
                     for _, key := range keys {
                         switch key {
                             case ebiten.KeyEscape, ebiten.KeyCapsLock:
