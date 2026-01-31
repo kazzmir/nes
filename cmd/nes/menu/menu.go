@@ -1970,6 +1970,13 @@ func (menu *ChangeKeyMenu) Update(){
             if key != menu.TempChoice {
                 menu.TempChoice = key
                 menu.LastTime = time.Now()
+
+                for _, check := range menu.Keys.AllKeys() {
+                    if check.Name != menu.ChoosingKey && key == check.Code {
+                        menu.Warning = fmt.Sprintf("%v already in use", check.Name)
+                    }
+                }
+
             }
         }
 
@@ -1982,7 +1989,7 @@ func (menu *ChangeKeyMenu) Update(){
             }
         }
 
-        if !menu.LastTime.IsZero() && time.Since(menu.LastTime) >= 500 * time.Millisecond {
+        if !menu.LastTime.IsZero() && time.Since(menu.LastTime) >= 700 * time.Millisecond {
             menu.Keys.Update(menu.ChoosingKey, menu.TempChoice)
             menu.ChoosingButton.Update(menu.ChoosingKey, menu.TempChoice.String())
             common.SaveEmulatorKeys(*menu.Keys)
@@ -2011,7 +2018,7 @@ func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
 func (menu *ChangeKeyMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
     _, fontHeight := text.Measure("A", font, 1)
 
-    wideWidth, _ := text.Measure(strings.Repeat("A", 20), font, 1)
+    wideWidth, _ := text.Measure(strings.Repeat("A", 40), font, 1)
 
     return func(out *ebiten.Image) error {
         bounds := out.Bounds()
@@ -2034,7 +2041,7 @@ func (menu *ChangeKeyMenu) MakeRenderer(font text.Face, smallFont text.Face, clo
             red := color.RGBA{R: 255, G: 0, B: 0, A: 255}
             white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 
-            line := "Press a key"
+            line := fmt.Sprintf("Press a key to set %v", menu.ChoosingKey)
 
             midX := float64(maxWidth / 2)
             midY := float64(maxHeight / 2)
@@ -2063,7 +2070,7 @@ func (menu *ChangeKeyMenu) MakeRenderer(font text.Face, smallFont text.Face, clo
             warning := menu.Warning
 
             textOptions.GeoM.Translate(0, fontHeight + 2)
-            textOptions.ColorScale.ScaleWithColor(gfx.InterpolateColor(red, yellow, 15, int(time.Since(menu.LastTime)/time.Millisecond / (500 / 15))))
+            textOptions.ColorScale.ScaleWithColor(gfx.InterpolateColor(red, yellow, 15, int(time.Since(menu.LastTime)/time.Millisecond / (700 / 15))))
             text.Draw(out, tempChoice.String(), font, &textOptions)
             //
             // gfx.WriteFont(font, renderer, textX, textY, sdl.GetKeyName(tempChoice), gfx.Glow(red, yellow, 15, current))
