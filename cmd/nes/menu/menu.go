@@ -2307,6 +2307,10 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions Prog
 
     joystickMenu := MakeJoystickMenu(main, joystickStateChanges, joystickManager, menu.AudioManager)
 
+    main.Buttons.Add(&StaticButton{Name: "Exit Menu", Func: func(button *StaticButton){
+        menu.cancel()
+    }})
+
     main.Buttons.Add(&StaticButton{Name: "Quit", Func: func(button *StaticButton){
         mainCancel()
     }})
