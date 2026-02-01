@@ -117,19 +117,24 @@ func stripExtension(path string) string {
 
 func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleRate int, screenListeners *common.ScreenListeners) error {
     video_channel := make(chan nes.VirtualScreen, 2)
-    audio_channel := make(chan []float32, 2)
+    audioChannel := make(chan *nes.AudioStream, 1)
 
     mp4Path := fmt.Sprintf("%v-%v.mp4", romName, time.Now().Format("2006-01-02-15:04:05"))
 
     screenListeners.AddVideoListener(video_channel)
-    screenListeners.AddAudioListener(audio_channel)
+    screenListeners.AddAudioListener(audioChannel)
 
     go func(){
-        defer screenListeners.RemoveAudioListener(audio_channel)
+        defer screenListeners.RemoveAudioListener(audioChannel)
         defer screenListeners.RemoveVideoListener(video_channel)
-        err := util.RecordMp4(stop, mp4Path, overscanPixels, sampleRate, video_channel, audio_channel)
-        if err != nil {
-            log.Printf("Error recording mp4: %v", err)
+
+        select {
+            case audioStream := <- audioChannel:
+                err := util.RecordMp4(stop, mp4Path, overscanPixels, sampleRate, video_channel, audioStream)
+                if err != nil {
+                    log.Printf("Error recording mp4: %v", err)
+                }
+            case <- stop.Done():
         }
     }()
 

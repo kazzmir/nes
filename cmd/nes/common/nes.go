@@ -56,7 +56,7 @@ const (
 
 type ScreenListeners struct {
     VideoListeners []chan nes.VirtualScreen
-    AudioListeners []chan []float32
+    AudioListeners []chan *nes.AudioStream
     Lock sync.Mutex
 }
 
@@ -100,6 +100,7 @@ func (listeners *ScreenListeners) RemoveVideoListener(remove chan nes.VirtualScr
 }
 
 func (listeners *ScreenListeners) ObserveAudio(pcm []float32){
+    /*
     listeners.Lock.Lock()
     defer listeners.Lock.Unlock()
 
@@ -114,20 +115,21 @@ func (listeners *ScreenListeners) ObserveAudio(pcm []float32){
                 log.Printf("Cannot observe audio")
         }
     }
+    */
 }
 
-func (listeners *ScreenListeners) AddAudioListener(listener chan []float32){
+func (listeners *ScreenListeners) AddAudioListener(listener chan *nes.AudioStream){
     listeners.Lock.Lock()
     defer listeners.Lock.Unlock()
 
     listeners.AudioListeners = append(listeners.AudioListeners, listener)
 }
 
-func (listeners *ScreenListeners) RemoveAudioListener(remove chan []float32){
+func (listeners *ScreenListeners) RemoveAudioListener(remove chan *nes.AudioStream){
     listeners.Lock.Lock()
     defer listeners.Lock.Unlock()
 
-    var out []chan []float32
+    var out []chan *nes.AudioStream
     for _, listener := range listeners.AudioListeners {
         if listener != remove {
             out = append(out, listener)
