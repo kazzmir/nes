@@ -845,11 +845,13 @@ type CPUState struct {
 
 func (cpu *CPUState) Load(other *CPUState){
     input := cpu.Input
-    audioStream := cpu.APU.AudioStream
-    audioStream.Clear()
+    audioStreams := cpu.APU.AudioStreams
+    for _, stream := range audioStreams {
+        stream.Clear()
+    }
     *cpu = other.Copy()
     cpu.Input = input
-    cpu.APU.AudioStream = audioStream
+    cpu.APU.AudioStreams = audioStreams
     cpu.Maps = make([][]byte, 256)
 
     cpu.MapMemory(0x0, cpu.Ram)

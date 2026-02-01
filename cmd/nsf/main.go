@@ -279,16 +279,15 @@ func run(nsfPath string) error {
     updateTrack <- track
 
     runPlayer := func(track byte, actions chan nes.NSFActions) (context.Context, context.CancelFunc) {
-        audioStreamOut := make(chan *nes.AudioStream, 1)
+        audioStream := nes.MakeAudioStream(sampleRate)
         playQuit, playCancel := context.WithCancel(quit)
         go func(){
-            err := nes.PlayNSF(nsf, track, audioStreamOut, float32(sampleRate), actions, playQuit, 0)
+            err := nes.PlayNSF(nsf, track, audioStream, float32(sampleRate), actions, playQuit, 0)
             if err != nil {
                 log.Printf("Unable to play: %v", err)
             }
         }()
 
-        audioStream := <- audioStreamOut
         player := audioContext.NewPlayer(audioStream)
         player.SetBufferSize(44100 * 4 * 2 / 4)
         player.Play()
@@ -437,17 +436,17 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
     }()
     */
 
-    audioStreamOut := make(chan *nes.AudioStream, 1)
+    audioStream := nes.MakeAudioStream(int(sampleRate))
     waiter.Add(1)
     go func(){
         defer waiter.Done()
-        err = nes.PlayNSF(nsf, byte(track), audioStreamOut, sampleRate, actions, quit, uint64(float64(renderTime) * nes.CPUSpeed))
+        err = nes.PlayNSF(nsf, byte(track), audioStream, sampleRate, actions, quit, uint64(float64(renderTime) * nes.CPUSpeed))
         cancel()
     }()
 
     log.Printf("Rendering track %v of %v to '%v' for %d:%02d", track+1, filepath.Base(nsfPath), mp3out, renderTime/60, renderTime % 60)
 
-    encodeErr := util.EncodeMp3(mp3out, quit, int(sampleRate), <-audioStreamOut)
+    encodeErr := util.EncodeMp3(mp3out, quit, int(sampleRate), audioStream)
 
     waiter.Wait()
 

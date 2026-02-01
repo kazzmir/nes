@@ -1,4 +1,4 @@
-.PHONY: nes nsf test nestest apu-test make-screenshot mapper static wasm itch.io
+.PHONY: nes nsf test nestest apu-test make-screenshot mapper static nes.wasm wasm itch.io
 
 nes:
 	time go build ./cmd/nes

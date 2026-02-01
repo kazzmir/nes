@@ -10,7 +10,6 @@ import (
     "fmt"
     "time"
     "bytes"
-    "encoding/binary"
     "syscall"
     "context"
     "strconv"
@@ -78,7 +77,7 @@ func waitForProcess(process *os.Process, signals []SignalTimeout){
             break
         }
         process.Signal(use.Signal) // send signal to process, hoping to kill it
-        log.Printf("Sent signal %v to pid %v", process.Pid, use.Signal)
+        log.Printf("Sent signal %v to pid %v", use.Signal, process.Pid)
         done := time.Now().Add(time.Second * time.Duration(use.Timeout))
         // wait for the process to go away
         for time.Now().Before(done) {
@@ -193,30 +192,22 @@ func EncodeMp3(mp3out string, mainQuit context.Context, sampleRate int, audio_in
     return nil
 }
 
-func audioWriter(out io.Writer, audio_channel chan []float32, stop context.Context){
-    var output bytes.Buffer
-    for {
-        select {
-            case <-stop.Done():
-                return
-            case buffer := <-audio_channel:
-                output.Reset()
-                for _, sample := range buffer {
-                    binary.Write(&output, binary.LittleEndian, sample)
-                }
-
-                // log.Printf("Writing audio samples to ffmpeg")
-                out.Write(output.Bytes())
-        }
-    }
-}
-
 func videoWriter(out io.Writer, overscanPixels int, video_channel chan nes.VirtualScreen, stop context.Context){
     var output bytes.Buffer
+
+    showFps := false
+    fps := 0
+    timer := time.NewTicker(time.Second)
+    defer timer.Stop()
     for {
         select {
             case <-stop.Done():
                 return
+            case <-timer.C:
+                if showFps {
+                    log.Printf("Video encoder fps: %v", fps)
+                }
+                fps = 0
             case buffer := <-video_channel:
                 output.Reset()
                 for y := overscanPixels; y < buffer.Height - overscanPixels; y++ {
@@ -227,12 +218,13 @@ func videoWriter(out io.Writer, overscanPixels int, video_channel chan nes.Virtu
                 }
 
                 out.Write(output.Bytes())
+                fps += 1
             }
     }
 }
 
 /* Audio+Video */
-func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sampleRate int, video_channel chan nes.VirtualScreen, audio_channel chan []float32) error {
+func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sampleRate int, video_channel chan nes.VirtualScreen, audio_input io.Reader) error {
     ffmpeg_binary_path, err := FindFfmpegBinary()
 
     if err != nil {
@@ -260,10 +252,10 @@ func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sam
         "-i", "pipe:3", // video is passed as fd 3
         "-f", "f32le", // audio is uncompressed pcm in float32 format
         "-ar", strconv.Itoa(sampleRate), // sample rate
-        "-ac", "1", // 1 channel mono
+        "-ac", "2", // 2 channel stereo
         "-i", "pipe:4", // audio is passed as fd 4
         "-vf", fmt.Sprintf("scale=iw*%v:ih*%v", scaleFactor, scaleFactor), // upscale the video
-        "-vsync", "vfr", // allow for variable frame rate video
+        // "-vsync", "vfr", // allow for variable frame rate video
         "-r", "60", // maximum of 60fps
 
         "-movflags", "empty_moov", // write an empty moov frame at the start
@@ -299,35 +291,15 @@ func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sam
         return err
     }
 
-    go func(stdout io.ReadCloser){
-        buffer := make([]byte, 4096)
-        for {
-            count, err := stdout.Read(buffer)
-            if err != nil {
-                if err != io.EOF {
-                    log.Printf("Could not read ffmpeg stdout: %v", err)
-                }
-                return
-            }
-            _ = count
-            // log.Printf("ffmpeg: %v", string(buffer[0:count]))
-        }
-    }(stdout)
+    debug := false
 
-    go func(stdout io.ReadCloser){
-        buffer := make([]byte, 4096)
-        for {
-            count, err := stdout.Read(buffer)
-            if err != nil {
-                if err != io.EOF {
-                    log.Printf("Could not read ffmpeg stdout: %v", err)
-                }
-                return
-            }
-            _ = count
-            // log.Printf("ffmpeg: %v", string(buffer[0:count]))
-        }
-    }(stderr)
+    if debug {
+        go io.Copy(os.Stdout, stdout)
+        go io.Copy(os.Stderr, stderr)
+    } else {
+        go io.Copy(io.Discard, stdout)
+        go io.Copy(io.Discard, stderr)
+    }
 
     log.Printf("Recording to %v", mp4Path)
 
@@ -346,7 +318,7 @@ func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sam
 
     go func(){
         defer audio_reader.Close()
-        audioWriter(audio_writer, audio_channel, stop)
+        io.Copy(audio_writer, audio_input)
     }()
 
     /* video reader */

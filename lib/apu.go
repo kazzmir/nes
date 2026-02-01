@@ -5,6 +5,7 @@ import (
     "math"
     "sync"
     "runtime"
+    "slices"
 )
 
 var ApuDebug int = 0
@@ -503,7 +504,7 @@ type APUState struct {
     EnablePulse2 bool `json:"enablepulse2"`
     EnablePulse1 bool `json:"enablepulse1"`
 
-    AudioStream *AudioStream `json:"-"`
+    AudioStreams []*AudioStream `json:"-"`
 }
 
 func (apu *APUState) Copy() APUState {
@@ -526,7 +527,7 @@ func (apu *APUState) Copy() APUState {
         EnableTriangle: apu.EnableTriangle,
         EnablePulse2: apu.EnablePulse2,
         EnablePulse1: apu.EnablePulse1,
-        AudioStream: apu.AudioStream,
+        AudioStreams: apu.AudioStreams,
     }
 }
 
@@ -550,12 +551,17 @@ func MakeAPU() APUState {
             Silence: true,
             Frequency: 5000, // arbitrary value, just has to be non-zero
         },
-        AudioStream: MakeAudioStream(10000),
     }
 }
 
-func (apu *APUState) GetAudioStream() *AudioStream {
-    return apu.AudioStream
+func (apu *APUState) AddAudioStream(stream *AudioStream) {
+    apu.AudioStreams = append(apu.AudioStreams, stream)
+}
+
+func (apu *APUState) RemoveAudioStream(stream *AudioStream) {
+    apu.AudioStreams = slices.DeleteFunc(apu.AudioStreams, func(s *AudioStream) bool {
+        return s == stream
+    })
 }
 
 /* Quarter frame actions: envelope and triangle's linear counter */
@@ -665,7 +671,9 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUSta
                 copy(out, apu.SampleBuffer)
             }
             */
-            apu.AudioStream.AddSample(sample)
+            for _, stream := range apu.AudioStreams {
+                stream.AddSample(sample)
+            }
         }
     }
 
