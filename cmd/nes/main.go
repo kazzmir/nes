@@ -859,7 +859,13 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         input.HandleEvent(key, false)
                     }
 
-                    joystickManager.Update()
+                    emulatorActions := joystickManager.Update()
+                    for _, action := range emulatorActions {
+                        select {
+                            case emulatorActionsOutput <- common.MakeEmulatorAction(action):
+                            default:
+                        }
+                    }
                 }
 
                 err := nesCoroutine.Run()

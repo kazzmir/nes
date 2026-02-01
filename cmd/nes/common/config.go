@@ -12,6 +12,8 @@ const CurrentVersion = 2
 type ConfigJoystickData struct {
     A string `json:"a,omitempty"`
     B string `json:"b,omitempty"`
+    TurboA string `json:"turbo-a,omitempty"`
+    TurboB string `json:"turbo-b,omitempty"`
     Select string `json:"select,omitempty"`
     Start string `json:"start,omitempty"`
     Up string `json:"up,omitempty"`

@@ -6,6 +6,7 @@ import (
     "time"
     "sync"
     "context"
+    "slices"
     "image/color"
 
     nes "github.com/kazzmir/nes/lib"
@@ -40,6 +41,15 @@ func convertButton(name string) nes.Button {
     return nes.ButtonIndexA
 }
 
+func convertExtraButton(name string) common.EmulatorActionValue {
+    switch name {
+        case "Fast emulation": return common.EmulatorTurbo
+        case "Pause/Unpause Emulator": return common.EmulatorTogglePause
+    }
+
+    return common.EmulatorNothing
+}
+
 func convertInput(input JoystickInputType) common.JoystickInput {
     button, ok := input.(*JoystickButtonType)
     if ok {
@@ -62,6 +72,17 @@ func (mapping *JoystickButtonMapping) UpdateJoystick(manager *common.JoystickMan
 
         /* FIXME: just a test */
         // manager.Player1.SetExtraButton(common.EmulatorTurbo, &common.JoystickButton{Button: 5})
+        for name, input := range mapping.ExtraInputs {
+            switch name {
+                case "Turbo A":
+                    manager.Player1.SetTurboA(convertInput(input))
+                case "Turbo B":
+                    manager.Player1.SetTurboB(convertInput(input))
+                default:
+                    manager.Player1.SetExtraButton(convertExtraButton(name), convertInput(input))
+            }
+        }
+
 
         err := manager.SaveInput()
         if err != nil {
@@ -70,32 +91,22 @@ func (mapping *JoystickButtonMapping) UpdateJoystick(manager *common.JoystickMan
     }
 }
 
-func inList(value string, array []string) bool {
-    for _, x := range array {
-        if x == value {
-            return true
-        }
-    }
-
-    return false
-}
-
 func (mapping *JoystickButtonMapping) AddAxisMapping(name string, axis JoystickAxisType){
-    if inList(name, mapping.ButtonList()){
+    if slices.Contains(mapping.ButtonList(), name){
         mapping.Inputs[name] = &axis
-    } else if inList(name, mapping.ExtraButtonList()){
+    } else if slices.Contains(mapping.ExtraButtonList(), name){
         mapping.ExtraInputs[name] = &axis
     }
 }
 
 func (mapping *JoystickButtonMapping) AddButtonMapping(name string, button ebiten.GamepadButton){
-    if inList(name, mapping.ButtonList()){
+    if slices.Contains(mapping.ButtonList(), name){
         mapping.Inputs[name] = &JoystickButtonType{
             Name: name,
             Pressed: false,
             Button: button,
        }
-   } else if inList(name, mapping.ExtraButtonList()){
+   } else if slices.Contains(mapping.ExtraButtonList(), name){
        mapping.ExtraInputs[name] = &JoystickButtonType{
             Name: name,
             Pressed: false,
@@ -239,8 +250,6 @@ func (mapping *JoystickButtonMapping) IsPressed(name string) bool {
 
     return false
 }
-
-
 
 type JoystickInputType interface {
     IsPressed() bool
@@ -494,6 +503,7 @@ func (menu *JoystickMenu) DoConfigure(joystick *common.JoystickButtons, yield co
     for _, button := range buttonList {
         var lastTime time.Time
         lastButton := ebiten.GamepadButton(-1)
+        log.Printf("Configuring button '%v'", button)
         for {
             pressed := inpututil.AppendJustPressedGamepadButtons(joystick.GetGamepadID(), nil)
             for _, button := range pressed {
@@ -924,7 +934,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
 
             joystick := joystickManager.Player1
             menu.ConfigureCoroutine = coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
-                menu.DoConfigure(joystick, yield, menu.Mapping.ButtonList())
+                menu.DoConfigure(joystick, yield, menu.Mapping.ExtraButtonList())
                 return nil
             })
         }
