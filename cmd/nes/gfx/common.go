@@ -22,76 +22,6 @@ type RenderFunction func(*ebiten.Image) error
 
 type PixelFormat uint32
 
-/* determine endianness of the host by comparing the least-significant byte of a 32-bit number
- * versus a little endian byte array
- * if the first byte in the byte array is the same as the lowest byte of the 32-bit number
- * then the host is little endian
- */
- /*
-func FindPixelFormat() PixelFormat {
-    red := uint32(32)
-    green := uint32(128)
-    blue := uint32(64)
-    alpha := uint32(96)
-    color := (red << 24) | (green << 16) | (blue << 8) | alpha
-
-    var buffer bytes.Buffer
-    binary.Write(&buffer, binary.LittleEndian, color)
-
-    if buffer.Bytes()[0] == uint8(alpha) {
-        return sdl.PIXELFORMAT_ABGR8888
-    }
-
-    return sdl.PIXELFORMAT_RGBA8888
-}
-*/
-
-/*
-func TextWidth(font *ttf.Font, text string) int {
-    / * FIXME: this feels a bit inefficient, maybe find a better way that doesn't require fully rendering the text * /
-    surface, err := font.RenderUTF8Solid(text, sdl.Color{R: 255, G: 255, B: 255, A: 255})
-    if err != nil {
-        log.Printf("Unable to render font text '%v': %v", text, err)
-        return 0
-    }
-
-    defer surface.Free()
-    return int(surface.W)
-}
-*/
-
-/*
-func WriteFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) error {
-    surface, err := font.RenderUTF8Blended(message, color)
-    if err != nil {
-        return err
-    }
-
-    defer surface.Free()
-
-    texture, err := renderer.CreateTextureFromSurface(surface)
-    if err != nil {
-        return err
-    }
-    defer texture.Destroy()
-
-    surfaceBounds := surface.Bounds()
-
-    return CopyTexture(texture, renderer, surfaceBounds.Max.X, surfaceBounds.Max.Y, x, y)
-}
-*/
-
-/*
-func CopyTexture(texture *sdl.Texture, renderer *sdl.Renderer, width int, height int, x int, y int) error {
-    sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(width), H: int32(height)}
-    destRect := sourceRect
-    destRect.X = int32(x)
-    destRect.Y = int32(y)
-
-    return renderer.Copy(texture, &sourceRect, &destRect)
-}
-*/
-
 type RenderLayerList []RenderLayer
 
 func (list RenderLayerList) Len() int {
@@ -108,12 +38,6 @@ func (list RenderLayerList) Less(a int, b int) bool {
 
 type RenderInfo struct {
     Screen *ebiten.Image
-    /*
-    Renderer *sdl.Renderer
-    Font *ttf.Font
-    SmallFont *ttf.Font
-    Window *sdl.Window
-    */
 }
 
 type RenderLayer interface {
@@ -272,113 +196,6 @@ func Glow(start color.Color, end color.Color, speed float64, clock uint64) color
     }
     return out
 }
-
-/*
-func RasterizeTriangle(x1 int, y1 int, x2 int, y2 int, x3 int, y3 int, color sdl.Color) (*sdl.Surface, error) {
-    // normalize points first
-    minX := min(x1, x2, x3)
-    minY := min(y1, y2, y3)
-    x1 -= minX
-    x2 -= minX
-    x3 -= minX
-    y1 -= minY
-    y2 -= minY
-    y3 -= minY
-
-    width := max(x1, x2, x3) - min(x1, x2, x3)
-    height := max(y1, y2, y3) - min(y1, y2, y3)
-
-    surface, err := sdl.CreateRGBSurfaceWithFormat(0, int32(width), int32(height), 8 * 4, sdl.PIXELFORMAT_RGBA8888)
-    // surface.FillRect(nil, sdl.Color{R: 0, G: 255, B: 0, A: 255}.Uint32())
-
-    surface.Lock()
-    defer surface.Unlock()
-
-    pixels := surface.Pixels()
-
-    points := []image.Point{image.Pt(x1, y1), image.Pt(x2, y2), image.Pt(x3, y3)}
-    // sort by x position first
-    slices.SortFunc(points, func(i image.Point, j image.Point) int {
-        return cmp.Compare(i.X, j.X)
-    })
-
-    // index 0 is left most point
-    // if index 1.y is above index 0.y then index 2 is counter-clockwise point, otherwise its index 1
-
-    point1 := 0
-    point2 := 1
-    point3 := 2
-    if points[1].Y > points[0].Y {
-        // swap order
-        point2 = 2
-        point3 = 1
-    }
-
-    getDeterminant := func(a image.Point, b image.Point, c image.Point) int {
-        ab := image.Pt(b.X - a.X, b.Y - a.Y)
-        ac := image.Pt(c.X - a.X, c.Y - a.Y)
-
-        return ab.Y * ac.X - ab.X * ac.Y
-    }
-
-    for y := 0; y < height; y++ {
-        for x := 0; x < width; x++ {
-            p := image.Pt(x, y)
-            d1 := getDeterminant(points[point1], points[point2], p)
-            d2 := getDeterminant(points[point2], points[point3], p)
-            d3 := getDeterminant(points[point3], points[point1], p)
-
-            // all on left or all on right
-            if (d1 >= 0 && d2 >= 0 && d3 >= 0) || (d1 <= 0 && d2 <= 0 && d3 <= 0) {
-                // log.Printf("triangle put pixel at %d, %d\n", x, y)
-                offset := (y * width + x) * surface.BytesPerPixel()
-                pixels[offset] = color.R
-                pixels[offset+1] = color.G
-                pixels[offset+2] = color.B
-                pixels[offset+3] = color.A
-            }
-        }
-    }
-
-    return surface, err
-}
-*/
-
-/*
-func DrawEquilateralTriange(renderer *sdl.Renderer, x int, y int, size float64, angle float64, color sdl.Color) error {
-    x1 := float64(x) + math.Cos(angle * math.Pi / 180) * size
-    y1 := float64(y) - math.Sin(angle * math.Pi / 180) * size
-
-    x2 := float64(x) + math.Cos((angle - 90) * math.Pi / 180) * size
-    y2 := float64(y) - math.Sin((angle - 90) * math.Pi / 180) * size
-
-    x3 := float64(x) + math.Cos((angle + 90) * math.Pi / 180) * size
-    y3 := float64(y) - math.Sin((angle + 90) * math.Pi / 180) * size
-
-    surface, err := RasterizeTriangle(int(x1), int(y1), int(x2), int(y2), int(x3), int(y3), color)
-    if err != nil {
-        return err
-    }
-    defer surface.Free()
-
-    texture, err := renderer.CreateTextureFromSurface(surface)
-    if err != nil {
-        return err
-    }
-    defer texture.Destroy()
-
-    return CopyTexture(texture, renderer, int(surface.W), int(surface.H), int(min(x1, x2, x3)), int(min(y1, y2, y3)))
-
-    / *
-
-    if !gfx.FilledTrigonColor(renderer, int32(x1), int32(y1), int32(x2), int32(y2), int32(x3), int32(y3), color) {
-        return errors.New("Unable to render triangle")
-    } else {
-        return nil
-    }
-    * /
-}
-*/
 
 type Coordinates struct {
     UpperLeftX int
