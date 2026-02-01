@@ -612,7 +612,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     */
 
     emulatorKeys := common.LoadEmulatorKeys()
-    input := &common.SDLKeyboardButtons{
+    input := &common.KeyboardButtons{
         Keys: &emulatorKeys,
     }
 

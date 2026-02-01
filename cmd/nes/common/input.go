@@ -190,7 +190,7 @@ func (manager *JoystickManager) Get() nes.ButtonMapping {
     return mapping
 }
 
-type SDLKeyboardButtons struct {
+type KeyboardButtons struct {
     Keys *EmulatorKeys
 
     /* true if held down, false if not */
@@ -208,7 +208,7 @@ type SDLKeyboardButtons struct {
     ButtonRight bool
 }
 
-func (buttons *SDLKeyboardButtons) Reset(){
+func (buttons *KeyboardButtons) Reset(){
     buttons.ButtonA = false
     buttons.ButtonB = false
     buttons.ButtonSelect = false
@@ -223,7 +223,7 @@ func (buttons *SDLKeyboardButtons) Reset(){
     buttons.TurboBCounter = 0
 }
 
-func (buttons *SDLKeyboardButtons) Get() nes.ButtonMapping {
+func (buttons *KeyboardButtons) Get() nes.ButtonMapping {
     mapping := make(nes.ButtonMapping)
 
     if buttons.ButtonTurboA {
@@ -254,7 +254,7 @@ func (buttons *SDLKeyboardButtons) Get() nes.ButtonMapping {
     return mapping
 }
 
-func (buttons *SDLKeyboardButtons) HandleEvent(key ebiten.Key, set bool){
+func (buttons *KeyboardButtons) HandleEvent(key ebiten.Key, set bool){
     switch key {
         case buttons.Keys.ButtonA: buttons.ButtonA = set
         case buttons.Keys.ButtonB: buttons.ButtonB = set
@@ -280,44 +280,6 @@ func (buttons *SDLKeyboardButtons) HandleEvent(key ebiten.Key, set bool){
         case buttons.Keys.ButtonRight: buttons.ButtonRight = set
     }
 }
-
-/*
-func (buttons *SDLKeyboardButtons) HandleEvent(event *sdl.KeyboardEvent){
-    set := false
-    switch event.GetType() {
-        case sdl.KEYDOWN: set = true
-        case sdl.KEYUP: set = false
-        default:
-            / * what is this? * /
-            return
-    }
-
-    switch event.Keysym.Sym {
-        case buttons.Keys.ButtonA: buttons.ButtonA = set
-        case buttons.Keys.ButtonB: buttons.ButtonB = set
-        case buttons.Keys.ButtonTurboA:
-            buttons.ButtonTurboA = set
-            / * if the user releases the turbo button the A/B button might be in
-             * a pressed state even though the user is not currently pressing it,
-             * so ensure that A/B is not pressed if turbo is released
-             * /
-            if !set {
-                buttons.ButtonA = false
-            }
-        case buttons.Keys.ButtonTurboB:
-            buttons.ButtonTurboB = set
-            if !set {
-                buttons.ButtonB = false
-            }
-        case buttons.Keys.ButtonSelect: buttons.ButtonSelect = set
-        case buttons.Keys.ButtonStart: buttons.ButtonStart = set
-        case buttons.Keys.ButtonUp: buttons.ButtonUp = set
-        case buttons.Keys.ButtonDown: buttons.ButtonDown = set
-        case buttons.Keys.ButtonLeft: buttons.ButtonLeft = set
-        case buttons.Keys.ButtonRight: buttons.ButtonRight = set
-    }
-}
-*/
 
 type JoystickInput interface {
     /* FIXME: return a mapping suitable for json */
