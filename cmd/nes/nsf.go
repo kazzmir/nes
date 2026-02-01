@@ -187,10 +187,10 @@ func RunNSF(path string) error {
         playQuit, playCancel := context.WithCancel(quit)
 
         doPlay := func(playQuit context.Context, track byte){
-            audioStream := make(chan *nes.AudioStream, 1)
+            audioStream := nes.MakeAudioStream(int(AudioSampleRate))
 
             go func(){
-                player, err := audio.NewPlayerF32(<-audioStream)
+                player, err := audio.NewPlayerF32(audioStream)
                 if err != nil {
                     log.Printf("Error creating audio player: %v", err)
                     return

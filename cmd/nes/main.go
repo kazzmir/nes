@@ -665,7 +665,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
             verbose := 1
 
-            musicPlayer, err := audio.NewPlayerF32(cpu.APU.GetAudioStream())
+            audioStream := nes.MakeAudioStream(int(AudioSampleRate))
+
+            cpu.APU.AddAudioStream(audioStream)
+
+            musicPlayer, err := audio.NewPlayerF32(audioStream)
             if err != nil {
                 log.Printf("Warning: could not create audio player: %v", err)
             } else {
