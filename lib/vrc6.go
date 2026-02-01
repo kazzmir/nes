@@ -155,16 +155,16 @@ type VRC6Audio struct {
     Pulse1 VRC6Pulse
     Pulse2 VRC6Pulse
     Saw VRC6Saw
-    SampleBuffer []float32
-    SamplePosition int
     SampleCycles float64
+
+    AudioStream *AudioStream
 
     Halt bool
     X16 bool
     X256 bool
 }
 
-func MakeVRC6Audio() *VRC6Audio {
+func MakeVRC6Audio(audioStream *AudioStream) *VRC6Audio {
     return &VRC6Audio{
         Pulse1: VRC6Pulse{
             Divider: Divider{
@@ -189,7 +189,8 @@ func MakeVRC6Audio() *VRC6Audio {
                 Count: 1 << 12,
             },
         },
-        SampleBuffer: make([]float32, 1024),
+        // SampleBuffer: make([]float32, 1024),
+        AudioStream: audioStream,
     }
 }
 
@@ -205,9 +206,9 @@ func (vr6 *VRC6Audio) GenerateSample() float32 {
     return float32(total) / float32(1 << 6)
 }
 
-func (vrc6 *VRC6Audio) Run(cycles float64, cyclesPerSample float64) []float32 {
+func (vrc6 *VRC6Audio) Run(cycles float64, cyclesPerSample float64) {
     if vrc6.Halt {
-        return nil
+        return
     }
 
     vrc6.SampleCycles += cycles
@@ -220,22 +221,13 @@ func (vrc6 *VRC6Audio) Run(cycles float64, cyclesPerSample float64) []float32 {
         vrc6.Saw.Run(vrc6.X16, vrc6.X256)
     }
 
-    var out []float32
     if vrc6.SampleCycles >= cyclesPerSample {
         sample := vrc6.GenerateSample()
         for vrc6.SampleCycles >= cyclesPerSample {
             vrc6.SampleCycles -= cyclesPerSample
-            vrc6.SampleBuffer[vrc6.SamplePosition] = sample
-            vrc6.SamplePosition += 1
-            if vrc6.SamplePosition >= len(vrc6.SampleBuffer) {
-                out = make([]float32, len(vrc6.SampleBuffer))
-                copy(out, vrc6.SampleBuffer)
-                vrc6.SamplePosition = 0
-            }
+            vrc6.AudioStream.AddSample2(sample)
         }
     }
-
-    return out
 }
 
 // returns true if the address is a VRC6 audio address

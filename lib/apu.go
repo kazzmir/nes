@@ -363,8 +363,7 @@ func (triangle *Triangle) GenerateSample() byte {
     return 0
 }
 
-type AudioStream struct {
-    // holds mono audio samples
+type stream struct {
     Samples []float32
     count int
     start int
@@ -372,13 +371,7 @@ type AudioStream struct {
     lock sync.Mutex
 }
 
-func MakeAudioStream(size int) *AudioStream {
-    return &AudioStream{
-        Samples: make([]float32, size),
-    }
-}
-
-func (stream *AudioStream) Clear() {
+func (stream *stream) Clear() {
     stream.lock.Lock()
     defer stream.lock.Unlock()
     stream.count = 0
@@ -386,7 +379,7 @@ func (stream *AudioStream) Clear() {
     stream.end = 0
 }
 
-func (stream *AudioStream) AddSample(sample float32) {
+func (stream *stream) AddSample(sample float32) {
     stream.lock.Lock()
     defer stream.lock.Unlock()
 
@@ -399,21 +392,65 @@ func (stream *AudioStream) AddSample(sample float32) {
     }
 }
 
+type AudioStream struct {
+    // holds mono audio samples
+    Main stream
+    Second stream
+}
+
+func MakeAudioStream(size int) *AudioStream {
+    return &AudioStream{
+        // The main stream emitted by the APU
+        Main: stream{
+            Samples: make([]float32, size),
+        },
+        // A second stream, mainly for VRC6 audio. This is mixed into the main stream
+        Second: stream{
+            Samples: make([]float32, size),
+        },
+    }
+}
+
+func (stream *AudioStream) Clear() {
+    stream.Main.Clear()
+    stream.Second.Clear()
+}
+
+func (stream *AudioStream) AddSample(sample float32) {
+    stream.Main.AddSample(sample)
+}
+
+func (stream *AudioStream) AddSample2(sample float32) {
+    stream.Second.AddSample(sample)
+}
+
 // out slice is always stereo float32LE
 func (stream *AudioStream) Read(out []byte) (int, error) {
-    stream.lock.Lock()
-    defer stream.lock.Unlock()
+    stream.Main.lock.Lock()
+    defer stream.Main.lock.Unlock()
 
-    if stream.count == 0 {
+    stream.Second.lock.Lock()
+    defer stream.Second.lock.Unlock()
+
+    if stream.Main.count == 0 {
         for i := range 8 {
             out[i] = 0
         }
         return 8, nil
     }
 
-    samples := min(stream.count, len(out) / 4 / 2)
+    samples := min(stream.Main.count, len(out) / 4 / 2)
     for i := range samples {
-        v := math.Float32bits(stream.Samples[stream.start])
+        sample := stream.Main.Samples[stream.Main.start]
+
+        if stream.Second.count > 0 {
+            sample2 := stream.Second.Samples[stream.Second.start]
+            sample += sample2
+            stream.Second.start = (stream.Second.start + 1) % len(stream.Second.Samples)
+            stream.Second.count -= 1
+        }
+
+        v := math.Float32bits(sample)
         out[i*4*2+0] = byte(v & 0xff)
         out[i*4*2+1] = byte((v >> 8) & 0xff)
         out[i*4*2+2] = byte((v >> 16) & 0xff)
@@ -424,14 +461,15 @@ func (stream *AudioStream) Read(out []byte) (int, error) {
         out[i*4*2+6] = byte((v >> 16) & 0xff)
         out[i*4*2+7] = byte((v >> 24) & 0xff)
 
-        stream.start = (stream.start + 1) % len(stream.Samples)
+        stream.Main.start = (stream.Main.start + 1) % len(stream.Main.Samples)
     }
 
-    stream.count -= samples
+    stream.Main.count -= samples
 
     // log.Printf("Read %v/%v samples from audio stream", samples, len(out) / 4 / 2)
 
     return samples * 4 * 2, nil
+
 }
 
 type APUState struct {

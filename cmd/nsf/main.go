@@ -260,31 +260,7 @@ func run(nsfPath string) error {
     <-ready
 
     quit, cancel := context.WithCancel(context.Background())
-
-    /*
-    audioOut := make(chan []float32, 2)
-
-
-    go func(){
-        var audioBuffer bytes.Buffer
-        for quit.Err() == nil {
-            select {
-                case <-quit.Done():
-                case audio := <-audioOut:
-                    audioBuffer.Reset()
-                    / * convert []float32 into []byte * /
-                    for _, sample := range audio {
-                        binary.Write(&audioBuffer, binary.LittleEndian, sample)
-                    }
-
-                    err := sdl.QueueAudio(audioDevice, audioBuffer.Bytes())
-                    if err != nil {
-                        log.Printf("Error: could not queue audio data: %v", err)
-                    }
-            }
-        }
-    }()
-    */
+    _ = cancel
 
     playerActions := make(chan PlayerAction)
     updateTrack := make(chan byte, 10)
@@ -301,14 +277,23 @@ func run(nsfPath string) error {
 
     updateTrack <- track
 
-    audioStreamOut := make(chan *nes.AudioStream, 1)
     runPlayer := func(track byte, actions chan nes.NSFActions) (context.Context, context.CancelFunc) {
+        audioStreamOut := make(chan *nes.AudioStream, 1)
         playQuit, playCancel := context.WithCancel(quit)
         go func(){
             err := nes.PlayNSF(nsf, track, audioStreamOut, float32(sampleRate), actions, playQuit)
             if err != nil {
                 log.Printf("Unable to play: %v", err)
             }
+        }()
+
+        audioStream := <- audioStreamOut
+        player := audioContext.NewPlayer(audioStream)
+        player.SetBufferSize(44100 * 4 * 2 / 4)
+        player.Play()
+        go func(){
+            <- playQuit.Done()
+            player.Pause()
         }()
 
         return playQuit, playCancel
@@ -320,19 +305,6 @@ func run(nsfPath string) error {
 
     playQuit, playCancel := runPlayer(track, nsfActions)
     defer playCancel()
-
-    playAudio := func(quit context.Context){
-        audioStream := <- audioStreamOut
-        player := audioContext.NewPlayer(audioStream)
-        player.SetBufferSize(44100 * 4 * 2 / 4)
-        player.Play()
-        go func(){
-            <- quit.Done()
-            player.Pause()
-        }()
-    }
-
-    playAudio(playQuit)
 
     for quit.Err() == nil {
         select {
@@ -351,7 +323,6 @@ func run(nsfPath string) error {
                         paused = false
                         playCancel()
                         playQuit, playCancel = runPlayer(track, nsfActions)
-                        playAudio(playQuit)
                         updateTrack <- track
 
                     case PlayerTogglePause:
@@ -376,7 +347,6 @@ func run(nsfPath string) error {
                         paused = false
                         playCancel()
                         playQuit, playCancel = runPlayer(track, nsfActions)
-                        playAudio(playQuit)
                         updateTrack <- track
                     }
                 }
