@@ -2305,12 +2305,7 @@ type DrawManager interface {
     GetWindowSize() common.WindowSize
 }
 
-func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions ProgramActions, renderManager *gfx.RenderManager, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys, yield coroutine.YieldFunc, drawManager DrawManager){
-
-    menuZIndex := 10
-
-    defer renderManager.RemoveByIndex(menuZIndex)
-
+func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions ProgramActions, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys, yield coroutine.YieldFunc, drawManager DrawManager){
     userInput := make(chan MenuInput, 3)
     defer close(userInput)
 
@@ -2490,23 +2485,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
             return
         }
     }
-
-        /*
-        if updateRender {
-            / * If there is a graphics update then send it to the renderer * /
-            renderManager.Replace(menuZIndex, &MenuRenderLayer{
-                Renderer: chainRenders(baseRenderer, snowRenderer,
-                                                      makeDefaultInfoRenderer(windowSize.X, windowSize.Y),
-                                                      currentMenu.MakeRenderer(windowSize.X, windowSize.Y, font, smallFont, clock)),
-                Index: menuZIndex,
-            })
-            select {
-                case renderNow <- true:
-                default:
-            }
-        }
-        */
-    // }
 
     /*
     sdl.Do(func(){

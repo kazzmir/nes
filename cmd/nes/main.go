@@ -23,7 +23,6 @@ import (
     "github.com/kazzmir/nes/util"
 
     "github.com/kazzmir/nes/cmd/nes/common"
-    "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/menu"
     "github.com/kazzmir/nes/cmd/nes/debug"
     "github.com/kazzmir/nes/data"
@@ -389,8 +388,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         loadRom: make(chan common.ProgramLoadRom, 1),
         audioEnabled: true,
     }
-
-    var renderManager gfx.RenderManager
 
     if path != "" {
         log.Printf("Opening NES file '%v'", path)
@@ -1094,7 +1091,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                     activeMenu := menu.MakeMenu(mainQuit, font, audioManager)
                     // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
-                    activeMenu.Run(mainCancel, font, smallFont, &programActions, &renderManager, joystickManager, &emulatorKeys, yield, &engine)
+                    activeMenu.Run(mainCancel, font, smallFont, &programActions, joystickManager, &emulatorKeys, yield, &engine)
                     // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
 
                     select {
