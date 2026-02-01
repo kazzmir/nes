@@ -1151,6 +1151,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         defer nesCancel()
 
                         nesCoroutine.Stop()
+                        nesCoroutine.Run()
                         nesCoroutine = coroutine.MakeCoroutine(func(nesYield coroutine.YieldFunc) error {
                             startNES(currentFile, nesQuit, nesYield)
                             return nil
