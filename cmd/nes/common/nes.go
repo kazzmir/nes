@@ -99,25 +99,6 @@ func (listeners *ScreenListeners) RemoveVideoListener(remove chan nes.VirtualScr
     listeners.VideoListeners = out
 }
 
-func (listeners *ScreenListeners) ObserveAudio(pcm []float32){
-    /*
-    listeners.Lock.Lock()
-    defer listeners.Lock.Unlock()
-
-    if len(listeners.AudioListeners) == 0 {
-        return
-    }
-
-    for _, listener := range listeners.AudioListeners {
-        select {
-            case listener<- pcm:
-            default:
-                log.Printf("Cannot observe audio")
-        }
-    }
-    */
-}
-
 func (listeners *ScreenListeners) AddAudioListener(listener chan *nes.AudioStream){
     listeners.Lock.Lock()
     defer listeners.Lock.Unlock()
@@ -576,21 +557,6 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
 
             cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
 
-            /*
-            if audioData != nil {
-                screenListeners.ObserveAudio(audioData)
-
-                // log.Printf("Send audio data via channel")
-                select {
-                    case audio<- audioData:
-                    default:
-                        if verbose > 0 {
-                            log.Printf("Warning: audio falling behind")
-                        }
-                }
-            }
-            */
-
             /* ppu runs 3 times faster than cpu */
             nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen, cpu.Mapper.Mapper)
 
@@ -603,24 +569,6 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     case bufferReady <- true:
                     default:
                 }
-
-                /*
-                select {
-                    case buffer := <-bufferReady:
-                        buffer.CopyFrom(&screen)
-
-                        select {
-                            case toDraw <- buffer:
-                            default:
-                        }
-
-                        if stepFrame {
-                            paused = true
-                        }
-                    default:
-                }
-                */
-
             }
 
             lastCpuCycle = usedCycles
