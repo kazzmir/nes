@@ -4,6 +4,7 @@ import (
     "log"
     "math"
     "sync"
+    "runtime"
 )
 
 var ApuDebug int = 0
@@ -432,11 +433,13 @@ func (stream *AudioStream) Read(out []byte) (int, error) {
     stream.Second.lock.Lock()
     defer stream.Second.lock.Unlock()
 
-    if stream.Main.count == 0 {
-        for i := range 8 {
+    // for wasm we have to return something
+    if stream.Main.count == 0 && runtime.GOOS == "js" {
+        count := min(4 * 2 * 20, len(out))
+        for i := range count {
             out[i] = 0
         }
-        return 8, nil
+        return count, nil
     }
 
     samples := min(stream.Main.count, len(out) / 4 / 2)

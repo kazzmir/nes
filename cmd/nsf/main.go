@@ -8,6 +8,7 @@ import (
     "time"
     "strings"
     "sync"
+    "errors"
     "path/filepath"
     "strconv"
     // "bytes"
@@ -281,7 +282,7 @@ func run(nsfPath string) error {
         audioStreamOut := make(chan *nes.AudioStream, 1)
         playQuit, playCancel := context.WithCancel(quit)
         go func(){
-            err := nes.PlayNSF(nsf, track, audioStreamOut, float32(sampleRate), actions, playQuit)
+            err := nes.PlayNSF(nsf, track, audioStreamOut, float32(sampleRate), actions, playQuit, 0)
             if err != nil {
                 log.Printf("Unable to play: %v", err)
             }
@@ -421,7 +422,6 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
     }
 
     sampleRate := float32(44100)
-    audioOut := make(chan []float32, 2)
     actions := make(chan nes.NSFActions)
 
     quit, cancel := context.WithCancel(context.Background())
@@ -429,25 +429,25 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
 
     var waiter sync.WaitGroup
 
+    /*
     go func(){
         time.Sleep(time.Duration(renderTime) * time.Second)
         log.Printf("Done")
         cancel()
     }()
+    */
 
-    var encodeErr error
+    audioStreamOut := make(chan *nes.AudioStream, 1)
     waiter.Add(1)
     go func(){
         defer waiter.Done()
-        encodeErr = util.EncodeMp3(mp3out, quit, int(sampleRate), audioOut)
+        err = nes.PlayNSF(nsf, byte(track), audioStreamOut, sampleRate, actions, quit, uint64(float64(renderTime) * nes.CPUSpeed))
         cancel()
     }()
 
     log.Printf("Rendering track %v of %v to '%v' for %d:%02d", track+1, filepath.Base(nsfPath), mp3out, renderTime/60, renderTime % 60)
 
-    audioStreamOut := make(chan *nes.AudioStream, 1)
-
-    err = nes.PlayNSF(nsf, byte(track), audioStreamOut, sampleRate, actions, quit)
+    encodeErr := util.EncodeMp3(mp3out, quit, int(sampleRate), <-audioStreamOut)
 
     waiter.Wait()
 
@@ -552,7 +552,7 @@ func main(){
             return
         }
         err := saveMp3(arguments.NSFPath, arguments.Mp3Out, arguments.Mp3Track - 1, arguments.Mp3Time)
-        if err != nil {
+        if err != nil && !errors.Is(err, nes.MaxCyclesReached) {
             log.Printf("Error: %v", err)
         }
     } else if arguments.Info {
