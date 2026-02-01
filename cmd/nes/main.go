@@ -115,26 +115,19 @@ func stripExtension(path string) string {
     return path
 }
 
-func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleRate int, screenListeners *common.ScreenListeners) error {
+func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleRate int, screenListeners *common.ScreenListeners, audioStream *nes.AudioStream) error {
     video_channel := make(chan nes.VirtualScreen, 2)
-    audioChannel := make(chan *nes.AudioStream, 1)
 
     mp4Path := fmt.Sprintf("%v-%v.mp4", romName, time.Now().Format("2006-01-02-15:04:05"))
 
     screenListeners.AddVideoListener(video_channel)
-    screenListeners.AddAudioListener(audioChannel)
 
     go func(){
-        defer screenListeners.RemoveAudioListener(audioChannel)
         defer screenListeners.RemoveVideoListener(video_channel)
 
-        select {
-            case audioStream := <- audioChannel:
-                err := util.RecordMp4(stop, mp4Path, overscanPixels, sampleRate, video_channel, audioStream)
-                if err != nil {
-                    log.Printf("Error recording mp4: %v", err)
-                }
-            case <- stop.Done():
+        err := util.RecordMp4(stop, mp4Path, overscanPixels, sampleRate, video_channel, audioStream)
+        if err != nil {
+            log.Printf("Error recording mp4: %v", err)
         }
     }()
 
@@ -623,6 +616,13 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             /* make sure no message appears on the screen in front of the nes output */
             log.Printf("Run NES")
 
+            nesQuit, nesCancel := context.WithCancel(mainQuit)
+            defer nesCancel()
+
+            recordQuit, recordCancel := context.WithCancel(nesQuit)
+            // we need a context for recording but it starts out as cancelled
+            recordCancel()
+
             bufferReady := make(chan bool, 1)
 
             buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
@@ -695,6 +695,37 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             systemPaused := false
             audioPaused := 0
 
+            doRecord := func(){
+                if recordQuit.Err() == nil {
+                    recordCancel()
+                    overlayMessages.Add("Stopped recording")
+                } else {
+                    recordCancel()
+
+                    recordQuit, recordCancel = context.WithCancel(mainQuit)
+                    audioStream := nes.MakeAudioStream(int(AudioSampleRate))
+
+                    cpu.APU.AddAudioStream(audioStream)
+                    go func() {
+                        <-recordQuit.Done()
+                        cpu.APU.RemoveAudioStream(audioStream)
+                    }()
+
+                    err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners, audioStream)
+                    if err != nil {
+                        log.Printf("Could not record video: %v", err)
+                        overlayMessages.Add("Error: could not record")
+                        recordCancel()
+                    } else {
+                        overlayMessages.Add("Started recording")
+                    }
+                }
+            }
+
+            if recordOnStart {
+                doRecord()
+            }
+
             for quit.Err() == nil {
                 select {
                     case action := <-audioActionsInput:
@@ -762,27 +793,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                                     default:
                                 }
                             case emulatorKeys.Record:
-                                /*
-                                if recordQuit.Err() == nil {
-                                    recordCancel()
-                                    select {
-                                        case emulatorMessages.ReceiveMessages <- "Stopped recording":
-                                        default:
-                                    }
-                                } else {
-                                    recordCancel()
-
-                                    recordQuit, recordCancel = context.WithCancel(mainQuit)
-                                    err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
-                                    if err != nil {
-                                        log.Printf("Could not record video: %v", err)
-                                    }
-                                    select {
-                                        case emulatorMessages.ReceiveMessages <- "Started recording":
-                                        default:
-                                    }
-                                }
-                                */
+                                doRecord()
                             case emulatorKeys.Pause:
                                 log.Printf("Pause/unpause")
                                 select {
@@ -868,6 +879,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         }
     }
 
+    /*
     recordQuit, recordCancel := context.WithCancel(mainQuit)
     if recordOnStart {
         err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
@@ -878,6 +890,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     } else {
         recordCancel()
     }
+    */
 
     /*
     go func(){

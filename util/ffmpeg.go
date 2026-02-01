@@ -77,7 +77,7 @@ func waitForProcess(process *os.Process, signals []SignalTimeout){
             break
         }
         process.Signal(use.Signal) // send signal to process, hoping to kill it
-        log.Printf("Sent signal %v to pid %v", process.Pid, use.Signal)
+        log.Printf("Sent signal %v to pid %v", use.Signal, process.Pid)
         done := time.Now().Add(time.Second * time.Duration(use.Timeout))
         // wait for the process to go away
         for time.Now().Before(done) {
@@ -245,7 +245,7 @@ func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sam
         "-i", "pipe:4", // audio is passed as fd 4
         "-vf", fmt.Sprintf("scale=iw*%v:ih*%v", scaleFactor, scaleFactor), // upscale the video
         "-vsync", "vfr", // allow for variable frame rate video
-        "-r", "60", // maximum of 60fps
+        // "-r", "60", // maximum of 60fps
 
         "-movflags", "empty_moov", // write an empty moov frame at the start
         "-frag_duration", "100000", // write moov atoms every 100ms
@@ -280,8 +280,15 @@ func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sam
         return err
     }
 
-    go io.Copy(io.Discard, stdout)
-    go io.Copy(io.Discard, stderr)
+    debug := false
+
+    if debug {
+        go io.Copy(os.Stdout, stdout)
+        go io.Copy(os.Stderr, stderr)
+    } else {
+        go io.Copy(io.Discard, stdout)
+        go io.Copy(io.Discard, stderr)
+    }
 
     log.Printf("Recording to %v", mp4Path)
 
