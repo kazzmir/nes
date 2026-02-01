@@ -1,16 +1,21 @@
 package main
 
 import (
-    // "log"
+    "log"
     // "os"
     // "fmt"
-    // "context"
+    "context"
     // "encoding/binary"
     // "bytes"
-    // "time"
+    "time"
     // "sync"
     // "github.com/kazzmir/nes/util"
     nes "github.com/kazzmir/nes/lib"
+
+    "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/text/v2"
+    "github.com/hajimehoshi/ebiten/v2/inpututil"
+    audiolib "github.com/hajimehoshi/ebiten/v2/audio"
 )
 
 type NSFRenderState struct {
@@ -81,6 +86,41 @@ const (
     NSFPlayerPause
 )
 
+type NSFEngine struct {
+    nsfFile *nes.NSFFile
+    fontSource *text.GoTextFaceSource
+    audio *audiolib.Context
+    quit context.Context
+}
+
+func MakeNSFEngine(nsfFile *nes.NSFFile, fontSource *text.GoTextFaceSource, audio *audiolib.Context, quit context.Context) *NSFEngine {
+    return &NSFEngine{
+        nsfFile: nsfFile,
+        fontSource: fontSource,
+        audio: audio,
+        quit: quit,
+    }
+}
+
+func (engine *NSFEngine) Update() error {
+    keys := inpututil.AppendJustPressedKeys(nil)
+    for _, key := range keys {
+        switch key {
+            case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                return ebiten.Termination
+        }
+    }
+
+    return nil
+}
+
+func (engine *NSFEngine) Draw(screen *ebiten.Image) {
+}
+
+func (engine *NSFEngine) Layout(outsideWidth, outsideHeight int) (int, int) {
+    return outsideWidth, outsideHeight
+}
+
 func RunNSF(path string) error {
     nsfFile, err := nes.LoadNSF(path)
     if err != nil {
@@ -89,73 +129,119 @@ func RunNSF(path string) error {
 
     _ = nsfFile
 
-    /*
-    // force a software renderer
-    if !util.HasGlxinfo() {
-        sdl.Do(func(){
-            sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
-        })
-    }
-
-    sdl.Do(func(){
-        err = sdl.Init(sdl.INIT_EVERYTHING)
-    })
+    fontSource, err := loadFontSource()
     if err != nil {
         return err
     }
-    defer sdl.Quit()
-
-    sdl.Do(sdl.DisableScreenSaver)
-    defer sdl.Do(sdl.EnableScreenSaver)
-
-    var window *sdl.Window
-    var renderer *sdl.Renderer
-
-    / * to resize the window * /
-    // | sdl.WINDOW_RESIZABLE
-    sdl.Do(func(){
-        window, renderer, err = sdl.CreateWindowAndRenderer(int32(640), int32(480), sdl.WINDOW_SHOWN)
-
-        if err != nil {
-            log.Printf("Unable to create renderer: %v\n", err)
-            os.Exit(1)
-        }
-
-        window.SetTitle("nsf player")
-    })
-
-    defer sdl.Do(func(){
-        window.Destroy()
-    })
-
-    / *
-    renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
-    if err != nil {
-        return err
-    }
-    * /
-
-    sdl.Do(func(){
-        err = ttf.Init()
-    })
-    if err != nil {
-        return err
-    }
-
-    defer sdl.Do(ttf.Quit)
-
-    / * FIXME: choose a font somehow if this one is not found * /
-    var font *ttf.Font
-    sdl.Do(func(){
-        font, err = loadTTF("DejaVuSans.ttf", 20)
-    })
-    if err != nil {
-        return err
-    }
-    defer font.Close()
 
     quit, cancel := context.WithCancel(context.Background())
+    defer cancel()
 
+    const AudioSampleRate float32 = 44100
+    audio := audiolib.NewContext(int(AudioSampleRate))
+
+    nsfActions := make(chan NSFPlayerActions, 3)
+    actions := make(chan nes.NSFActions)
+
+    engine := MakeNSFEngine(&nsfFile, fontSource, audio, quit)
+
+    ebiten.SetWindowTitle("NES Emulator")
+    ebiten.SetWindowSize(600, 600)
+    ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+
+    /* The 'controller' loop, that updates the 'renderState' model */
+    go func(){
+        var renderState NSFRenderState
+        renderState.SongName = nsfFile.SongName
+        renderState.Artist = nsfFile.Artist
+        renderState.Copyright = nsfFile.Copyright
+        renderState.MaxTrack = int(nsfFile.TotalSongs)
+        renderState.Track = int(nsfFile.StartingSong)
+        renderState.Paused = false
+
+        playQuit, playCancel := context.WithCancel(quit)
+
+        doPlay := func(playQuit context.Context, track byte){
+            audioStream := make(chan *nes.AudioStream, 1)
+
+            go func(){
+                player, err := audio.NewPlayerF32(<-audioStream)
+                if err != nil {
+                    log.Printf("Error creating audio player: %v", err)
+                    return
+                }
+                player.SetBufferSize(time.Millisecond * 50)
+                player.Play()
+                <-playQuit.Done()
+                player.Pause()
+            }()
+
+            err := nes.PlayNSF(nsfFile, track, audioStream, AudioSampleRate, actions, playQuit, 0)
+            if err != nil {
+                log.Printf("Error playing nsf: %v", err)
+                cancel()
+            }
+        }
+
+        go doPlay(playQuit, byte(renderState.Track))
+
+        second := time.NewTicker(1 * time.Second)
+        defer second.Stop()
+        for quit.Err() == nil {
+            select {
+                case <-quit.Done():
+                case <-second.C:
+                    if !renderState.Paused {
+                        renderState.PlayTime += 1
+                    }
+                case action := <-nsfActions:
+                    trackDelta := 0
+                    switch action {
+                        case NSFPlayerNext5Tracks:
+                            trackDelta = 5
+                        case NSFPlayerNext:
+                            trackDelta = 1
+                        case NSFPlayerPrevious:
+                            trackDelta = -1
+                        case NSFPlayerPrevious5Tracks:
+                            trackDelta = -5
+                        case NSFPlayerPause:
+                            actions <- nes.NSFActionTogglePause
+                            renderState.Paused = !renderState.Paused
+                    }
+
+                    if trackDelta != 0 {
+                        newTrack := renderState.Track + trackDelta
+                        if newTrack < 0 {
+                            newTrack = 0
+                        }
+                        if newTrack >= renderState.MaxTrack {
+                            newTrack = renderState.MaxTrack
+                        }
+
+                        if newTrack != renderState.Track {
+                            renderState.Paused = false
+                            renderState.Track = newTrack
+                            renderState.PlayTime = 0
+                            second.Reset(1 * time.Second)
+
+                            playCancel()
+                            playQuit, playCancel = context.WithCancel(quit)
+                            go doPlay(playQuit, byte(renderState.Track))
+                        }
+                    }
+            }
+        }
+
+        playCancel()
+    }()
+
+    err = ebiten.RunGame(engine)
+    if err != nil {
+        log.Printf("Error playing NSF: %v", err)
+    }
+
+    /*
     renderUpdates := make(chan NSFRenderState)
 
     / * The 'view' loop, that displays whats in the NSFRenderState model * /
@@ -254,92 +340,9 @@ func RunNSF(path string) error {
     }()
 
     doRender := make(chan bool, 2)
-    nsfActions := make(chan NSFPlayerActions, 3)
     audioOut := make(chan []float32, 2)
-    actions := make(chan nes.NSFActions)
 
-    const AudioSampleRate float32 = 44100
-
-    / * The 'controller' loop, that updates the 'renderState' model * /
-    go func(){
-        var renderState NSFRenderState
-        renderState.SongName = nsfFile.SongName
-        renderState.Artist = nsfFile.Artist
-        renderState.Copyright = nsfFile.Copyright
-        renderState.MaxTrack = int(nsfFile.TotalSongs)
-        renderState.Track = int(nsfFile.StartingSong)
-        renderState.Paused = false
-
-        playQuit, playCancel := context.WithCancel(quit)
-
-        doPlay := func(playQuit context.Context, track byte){
-            err := nes.PlayNSF(nsfFile, track, audioOut, AudioSampleRate, actions, playQuit)
-            if err != nil {
-                log.Printf("Error playing nsf: %v", err)
-                cancel()
-            }
-        }
-
-        go doPlay(playQuit, byte(renderState.Track))
-
-        renderUpdates <- renderState
-        second := time.NewTicker(1 * time.Second)
-        defer second.Stop()
-        for quit.Err() == nil {
-            select {
-                case <-quit.Done():
-                case <-doRender:
-                    renderUpdates <- renderState
-                case <-second.C:
-                    if !renderState.Paused {
-                        renderState.PlayTime += 1
-                        renderUpdates <- renderState
-                    }
-                case action := <-nsfActions:
-                    trackDelta := 0
-                    switch action {
-                        case NSFPlayerNext5Tracks:
-                            trackDelta = 5
-                        case NSFPlayerNext:
-                            trackDelta = 1
-                        case NSFPlayerPrevious:
-                            trackDelta = -1
-                        case NSFPlayerPrevious5Tracks:
-                            trackDelta = -5
-                        case NSFPlayerPause:
-                            actions <- nes.NSFActionTogglePause
-                            renderState.Paused = !renderState.Paused
-                            renderUpdates <- renderState
-                    }
-
-                    if trackDelta != 0 {
-                        newTrack := renderState.Track + trackDelta
-                        if newTrack < 0 {
-                            newTrack = 0
-                        }
-                        if newTrack >= renderState.MaxTrack {
-                            newTrack = renderState.MaxTrack
-                        }
-
-                        if newTrack != renderState.Track {
-                            renderState.Paused = false
-                            renderState.Track = newTrack
-                            renderState.PlayTime = 0
-                            / * FIXME: in go 1.15 * /
-                            // second.Reset(1 * time.Second)
-
-                            playCancel()
-                            playQuit, playCancel = context.WithCancel(quit)
-                            go doPlay(playQuit, byte(renderState.Track))
-                        }
-
-                        renderUpdates <- renderState
-                    }
-            }
-        }
-
-        playCancel()
-    }()
+    
 
     audioDevice, err := setupAudio(AudioSampleRate)
     if err != nil {

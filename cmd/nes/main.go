@@ -17,7 +17,6 @@ import (
     "encoding/binary"
     "bytes"
     "time"
-    "sync"
     "context"
     "runtime/pprof"
     "runtime"
@@ -172,181 +171,6 @@ type EmulatorMessage struct {
     Message string
     DeathTime time.Time
 }
-
-type DefaultRenderLayer struct {
-    RenderFunc func(gfx.RenderInfo) error
-    Index int
-}
-
-func (layer *DefaultRenderLayer) Render(info gfx.RenderInfo) error {
-    return layer.RenderFunc(info)
-}
-
-func (layer *DefaultRenderLayer) ZIndex() int {
-    return layer.Index
-}
-
-type EmulatorMessageLayer struct {
-    /* these messages appear in the bottom right */
-    emulatorMessages []EmulatorMessage
-    Index int
-    ReceiveMessages chan string
-    Lock sync.Mutex
-}
-
-func (layer *EmulatorMessageLayer) ZIndex() int {
-    return layer.Index
-}
-
-func (layer *EmulatorMessageLayer) Render(renderInfo gfx.RenderInfo) error {
-    // FIXME
-    /*
-    windowWidth, windowHeight := renderInfo.Window.GetSize()
-
-    font := renderInfo.SmallFont
-
-    layer.Lock.Lock()
-    messages := gfx.CopyArray(layer.emulatorMessages)
-    layer.Lock.Unlock()
-
-    y := int(windowHeight) - font.Height() - 1
-    now := time.Now()
-    for i := len(messages)-1; i >= 0; i-- {
-        message := messages[i]
-        if message.DeathTime.After(now){
-            x := int(windowWidth) - 100
-            remaining := message.DeathTime.Sub(now)
-            alpha := 255
-
-            white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-            red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
-
-            N := 800
-
-            color := gfx.InterpolateColor(red, white, N, N - int((remaining - time.Millisecond*500) / time.Millisecond))
-
-            if remaining < time.Millisecond * 500 {
-                alpha = int(255 * float64(remaining) / (float64(time.Millisecond) * 500))
-                if alpha > 255 {
-                    alpha = 255
-                }
-                / * strangely if alpha=0 it renders without transparency so the pixels are fully white * /
-                if alpha < 1 {
-                    alpha = 1
-                }
-
-                color = white
-            }
-            color.A = uint8(alpha)
-            // white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
-            // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
-            gfx.WriteFont(font, renderInfo.Renderer, x, y, message.Message, color)
-            y -= font.Height() + 2
-        }
-    }
-            */
-
-    return nil
-}
-
-func (layer *EmulatorMessageLayer) Run(quit context.Context){
-    emulatorMessageTicker := time.NewTicker(time.Second * 1)
-    defer emulatorMessageTicker.Stop()
-    maxEmulatorMessages := 10
-
-    for {
-        select {
-            case <-quit.Done():
-                return
-            case message := <-layer.ReceiveMessages:
-                layer.Lock.Lock()
-                layer.emulatorMessages = append(layer.emulatorMessages, EmulatorMessage{
-                    Message: message,
-                    DeathTime: time.Now().Add(time.Millisecond * 1500),
-                })
-                if len(layer.emulatorMessages) > maxEmulatorMessages {
-                    layer.emulatorMessages = layer.emulatorMessages[len(layer.emulatorMessages) - maxEmulatorMessages:len(layer.emulatorMessages)]
-                }
-                layer.Lock.Unlock()
-                /* remove deceased messages */
-            case <-emulatorMessageTicker.C:
-                now := time.Now()
-                layer.Lock.Lock()
-                i := 0
-                for i < len(layer.emulatorMessages) {
-                    /* find the first non-dead message */
-                    if layer.emulatorMessages[i].DeathTime.Before(now) {
-                        i += 1
-                    } else {
-                        break
-                    }
-                }
-                layer.emulatorMessages = layer.emulatorMessages[i:]
-                layer.Lock.Unlock()
-        }
-    }
-}
-
-type OverlayMessageLayer struct {
-    Message string
-    Index int
-}
-
-func (layer *OverlayMessageLayer) ZIndex() int {
-    return layer.Index
-}
-
-func (layer *OverlayMessageLayer) Render(info gfx.RenderInfo) error {
-    /*
-    width, height := info.Window.GetSize()
-
-    font := info.Font
-    renderer := info.Renderer
-
-    black := sdl.Color{R: 0, G: 0, B: 0, A: 200}
-    white := sdl.Color{R: 255, G: 255, B: 255, A: 200}
-    messageLength := gfx.TextWidth(font, layer.Message)
-    x := int(width)/2 - messageLength / 2
-    y := int(height)/2
-    renderer.SetDrawColor(black.R, black.G, black.B, black.A)
-    renderer.FillRect(&sdl.Rect{X: int32(x - 10), Y: int32(y - 10), W: int32(messageLength + 10 + 5), H: int32(font.Height() + 10 + 5)})
-
-    gfx.WriteFont(font, renderer, x, y, layer.Message, white)
-    */
-    return nil
-}
-
-/*
-func getWindowIdFromEvent(event sdl.Event) uint32 {
-    switch event.GetType() {
-        case sdl.TEXTEDITING:
-            text_event, ok := event.(*sdl.TextEditingEvent)
-            if ok {
-                return text_event.WindowID
-            }
-        case sdl.TEXTINPUT:
-            text_input, ok := event.(*sdl.TextInputEvent)
-            if ok {
-                return text_input.WindowID
-            }
-        case sdl.WINDOWEVENT:
-            window_event, ok := event.(*sdl.WindowEvent)
-            if ok {
-                return window_event.WindowID
-            }
-        case sdl.KEYDOWN, sdl.KEYUP:
-            keyboard_event, ok := event.(*sdl.KeyboardEvent)
-            if ok {
-                return keyboard_event.WindowID
-            }
-    }
-
-    log.Printf("Warning: unknown event type: %v", event.GetType())
-
-    / * FIXME: what is the invalid window id * /
-    return 0
-}
-*/
 
 type ReplayKeysInput struct {
     Cpu *nes.CPUState
@@ -718,17 +542,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             joystickInput = &input
         }
     }
-    */
-
-    /*
-    emulatorMessages := EmulatorMessageLayer{
-        ReceiveMessages: make(chan string, 10),
-        Index: 1,
-    }
-
-    go emulatorMessages.Run(mainQuit)
-
-    renderManager.AddLayer(&emulatorMessages)
     */
 
     makeRenderScreen := func(bufferReady chan bool, buffer nes.VirtualScreen) func(*ebiten.Image) {
