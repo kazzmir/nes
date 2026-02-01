@@ -194,10 +194,20 @@ func EncodeMp3(mp3out string, mainQuit context.Context, sampleRate int, audio_in
 
 func videoWriter(out io.Writer, overscanPixels int, video_channel chan nes.VirtualScreen, stop context.Context){
     var output bytes.Buffer
+
+    showFps := false
+    fps := 0
+    timer := time.NewTicker(time.Second)
+    defer timer.Stop()
     for {
         select {
             case <-stop.Done():
                 return
+            case <-timer.C:
+                if showFps {
+                    log.Printf("Video encoder fps: %v", fps)
+                }
+                fps = 0
             case buffer := <-video_channel:
                 output.Reset()
                 for y := overscanPixels; y < buffer.Height - overscanPixels; y++ {
@@ -208,6 +218,7 @@ func videoWriter(out io.Writer, overscanPixels int, video_channel chan nes.Virtu
                 }
 
                 out.Write(output.Bytes())
+                fps += 1
             }
     }
 }
@@ -244,8 +255,8 @@ func RecordMp4(mainQuit context.Context, mp4Path string, overscanPixels int, sam
         "-ac", "2", // 2 channel stereo
         "-i", "pipe:4", // audio is passed as fd 4
         "-vf", fmt.Sprintf("scale=iw*%v:ih*%v", scaleFactor, scaleFactor), // upscale the video
-        "-vsync", "vfr", // allow for variable frame rate video
-        // "-r", "60", // maximum of 60fps
+        // "-vsync", "vfr", // allow for variable frame rate video
+        "-r", "60", // maximum of 60fps
 
         "-movflags", "empty_moov", // write an empty moov frame at the start
         "-frag_duration", "100000", // write moov atoms every 100ms
