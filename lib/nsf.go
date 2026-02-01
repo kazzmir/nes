@@ -294,11 +294,13 @@ func mixAudio(audio1 []float32, audio2 []float32) []float32 {
  * 2. invoke INIT routine
  * 3. repeatedly invoke PLAY routine, followed by a nop loop until the play timer fires
  */
-func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
+func PlayNSF(nsf NSFFile, track byte, audioStreamOut chan *AudioStream, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
     cpu := StartupState()
     nsfMapper := MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, 8), nsf.ExtraSoundChip)
     cpu.SetMapper(nsfMapper)
     cpu.Input = MakeInput(&NoInput{})
+
+    audioStreamOut <- cpu.APU.GetAudioStream()
 
     // cpu.A = track
     cpu.X = 0 // ntsc or pal
