@@ -56,7 +56,6 @@ const (
 
 type ScreenListeners struct {
     VideoListeners []chan nes.VirtualScreen
-    AudioListeners []chan *nes.AudioStream
     Lock sync.Mutex
 }
 
@@ -97,27 +96,6 @@ func (listeners *ScreenListeners) RemoveVideoListener(remove chan nes.VirtualScr
     }
 
     listeners.VideoListeners = out
-}
-
-func (listeners *ScreenListeners) AddAudioListener(listener chan *nes.AudioStream){
-    listeners.Lock.Lock()
-    defer listeners.Lock.Unlock()
-
-    listeners.AudioListeners = append(listeners.AudioListeners, listener)
-}
-
-func (listeners *ScreenListeners) RemoveAudioListener(remove chan *nes.AudioStream){
-    listeners.Lock.Lock()
-    defer listeners.Lock.Unlock()
-
-    var out []chan *nes.AudioStream
-    for _, listener := range listeners.AudioListeners {
-        if listener != remove {
-            out = append(out, listener)
-        }
-    }
-
-    listeners.AudioListeners = out
 }
 
 type EmulatorActionValue int
