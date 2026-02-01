@@ -720,18 +720,18 @@ func (mapping *JoystickButtonMapping) AddAxisMapping(name string, axis JoystickA
     }
 }
 
-func (mapping *JoystickButtonMapping) AddButtonMapping(name string, code int){
+func (mapping *JoystickButtonMapping) AddButtonMapping(name string, button ebiten.GamepadButton){
     if inList(name, mapping.ButtonList()){
         mapping.Inputs[name] = &JoystickButtonType{
             Name: name,
             Pressed: false,
-            Button: code,
+            Button: button,
        }
    } else if inList(name, mapping.ExtraButtonList()){
        mapping.ExtraInputs[name] = &JoystickButtonType{
             Name: name,
             Pressed: false,
-            Button: code,
+            Button: button,
        }
    }
 }
@@ -769,7 +769,7 @@ func (mapping *JoystickButtonMapping) HandleAxis(event *sdl.JoyAxisEvent){
 }
 */
 
-func (mapping *JoystickButtonMapping) Press(rawButton int){
+func (mapping *JoystickButtonMapping) Press(rawButton ebiten.GamepadButton){
     for _, input := range mapping.Inputs {
         value, ok := input.(*JoystickButtonType)
         if ok && value.Button == rawButton {
@@ -785,7 +785,7 @@ func (mapping *JoystickButtonMapping) Press(rawButton int){
     }
 }
 
-func (mapping *JoystickButtonMapping) Release(rawButton int){
+func (mapping *JoystickButtonMapping) Release(rawButton ebiten.GamepadButton){
     for _, input := range mapping.Inputs {
         value, ok := input.(*JoystickButtonType)
         if ok && value.Button == rawButton {
@@ -804,7 +804,7 @@ func (mapping *JoystickButtonMapping) Release(rawButton int){
 /* returns the sdl joystick button mapped to the given name, or -1
  * if no such mapping exists
  */
-func (mapping *JoystickButtonMapping) GetRawCode(name string) int {
+func (mapping *JoystickButtonMapping) GetRawCode(name string) ebiten.GamepadButton {
     value, ok := mapping.Inputs[name]
     if ok {
         button, ok := value.(*JoystickButtonType)
@@ -878,7 +878,7 @@ type JoystickInputType interface {
 }
 
 type JoystickButtonType struct {
-    Button int
+    Button ebiten.GamepadButton
     Name string
     Pressed bool
 }
@@ -925,6 +925,8 @@ type JoystickMenu struct {
     ConfigurePrevious context.CancelFunc
     JoystickManager *common.JoystickManager
     AudioManager AudioManager
+
+    ConfigureCoroutine *coroutine.Coroutine
 }
 
 const JoystickMaxPartialCounter = 20
@@ -941,6 +943,40 @@ func (menu *JoystickMenu) FinishConfigure() {
     menu.Configuring = false
 
     menu.Mapping.UpdateJoystick(menu.JoystickManager)
+}
+
+func (menu *JoystickMenu) DoConfigure(joystick *common.JoystickButtons, yield coroutine.YieldFunc, buttonList []string) {
+
+    for _, button := range buttonList {
+        var lastTime time.Time
+        lastButton := ebiten.GamepadButton(-1)
+        for {
+            pressed := inpututil.AppendJustPressedGamepadButtons(joystick.GetGamepadID(), nil)
+            for _, button := range pressed {
+                lastButton = button
+                lastTime = time.Now()
+            }
+
+            released := inpututil.AppendJustReleasedGamepadButtons(joystick.GetGamepadID(), nil)
+            for _, button := range released {
+                if button == lastButton {
+                    lastButton = ebiten.GamepadButton(-1)
+                }
+            }
+
+            if lastButton != ebiten.GamepadButton(-1) && time.Since(lastTime) > 700 * time.Millisecond {
+                menu.Mapping.AddButtonMapping(button, lastButton)
+                menu.ConfigureButton += 1
+                break
+            }
+
+            if yield() != nil {
+                return
+            }
+        }
+    }
+
+    menu.Configuring = false
 }
 
 /*
@@ -1115,6 +1151,13 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
 */
 
 func (menu *JoystickMenu) Update(){
+    if menu.ConfigureCoroutine != nil {
+        menu.ConfigureCoroutine.Run()
+        if !menu.Configuring {
+            menu.ConfigureCoroutine.Stop()
+            menu.ConfigureCoroutine = nil
+        }
+    }
 }
 
 func (menu *JoystickMenu) Input(input MenuInput) SubMenu {
@@ -1459,11 +1502,20 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
         menu.Lock.Lock()
         defer menu.Lock.Unlock()
 
-        menu.ConfigureButton = 0
-        menu.ConfigureButtonEnd = menu.Mapping.TotalButtons()
-        menu.Configuring = true
-        menu.Mapping.Inputs = make(map[string]JoystickInputType)
-        menu.Mapping.ExtraInputs = make(map[string]JoystickInputType)
+        if joystickManager.Player1 != nil {
+
+            menu.ConfigureButton = 0
+            menu.ConfigureButtonEnd = menu.Mapping.TotalButtons()
+            menu.Configuring = true
+            menu.Mapping.Inputs = make(map[string]JoystickInputType)
+            menu.Mapping.ExtraInputs = make(map[string]JoystickInputType)
+
+            joystick := joystickManager.Player1
+            menu.ConfigureCoroutine = coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
+                menu.DoConfigure(joystick, yield, append(menu.Mapping.ButtonList(), menu.Mapping.ExtraButtonList()...))
+                return nil
+            })
+        }
 
         return menu
     }})
@@ -1472,10 +1524,18 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
         menu.Lock.Lock()
         defer menu.Lock.Unlock()
 
-        menu.Configuring = true
-        menu.ConfigureButton = 0
-        menu.ConfigureButtonEnd = len(menu.Mapping.ButtonList())
-        menu.Mapping.Inputs = make(map[string]JoystickInputType)
+        if joystickManager.Player1 != nil {
+            menu.Configuring = true
+            menu.ConfigureButton = 0
+            menu.ConfigureButtonEnd = len(menu.Mapping.ButtonList())
+            menu.Mapping.Inputs = make(map[string]JoystickInputType)
+
+            joystick := joystickManager.Player1
+            menu.ConfigureCoroutine = coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
+                menu.DoConfigure(joystick, yield, menu.Mapping.ButtonList())
+                return nil
+            })
+        }
         return menu
     }})
 
@@ -1483,10 +1543,18 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
         menu.Lock.Lock()
         defer menu.Lock.Unlock()
 
-        menu.Configuring = true
-        menu.ConfigureButton = len(menu.Mapping.ButtonList())
-        menu.ConfigureButtonEnd = menu.Mapping.TotalButtons()
-        menu.Mapping.ExtraInputs = make(map[string]JoystickInputType)
+        if joystickManager.Player1 != nil {
+            menu.Configuring = true
+            menu.ConfigureButton = len(menu.Mapping.ButtonList())
+            menu.ConfigureButtonEnd = menu.Mapping.TotalButtons()
+            menu.Mapping.ExtraInputs = make(map[string]JoystickInputType)
+
+            joystick := joystickManager.Player1
+            menu.ConfigureCoroutine = coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
+                menu.DoConfigure(joystick, yield, menu.Mapping.ButtonList())
+                return nil
+            })
+        }
 
         return menu
     }})

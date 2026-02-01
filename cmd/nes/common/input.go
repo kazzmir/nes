@@ -313,7 +313,7 @@ type JoystickInput interface {
 }
 
 type JoystickButton struct {
-    Button int
+    Button ebiten.GamepadButton
 }
 
 func (button *JoystickButton) Serialize() string {
@@ -431,6 +431,10 @@ func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event) EmulatorAction 
     return emulatorOut
 }
 */
+
+func (joystick *JoystickButtons) GetGamepadID() ebiten.GamepadID {
+    return joystick.gamepad
+}
 
 func (joystick *JoystickButtons) Close(){
     // joystick.joystick.Close()
