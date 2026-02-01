@@ -1188,9 +1188,9 @@ func (menu *JoystickMenu) MakeRenderer(font text.Face, smallFont text.Face, cloc
         y += fontHeight
         // y += font.Height() * 3 + verticalMargin
 
-        // drawOffsetYButtons := y
+        drawOffsetYButtons := y
 
-        maxWidth := float64(screen.Bounds().Dx())
+        maxWidth := float64(0)
 
         /* draw the regular buttons on the left side */
 
@@ -1273,14 +1273,13 @@ func (menu *JoystickMenu) MakeRenderer(font text.Face, smallFont text.Face, cloc
                 return err
             }
         }
-        /*
 
-        / * draw the extra buttons on the right side * /
+        /* draw the extra buttons on the right side */
         y = drawOffsetYButtons
         x += maxWidth + maxWidth2 + 20 + 60
 
         extraButtons := menu.Mapping.ExtraButtonList()
-        extraButtonPositions := make(map[string]int)
+        extraButtonPositions := make(map[string]float64)
         maxWidthExtra := maxWidth
         for i, button := range extraButtons {
             color := white
@@ -1293,8 +1292,7 @@ func (menu *JoystickMenu) MakeRenderer(font text.Face, smallFont text.Face, cloc
                 color = red
             }
 
-            textureId := buttonManager.GetButtonTextureId(textureManager, button, color)
-            width, height, err := drawButton(smallFont, renderer, textureManager, textureId, x, y, button, color)
+            width, height, err := drawButton(smallFont, screen, x, y, button, color)
             if err != nil {
                 return err
             }
@@ -1310,7 +1308,7 @@ func (menu *JoystickMenu) MakeRenderer(font text.Face, smallFont text.Face, cloc
         for i, button := range extraButtons {
             rawButton := menu.Mapping.GetRawExtraInput(button)
             mapped := "Unmapped"
-            color := white
+            col := white
             if rawButton != nil {
                 mapped = fmt.Sprintf("%03v", rawButton.ToString())
             }
@@ -1319,7 +1317,7 @@ func (menu *JoystickMenu) MakeRenderer(font text.Face, smallFont text.Face, cloc
                 mapped = "?"
                 if menu.PartialButton !=  nil{
                     mapped = menu.PartialButton.ToString()
-                    / *
+                    /*
                     button, ok := menu.PartialButton.(*JoystickButtonType)
                     if ok {
                         mapped = fmt.Sprintf("button %03v", button.Button)
@@ -1329,22 +1327,21 @@ func (menu *JoystickMenu) MakeRenderer(font text.Face, smallFont text.Face, cloc
                     if ok {
                         mapped = fmt.Sprintf("axis %02v value %v", axis.Axis, axis.Value)
                     }
-                    * /
+                    */
 
                     m := uint8(menu.PartialCounter * 255 / JoystickMaxPartialCounter)
 
                     if menu.PartialCounter == JoystickMaxPartialCounter {
-                        color = sdl.Color{R: 255, G: 255, B: 0, A: 255}
+                        col = color.RGBA{R: 255, G: 255, B: 0, A: 255}
                     } else {
-                        color = sdl.Color{R: 255, G: m, B: m, A: 255}
+                        col = color.RGBA{R: 255, G: m, B: m, A: 255}
                     }
                 }
             }
 
-            textureId := buttonManager.GetButtonTextureId(textureManager, mapped, color)
             vx := x + maxWidthExtra + 20
             vy := extraButtonPositions[button]
-            width, height, err := drawConstButton(smallFont, renderer, textureManager, textureId, vx, vy, mapped, color)
+            width, height, err := drawConstButton(smallFont, screen, vx, vy, mapped, col)
 
             _ = width
             _ = height
@@ -1352,10 +1349,6 @@ func (menu *JoystickMenu) MakeRenderer(font text.Face, smallFont text.Face, cloc
                 return err
             }
         }
-
-        return nil
-    }
-    */
 
         return nil
     }
