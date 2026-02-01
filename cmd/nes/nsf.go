@@ -3,12 +3,14 @@ package main
 import (
     "log"
     // "os"
-    // "fmt"
+    "fmt"
     "context"
+    "strings"
+    "image/color"
     // "encoding/binary"
     // "bytes"
     "time"
-    // "sync"
+    "sync"
     // "github.com/kazzmir/nes/util"
     nes "github.com/kazzmir/nes/lib"
 
@@ -28,55 +30,6 @@ type NSFRenderState struct {
     MaxTrack int
 }
 
-/*
-func writeFont(font *ttf.Font, renderer *sdl.Renderer, x int, y int, message string, color sdl.Color) error {
-    surface, err := font.RenderUTF8Blended(message, color)
-    if err != nil {
-        return err
-    }
-
-    defer surface.Free()
-
-    texture, err := renderer.CreateTextureFromSurface(surface)
-    if err != nil {
-        return err
-    }
-    defer texture.Destroy()
-
-    surfaceBounds := surface.Bounds()
-
-    sourceRect := sdl.Rect{X: 0, Y: 0, W: int32(surfaceBounds.Max.X), H: int32(surfaceBounds.Max.Y)}
-    destRect := sourceRect
-    destRect.X = int32(x)
-    destRect.Y = int32(y)
-
-    renderer.Copy(texture, &sourceRect, &destRect)
-
-    return nil
-}
-*/
-
-/*
-func runAudio(audioDevice sdl.AudioDeviceID, audio chan []float32){
-    var buffer bytes.Buffer
-    for samples := range audio {
-        // log.Printf("Prepare audio to queue")
-        // log.Printf("Enqueue data %v", samples)
-        buffer.Reset()
-        / * convert []float32 into []byte * /
-        for _, sample := range samples {
-            binary.Write(&buffer, binary.LittleEndian, sample)
-        }
-        // log.Printf("Enqueue audio")
-        err := sdl.QueueAudio(audioDevice, buffer.Bytes())
-        if err != nil {
-            log.Printf("Error: could not queue audio data: %v", err)
-            return
-        }
-    }
-}
-*/
-
 type NSFPlayerActions int
 const (
     NSFPlayerNext5Tracks = iota
@@ -91,15 +44,40 @@ type NSFEngine struct {
     fontSource *text.GoTextFaceSource
     audio *audiolib.Context
     quit context.Context
+    keyMapping map[ebiten.Key]NSFPlayerActions
+    nsfActions chan NSFPlayerActions
+    renderState NSFRenderState
+
+    lock sync.Mutex
 }
 
-func MakeNSFEngine(nsfFile *nes.NSFFile, fontSource *text.GoTextFaceSource, audio *audiolib.Context, quit context.Context) *NSFEngine {
+func MakeNSFEngine(nsfFile *nes.NSFFile, fontSource *text.GoTextFaceSource, audio *audiolib.Context, quit context.Context, nsfActions chan NSFPlayerActions) *NSFEngine {
+    keyMapping := make(map[ebiten.Key]NSFPlayerActions)
+    keyMapping[ebiten.KeyUp] = NSFPlayerNext5Tracks
+    keyMapping[ebiten.KeyK] = NSFPlayerNext5Tracks
+    keyMapping[ebiten.KeyRight] = NSFPlayerNext
+    keyMapping[ebiten.KeyL] = NSFPlayerNext
+    keyMapping[ebiten.KeyLeft] = NSFPlayerPrevious
+    keyMapping[ebiten.KeyH] = NSFPlayerPrevious
+    keyMapping[ebiten.KeyDown] = NSFPlayerPrevious5Tracks
+    keyMapping[ebiten.KeyJ] = NSFPlayerPrevious5Tracks
+    keyMapping[ebiten.KeySpace] = NSFPlayerPause
+
+
     return &NSFEngine{
         nsfFile: nsfFile,
         fontSource: fontSource,
         audio: audio,
         quit: quit,
+        keyMapping: keyMapping,
+        nsfActions: nsfActions,
     }
+}
+
+func (engine *NSFEngine) SetRenderState(state NSFRenderState) {
+    engine.lock.Lock()
+    defer engine.lock.Unlock()
+    engine.renderState = state
 }
 
 func (engine *NSFEngine) Update() error {
@@ -109,12 +87,64 @@ func (engine *NSFEngine) Update() error {
             case ebiten.KeyEscape, ebiten.KeyCapsLock:
                 return ebiten.Termination
         }
+
+        action, ok := engine.keyMapping[key]
+        if ok {
+            engine.nsfActions <- action
+        }
     }
 
     return nil
 }
 
 func (engine *NSFEngine) Draw(screen *ebiten.Image) {
+    engine.lock.Lock()
+    state := engine.renderState
+    engine.lock.Unlock()
+
+    font := &text.GoTextFace{
+        Source: engine.fontSource,
+        Size: 20,
+    }
+
+    fontWidth, fontHeight := text.Measure("A", font, 1)
+    _ = fontWidth
+
+    var textOptions text.DrawOptions
+    textOptions.GeoM.Translate(4, 4)
+    for _, line := range []string{
+        fmt.Sprintf("Song: %v", state.SongName),
+        fmt.Sprintf("Artist: %v", state.Artist),
+        fmt.Sprintf("Coyright: %v", state.Copyright),
+        fmt.Sprintf("Track %v/%v", state.Track + 1, state.MaxTrack + 1),
+    } {
+        text.Draw(screen, line, font, &textOptions)
+        textOptions.GeoM.Translate(0, fontHeight + 3)
+    }
+
+    if state.Paused {
+        red := color.RGBA{R: 255, A: 255}
+        textOptions.ColorScale.ScaleWithColor(red)
+        text.Draw(screen, fmt.Sprintf("Paused"), font, &textOptions)
+        textOptions.ColorScale.Reset()
+    } else {
+        text.Draw(screen, fmt.Sprintf("Play time %d:%02d", state.PlayTime / 60, state.PlayTime % 60), font, &textOptions)
+    }
+
+    textOptions.GeoM.Translate(0, fontHeight * 2)
+
+    for _, line := range []string{
+        "Keys",
+        "> or l: skip 1 track ahead",
+        "^ or k: skip 5 tracks ahead",
+        "< or h: go 1 track back",
+        "v or j: go 5 tracks back",
+        "space: pause/resume",
+        "esc: quit",
+    } {
+        text.Draw(screen, line, font, &textOptions)
+        textOptions.GeoM.Translate(0, fontHeight + 3)
+    }
 }
 
 func (engine *NSFEngine) Layout(outsideWidth, outsideHeight int) (int, int) {
@@ -126,8 +156,6 @@ func RunNSF(path string) error {
     if err != nil {
         return err
     }
-
-    _ = nsfFile
 
     fontSource, err := loadFontSource()
     if err != nil {
@@ -143,7 +171,7 @@ func RunNSF(path string) error {
     nsfActions := make(chan NSFPlayerActions, 3)
     actions := make(chan nes.NSFActions)
 
-    engine := MakeNSFEngine(&nsfFile, fontSource, audio, quit)
+    engine := MakeNSFEngine(&nsfFile, fontSource, audio, quit, nsfActions)
 
     ebiten.SetWindowTitle("NES Emulator")
     ebiten.SetWindowSize(600, 600)
@@ -152,12 +180,14 @@ func RunNSF(path string) error {
     /* The 'controller' loop, that updates the 'renderState' model */
     go func(){
         var renderState NSFRenderState
-        renderState.SongName = nsfFile.SongName
-        renderState.Artist = nsfFile.Artist
-        renderState.Copyright = nsfFile.Copyright
+        renderState.SongName = strings.TrimRight(nsfFile.SongName, "\x00")
+        renderState.Artist = strings.TrimRight(nsfFile.Artist, "\x00")
+        renderState.Copyright = strings.TrimRight(nsfFile.Copyright, "\x00")
         renderState.MaxTrack = int(nsfFile.TotalSongs)
         renderState.Track = int(nsfFile.StartingSong)
         renderState.Paused = false
+
+        engine.SetRenderState(renderState)
 
         playQuit, playCancel := context.WithCancel(quit)
 
@@ -188,11 +218,13 @@ func RunNSF(path string) error {
         second := time.NewTicker(1 * time.Second)
         defer second.Stop()
         for quit.Err() == nil {
+            update := false
             select {
                 case <-quit.Done():
                 case <-second.C:
                     if !renderState.Paused {
                         renderState.PlayTime += 1
+                        update = true
                     }
                 case action := <-nsfActions:
                     trackDelta := 0
@@ -208,6 +240,7 @@ func RunNSF(path string) error {
                         case NSFPlayerPause:
                             actions <- nes.NSFActionTogglePause
                             renderState.Paused = !renderState.Paused
+                            update = true
                     }
 
                     if trackDelta != 0 {
@@ -223,6 +256,7 @@ func RunNSF(path string) error {
                             renderState.Paused = false
                             renderState.Track = newTrack
                             renderState.PlayTime = 0
+                            update = true
                             second.Reset(1 * time.Second)
 
                             playCancel()
@@ -230,6 +264,10 @@ func RunNSF(path string) error {
                             go doPlay(playQuit, byte(renderState.Track))
                         }
                     }
+            }
+
+            if update {
+                engine.SetRenderState(renderState)
             }
         }
 
@@ -241,180 +279,6 @@ func RunNSF(path string) error {
         log.Printf("Error playing NSF: %v", err)
     }
 
-    /*
-    renderUpdates := make(chan NSFRenderState)
-
-    / * The 'view' loop, that displays whats in the NSFRenderState model * /
-    go func(){
-        white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-        red := sdl.Color{R:255, G: 0, B: 0, A: 255}
-        fontHeight := font.Height()
-        for quit.Err() == nil {
-            select {
-                case <-quit.Done():
-                case state := <-renderUpdates:
-                    sdl.Do(func (){
-                        renderer.Clear()
-
-                        _ = state
-
-                        x := 4
-                        y := 4
-
-                        err := writeFont(font, renderer, x, y, fmt.Sprintf("Song: %v", state.SongName), white)
-                        if err != nil {
-                            log.Printf("Unable to write font: %v", err)
-                        }
-                        y += fontHeight + 3
-
-                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Artist: %v", state.Artist), white)
-                        if err != nil {
-                            log.Printf("Unable to write font: %v", err)
-                        }
-                        y += fontHeight + 3
-
-                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Coyright: %v", state.Copyright), white)
-                        if err != nil {
-                            log.Printf("Unable to write font: %v", err)
-                        }
-                        y += fontHeight + 3
-
-                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Track %v/%v", state.Track + 1, state.MaxTrack + 1), white)
-                        if err != nil {
-                            log.Printf("Unable to write font: %v", err)
-                        }
-                        y += fontHeight + 3
-
-                        if state.Paused {
-                            err = writeFont(font, renderer, x, y, fmt.Sprintf("Paused"), red)
-                        } else {
-                            err = writeFont(font, renderer, x, y, fmt.Sprintf("Play time %d:%02d", state.PlayTime / 60, state.PlayTime % 60), white)
-                        }
-                        if err != nil {
-                            log.Printf("Unable to write font: %v", err)
-                        }
-                        y += fontHeight + 3
-
-                        y += fontHeight * 2
-
-                        err = writeFont(font, renderer, x, y, fmt.Sprintf("Keys"), white)
-                        if err != nil {
-                            log.Printf("Unable to write font: %v", err)
-                        }
-                        y += fontHeight + 3
-
-                        err = writeFont(font, renderer, x, y, fmt.Sprintf("> or l: skip 1 track ahead"), white)
-                        if err != nil {
-                            log.Printf("Unable to write font: %v", err)
-                        }
-                        y += fontHeight + 3
-
-                        err = writeFont(font, renderer, x, y, fmt.Sprintf("^ or k: skip 5 tracks ahead"), white)
-                        if err != nil {
-                            log.Printf("Unable to write font: %v", err)
-                        }
-                        y += fontHeight + 3
-
-                        err = writeFont(font, renderer, x, y, fmt.Sprintf("< or h: go 1 track back"), white)
-                        if err != nil {
-                            log.Printf("Unable to write font: %v", err)
-                        }
-                        y += fontHeight + 3
-
-                        err = writeFont(font, renderer, x, y, fmt.Sprintf("v or j: go 5 tracks back"), white)
-                        if err != nil {
-                            log.Printf("Unable to write font: %v", err)
-                        }
-                        y += fontHeight + 3
-
-                        err = writeFont(font, renderer, x, y, fmt.Sprintf("esc: quit"), white)
-                        if err != nil {
-                            log.Printf("Unable to write font: %v", err)
-                        }
-
-                        // renderer.Copy(texture, nil, nil)
-                        renderer.Present()
-                    })
-            }
-        }
-    }()
-
-    doRender := make(chan bool, 2)
-    audioOut := make(chan []float32, 2)
-
     
-
-    audioDevice, err := setupAudio(AudioSampleRate)
-    if err != nil {
-        return fmt.Errorf("Could not initialize audio: %v", err)
-    }
-
-    defer sdl.Do(func(){
-        sdl.CloseAudioDevice(audioDevice)
-    })
-    log.Printf("Opened SDL audio device %v", audioDevice)
-    sdl.Do(func(){
-        sdl.PauseAudioDevice(audioDevice, false)
-    })
-
-    go func(){
-        <-quit.Done()
-        / * FIXME: close this channel after writers are guaranteed not to be using it * /
-        close(audioOut)
-    }()
-
-    var waiter sync.WaitGroup
-
-    if audioDevice != 0 {
-        waiter.Add(1)
-        go func(){
-            defer waiter.Done()
-            runAudio(audioDevice, audioOut)
-        }()
-    }
-
-    keyMapping := make(map[sdl.Keycode]NSFPlayerActions)
-    keyMapping[sdl.K_UP] = NSFPlayerNext5Tracks
-    keyMapping[sdl.K_k] = NSFPlayerNext5Tracks
-    keyMapping[sdl.K_RIGHT] = NSFPlayerNext
-    keyMapping[sdl.K_l] = NSFPlayerNext
-    keyMapping[sdl.K_LEFT] = NSFPlayerPrevious
-    keyMapping[sdl.K_h] = NSFPlayerPrevious
-    keyMapping[sdl.K_DOWN] = NSFPlayerPrevious5Tracks
-    keyMapping[sdl.K_j] = NSFPlayerPrevious5Tracks
-    keyMapping[sdl.K_SPACE] = NSFPlayerPause
-
-    for quit.Err() == nil {
-        event := sdl.WaitEvent()
-        if event != nil {
-            // log.Printf("Event %+v\n", event)
-            switch event.GetType() {
-                case sdl.QUIT: cancel()
-                case sdl.KEYDOWN:
-                    keyboard_event := event.(*sdl.KeyboardEvent)
-                    quit_pressed := keyboard_event.Keysym.Scancode == sdl.SCANCODE_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK
-                    if quit_pressed {
-                        cancel()
-                    }
-
-                    action, ok := keyMapping[keyboard_event.Keysym.Sym]
-                    if ok {
-                        nsfActions <- action
-                    }
-                case sdl.WINDOWEVENT:
-                        window_event := event.(*sdl.WindowEvent)
-                        switch window_event.Event {
-                            case sdl.WINDOWEVENT_EXPOSED:
-                                doRender <- true
-                        }
-                case sdl.KEYUP:
-            }
-        }
-    }
-
-    waiter.Wait()
-
-    return err
-    */
     return nil
 }
