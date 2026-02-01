@@ -11,6 +11,7 @@ import (
     // "runtime/debug"
 
     "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 type JoystickManager struct {
@@ -29,7 +30,7 @@ func NewJoystickManager() *JoystickManager {
 }
 
 func (manager *JoystickManager) Update() {
-    gamepadIds := ebiten.AppendGamepadIDs(nil)
+    gamepadIds := inpututil.AppendJustConnectedGamepadIDs(nil)
     for _, gamepadId := range gamepadIds {
         _, exists := manager.Joysticks[gamepadId]
         if exists {
