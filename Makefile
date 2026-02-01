@@ -1,4 +1,4 @@
-.PHONY: nes nsf test nestest apu-test make-screenshot mapper static
+.PHONY: nes nsf test nestest apu-test make-screenshot mapper static wasm itch.io
 
 nes:
 	time go build ./cmd/nes
@@ -19,6 +19,15 @@ make-screenshot:
 
 count:
 	wc -l `find cmd -name "*.go"` `find lib -name "*.go"` `find test -name "*.go"` `find util -name "*.go"`
+
+wasm: nes.wasm
+
+nes.wasm:
+	env GOOS=js GOARCH=wasm go build -o nes.wasm ./cmd/nes
+
+itch.io: wasm
+	cp nes.wasm itch.io
+	butler push itch.io kazzmir/nes:html
 
 all: nes nsf make-screenshot test
 
