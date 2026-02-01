@@ -2,16 +2,12 @@ package main
 
 import (
     "log"
-    // "os"
     "fmt"
     "context"
     "strings"
     "image/color"
-    // "encoding/binary"
-    // "bytes"
     "time"
     "sync"
-    // "github.com/kazzmir/nes/util"
     nes "github.com/kazzmir/nes/lib"
 
     "github.com/hajimehoshi/ebiten/v2"
@@ -107,8 +103,7 @@ func (engine *NSFEngine) Draw(screen *ebiten.Image) {
         Size: 20,
     }
 
-    fontWidth, fontHeight := text.Measure("A", font, 1)
-    _ = fontWidth
+    _, fontHeight := text.Measure("A", font, 1)
 
     var textOptions text.DrawOptions
     textOptions.GeoM.Translate(4, 4)
@@ -278,7 +273,6 @@ func RunNSF(path string) error {
     if err != nil {
         log.Printf("Error playing NSF: %v", err)
     }
-
     
     return nil
 }
