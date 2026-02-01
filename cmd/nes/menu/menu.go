@@ -693,7 +693,7 @@ func (mapping *JoystickButtonMapping) UpdateJoystick(manager *common.JoystickMan
         }
 
         /* FIXME: just a test */
-        manager.Player1.SetExtraButton(common.EmulatorTurbo, &common.JoystickButton{Button: 5})
+        // manager.Player1.SetExtraButton(common.EmulatorTurbo, &common.JoystickButton{Button: 5})
 
         err := manager.SaveInput()
         if err != nil {
@@ -941,8 +941,11 @@ func (menu *JoystickMenu) UpdateWindowSize(x int, y int){
 
 func (menu *JoystickMenu) FinishConfigure() {
     menu.Configuring = false
-
     menu.Mapping.UpdateJoystick(menu.JoystickManager)
+    err := menu.JoystickManager.SaveInput()
+    if err != nil {
+        log.Printf("Warning: could not save joystick configuration: %v", err)
+    }
 }
 
 func (menu *JoystickMenu) DoConfigure(joystick *common.JoystickButtons, yield coroutine.YieldFunc, buttonList []string) {
@@ -976,7 +979,7 @@ func (menu *JoystickMenu) DoConfigure(joystick *common.JoystickButtons, yield co
         }
     }
 
-    menu.Configuring = false
+    menu.FinishConfigure()
 }
 
 /*
