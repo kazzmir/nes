@@ -687,15 +687,12 @@ func convertInput(input JoystickInputType) common.JoystickInput {
 }
 
 func (mapping *JoystickButtonMapping) UpdateJoystick(manager *common.JoystickManager){
-    /* FIXME */
-
-    /*
     if manager.Player1 != nil {
         for name, input := range mapping.Inputs {
             manager.Player1.SetButton(convertButton(name), convertInput(input))
         }
 
-        / * FIXME: just a test * /
+        /* FIXME: just a test */
         manager.Player1.SetExtraButton(common.EmulatorTurbo, &common.JoystickButton{Button: 5})
 
         err := manager.SaveInput()
@@ -703,7 +700,6 @@ func (mapping *JoystickButtonMapping) UpdateJoystick(manager *common.JoystickMan
             log.Printf("Warning: could not save joystick input: %v", err)
         }
     }
-    */
 }
 
 func inList(value string, array []string) bool {
@@ -1446,6 +1442,15 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
 
     menu.Buttons.Add(&SubMenuButton{Name: "Back", Func: func() SubMenu{ return parent } })
 
+    menu.Buttons.Add(&MenuNextLine{})
+    menu.Buttons.Add(&SubMenuButton{Name: "Previous Joystick", Func: func() SubMenu {
+        joystickManager.PreviousJoystick()
+        return menu
+    }})
+    menu.Buttons.Add(&SubMenuButton{Name: "Next Joystick", Func: func() SubMenu {
+        joystickManager.NextJoystick()
+        return menu
+    }})
     menu.Buttons.Add(&MenuNextLine{})
     menu.Buttons.Add(&MenuLabel{Label: "Configure", Color: color.RGBA{R: 255, G: 0, B: 0, A: 255}})
     menu.Buttons.Add(&MenuNextLine{})

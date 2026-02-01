@@ -6,6 +6,7 @@ import (
     "log"
     "fmt"
     "errors"
+    "slices"
 
     nes "github.com/kazzmir/nes/lib"
     // "runtime/debug"
@@ -16,6 +17,7 @@ import (
 
 type JoystickManager struct {
     Joysticks map[ebiten.GamepadID]*JoystickButtons
+    JoystickOrder []ebiten.GamepadID
     Player1 *JoystickButtons
     Player2 *JoystickButtons
     Lock sync.Mutex
@@ -46,13 +48,28 @@ func (manager *JoystickManager) Update() {
         log.Printf("Found joystick: %v\n", input.Name)
 
         manager.Joysticks[gamepadId] = &input
+        manager.JoystickOrder = append(manager.JoystickOrder, gamepadId)
     }
 
     if manager.Player1 == nil && len(manager.Joysticks) > 0 {
         // choose a random one
-        for _, joystick := range manager.Joysticks {
-            manager.Player1 = joystick
-        }
+        manager.Player1 = manager.Joysticks[manager.JoystickOrder[0]]
+    }
+}
+
+func (manager *JoystickManager) NextJoystick() {
+    index := slices.Index(manager.JoystickOrder, manager.Player1.gamepad)
+    if index >= 0 {
+        index = (index + 1) % len(manager.JoystickOrder)
+        manager.Player1 = manager.Joysticks[manager.JoystickOrder[index]]
+    }
+}
+
+func (manager *JoystickManager) PreviousJoystick() {
+    index := slices.Index(manager.JoystickOrder, manager.Player1.gamepad)
+    if index >= 0 {
+        index = (index - 1 + len(manager.JoystickOrder)) % len(manager.JoystickOrder)
+        manager.Player1 = manager.Joysticks[manager.JoystickOrder[index]]
     }
 }
 
