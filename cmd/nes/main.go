@@ -9,17 +9,14 @@ import (
     "io"
     "io/fs"
     "path/filepath"
-    "math"
     "strings"
     "bufio"
     "errors"
 
-    "encoding/binary"
     "bytes"
     "time"
     "context"
     "runtime/pprof"
-    "runtime"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/lib/coroutine"
@@ -293,58 +290,6 @@ func loadFontSource() (*text.GoTextFaceSource, error) {
     return text.NewGoTextFaceSource(file)
 }
 
-type AudioPlayer struct {
-    AudioChannel <-chan []float32
-    Buffer []float32
-    position int
-}
-
-func (player *AudioPlayer) Read(output []byte) (int, error) {
-    select {
-        case samples := <-player.AudioChannel:
-            player.Buffer = append(player.Buffer, samples...)
-        default:
-    }
-
-    maxSamples := min(len(player.Buffer) - player.position, len(output) / 4 / 2)
-
-    // in the browser we have to return something
-    if runtime.GOOS == "js" && maxSamples == 0 {
-        for _, i := range output {
-            output[i] = 0
-        }
-
-        return len(output), nil
-    }
-
-    // log.Printf("Audio wants %v samples, will render %v", len(output) / 4 / 2, maxSamples)
-
-    count := 0
-    for count < maxSamples {
-        i := count * 2
-        sample := player.Buffer[player.position + count]
-        binary.LittleEndian.PutUint32(output[4*i:], math.Float32bits(sample))
-        binary.LittleEndian.PutUint32(output[4*(i+1):], math.Float32bits(sample))
-        count += 1
-    }
-    // log.Printf("Audio read %v samples\n", maxSamples)
-    player.position += maxSamples
-    if len(player.Buffer) > 1024 * 1024 {
-        log.Printf("reset audio buffer")
-        player.Buffer = player.Buffer[player.position:]
-        player.position = 0
-    }
-
-    return maxSamples * 4 * 2, nil
-
-    /*
-    for i, sample := range samples {
-        binary.LittleEndian.PutUint32(output[4*i:], math.Float32bits(sample))
-    }
-    return len(samples) * 4, nil
-    */
-}
-
 type ProgramState struct {
     loadRom chan common.ProgramLoadRom
     audioEnabled bool
@@ -605,12 +550,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     audioActionsInput := (<-chan AudioActions)(audioActions)
     audioActionsOutput := (chan<- AudioActions)(audioActions)
 
-    /*
-    audioChannel := make(chan []float32, 2)
-    audioInput := (<-chan []float32)(audioChannel)
-    audioOutput := (chan<- []float32)(audioChannel)
-    */
-
     emulatorKeys := common.LoadEmulatorKeys()
     input := &common.KeyboardButtons{
         Keys: &emulatorKeys,
@@ -723,12 +662,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             defer engine.PopDraw()
 
             verbose := 1
-
-            /*
-            nesAudio := AudioPlayer{
-                AudioChannel: audioInput,
-            }
-            */
 
             musicPlayer, err := audio.NewPlayerF32(cpu.APU.GetAudioStream())
             if err != nil {
@@ -1122,6 +1055,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         })
 
         for mainQuit.Err() == nil {
+            joystickManager.Update()
+
             droppedFiles := ebiten.DroppedFiles()
             if droppedFiles != nil {
                 entries, err := fs.ReadDir(droppedFiles, ".")

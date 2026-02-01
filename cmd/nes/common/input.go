@@ -2,7 +2,7 @@ package common
 
 import (
     "sync"
-    // "strings"
+    "strings"
     "log"
     "fmt"
     "errors"
@@ -14,46 +14,54 @@ import (
 )
 
 type JoystickManager struct {
-    /*
-    Joysticks []*SDLJoystickButtons
-    Player1 *SDLJoystickButtons
-    Player2 *SDLJoystickButtons
-    */
+    Joysticks map[ebiten.GamepadID]*JoystickButtons
+    Player1 *JoystickButtons
+    Player2 *JoystickButtons
     Lock sync.Mutex
 }
 
 func NewJoystickManager() *JoystickManager {
     manager := JoystickManager{
+        Joysticks: make(map[ebiten.GamepadID]*JoystickButtons),
     }
-
-    /*
-    max := sdl.NumJoysticks()
-    for i := 0; i < max; i++ {
-        input, err := OpenJoystick(i)
-        if err != nil {
-            log.Printf("Could not open joystick %v: %v\n", i, err)
-        }
-
-        manager.Joysticks = append(manager.Joysticks, &input)
-    }
-
-    if len(manager.Joysticks) > 0 {
-        manager.Player1 = manager.Joysticks[0]
-    }
-    */
 
     return &manager
+}
+
+func (manager *JoystickManager) Update() {
+    gamepadIds := ebiten.AppendGamepadIDs(nil)
+    for _, gamepadId := range gamepadIds {
+        _, exists := manager.Joysticks[gamepadId]
+        if exists {
+            continue
+        }
+
+        input, err := OpenJoystick(gamepadId)
+        if err != nil {
+            log.Printf("Could not open joystick %v: %v\n", gamepadId, err)
+            continue
+        }
+
+        log.Printf("Found joystick: %v\n", input.Name)
+
+        manager.Joysticks[gamepadId] = &input
+    }
+
+    if manager.Player1 == nil && len(manager.Joysticks) > 0 {
+        // choose a random one
+        for _, joystick := range manager.Joysticks {
+            manager.Player1 = joystick
+        }
+    }
 }
 
 func (manager *JoystickManager) CurrentName() string {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
-    /*
     if manager.Player1 != nil {
         return manager.Player1.Name
     }
-    */
 
     return "No joystick found"
 }
@@ -303,8 +311,8 @@ func (axis *JoystickAxis) Serialize() string {
     return fmt.Sprintf("axis=%v value=%v", axis.Axis, axis.Value)
 }
 
-type SDLJoystickButtons struct {
-    // joystick *sdl.Joystick
+type JoystickButtons struct {
+    gamepad ebiten.GamepadID
     Inputs map[nes.Button]JoystickInput // normal nes buttons
     ExtraInputs map[EmulatorActionValue]JoystickInput // extra emulator-only buttons
     Pressed nes.ButtonMapping
@@ -313,11 +321,11 @@ type SDLJoystickButtons struct {
 }
 
 type IControlPad struct {
-    joystick *SDLJoystickButtons
+    joystick *JoystickButtons
 }
 
-func MakeIControlPadInput(index int) (IControlPad, error){
-    joystick, err := OpenJoystick(index)
+func MakeIControlPadInput(gamepad ebiten.GamepadID) (IControlPad, error){
+    joystick, err := OpenJoystick(gamepad)
     return IControlPad{joystick: &joystick}, err
 }
 
@@ -342,25 +350,18 @@ func (icontrolpad *IControlPad) Get() nes.ButtonMapping {
     return mapping
 }
 
-func OpenJoystick(index int) (SDLJoystickButtons, error){
-    /*
-    joystick := sdl.JoystickOpen(index)
-    if joystick == nil {
-        return SDLJoystickButtons{}, fmt.Errorf("Could not open joystick %v", index)
-    }
-    */
-
+func OpenJoystick(gamepad ebiten.GamepadID) (JoystickButtons, error){
     /*
     log.Printf("Joystick guid: %v", joystick.GUID())
     log.Printf(string(debug.Stack()))
     */
 
-    return SDLJoystickButtons{
-        // joystick: joystick,
+    return JoystickButtons{
+        gamepad: gamepad,
         Inputs: make(map[nes.Button]JoystickInput),
         ExtraInputs: make(map[EmulatorActionValue]JoystickInput),
         Pressed: make(nes.ButtonMapping),
-        // Name: strings.TrimSpace(joystick.Name()),
+        Name: strings.TrimSpace(ebiten.GamepadName(gamepad)),
     }, nil
 }
 
@@ -413,19 +414,19 @@ func (joystick *SDLJoystickButtons) HandleEvent(event sdl.Event) EmulatorAction 
 }
 */
 
-func (joystick *SDLJoystickButtons) Close(){
+func (joystick *JoystickButtons) Close(){
     // joystick.joystick.Close()
 }
 
-func (joystick *SDLJoystickButtons) SetButton(button nes.Button, input JoystickInput){
+func (joystick *JoystickButtons) SetButton(button nes.Button, input JoystickInput){
     joystick.Inputs[button] = input
 }
 
-func (joystick *SDLJoystickButtons) SetExtraButton(button EmulatorActionValue, input JoystickInput){
+func (joystick *JoystickButtons) SetExtraButton(button EmulatorActionValue, input JoystickInput){
     joystick.ExtraInputs[button] = input
 }
 
-func (joystick *SDLJoystickButtons) Get() nes.ButtonMapping {
+func (joystick *JoystickButtons) Get() nes.ButtonMapping {
     joystick.Lock.Lock()
     defer joystick.Lock.Unlock()
 
