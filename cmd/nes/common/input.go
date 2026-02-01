@@ -47,13 +47,19 @@ func (manager *JoystickManager) Update() {
 
         log.Printf("Found joystick: %v\n", input.Name)
 
-        manager.Joysticks[gamepadId] = &input
+        manager.Joysticks[gamepadId] = input
         manager.JoystickOrder = append(manager.JoystickOrder, gamepadId)
     }
 
     if manager.Player1 == nil && len(manager.Joysticks) > 0 {
         // choose a random one
         manager.Player1 = manager.Joysticks[manager.JoystickOrder[0]]
+    }
+
+    // FIXME: also handle removed joysticks
+
+    if manager.Player1 != nil {
+        manager.Player1.Update()
     }
 }
 
@@ -88,7 +94,6 @@ func (manager *JoystickManager) SaveInput() error {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
-    /*
     if manager.Player1 != nil {
         data, err := LoadConfigData()
         if err != nil {
@@ -103,13 +108,12 @@ func (manager *JoystickManager) SaveInput() error {
             Down: manager.Player1.Inputs[nes.ButtonIndexDown].Serialize(),
             Left: manager.Player1.Inputs[nes.ButtonIndexLeft].Serialize(),
             Right: manager.Player1.Inputs[nes.ButtonIndexRight].Serialize(),
-            Guid: sdl.JoystickGetGUIDString(manager.Player1.joystick.GUID()),
-            Name: strings.TrimSpace(manager.Player1.joystick.Name()),
+            Guid: ebiten.GamepadSDLID(manager.Player1.gamepad),
+            Name: strings.TrimSpace(manager.Player1.Name),
         }
 
         return SaveConfigData(data)
     }
-    */
 
     return nil
 }
@@ -196,6 +200,10 @@ func (manager *JoystickManager) Get() nes.ButtonMapping {
     manager.Lock.Lock()
     defer manager.Lock.Unlock()
 
+    if manager.Player1 != nil {
+        return manager.Player1.Get()
+    }
+
     mapping := make(nes.ButtonMapping)
 
     mapping[nes.ButtonIndexA] = false
@@ -206,12 +214,6 @@ func (manager *JoystickManager) Get() nes.ButtonMapping {
     mapping[nes.ButtonIndexDown] = false
     mapping[nes.ButtonIndexLeft] = false
     mapping[nes.ButtonIndexRight] = false
-
-    /*
-    if manager.Player1 != nil {
-        return manager.Player1.Get()
-    }
-    */
 
     return mapping
 }
@@ -344,7 +346,7 @@ type IControlPad struct {
 
 func MakeIControlPadInput(gamepad ebiten.GamepadID) (IControlPad, error){
     joystick, err := OpenJoystick(gamepad)
-    return IControlPad{joystick: &joystick}, err
+    return IControlPad{joystick: joystick}, err
 }
 
 func (icontrolpad *IControlPad) Close(){
@@ -368,19 +370,61 @@ func (icontrolpad *IControlPad) Get() nes.ButtonMapping {
     return mapping
 }
 
-func OpenJoystick(gamepad ebiten.GamepadID) (JoystickButtons, error){
+func OpenJoystick(gamepad ebiten.GamepadID) (*JoystickButtons, error){
     /*
     log.Printf("Joystick guid: %v", joystick.GUID())
     log.Printf(string(debug.Stack()))
     */
 
-    return JoystickButtons{
+    buttons := JoystickButtons{
         gamepad: gamepad,
         Inputs: make(map[nes.Button]JoystickInput),
         ExtraInputs: make(map[EmulatorActionValue]JoystickInput),
         Pressed: make(nes.ButtonMapping),
         Name: strings.TrimSpace(ebiten.GamepadName(gamepad)),
-    }, nil
+    }
+
+    if buttons.Name == "PS3 Controller" {
+        buttons.Inputs[nes.ButtonIndexUp] = &JoystickButton{Button: ebiten.GamepadButton13}
+        buttons.Inputs[nes.ButtonIndexDown] = &JoystickButton{Button: ebiten.GamepadButton14}
+        buttons.Inputs[nes.ButtonIndexLeft] = &JoystickButton{Button: ebiten.GamepadButton15}
+        buttons.Inputs[nes.ButtonIndexRight] = &JoystickButton{Button: ebiten.GamepadButton16}
+        buttons.Inputs[nes.ButtonIndexA] = &JoystickButton{Button: ebiten.GamepadButton0} // X
+        buttons.Inputs[nes.ButtonIndexB] = &JoystickButton{Button: ebiten.GamepadButton3} // square
+        buttons.Inputs[nes.ButtonIndexSelect] = &JoystickButton{Button: ebiten.GamepadButton8}
+        buttons.Inputs[nes.ButtonIndexStart] = &JoystickButton{Button: ebiten.GamepadButton9}
+    }
+
+    return &buttons, nil
+}
+
+func (joystick *JoystickButtons) Update() {
+
+    justPressed := make(map[ebiten.GamepadButton]bool)
+
+    pressed := inpututil.AppendJustPressedGamepadButtons(joystick.gamepad, nil)
+    for _, press := range pressed {
+        justPressed[press] = true
+    }
+
+    justReleased := make(map[ebiten.GamepadButton]bool)
+
+    released := inpututil.AppendJustReleasedGamepadButtons(joystick.gamepad, nil)
+    for _, release := range released {
+        justReleased[release] = true
+    }
+
+    for nesButton, button := range joystick.Inputs {
+        realButton, ok := button.(*JoystickButton)
+        if ok {
+            if justPressed[realButton.Button] {
+                joystick.Pressed[nesButton] = true
+            }
+            if justReleased[realButton.Button] {
+                joystick.Pressed[nesButton] = false
+            }
+        }
+    }
 }
 
 /*

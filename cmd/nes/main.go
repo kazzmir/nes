@@ -838,6 +838,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
                         input.HandleEvent(key, false)
                     }
+
+                    joystickManager.Update()
                 }
 
                 err := nesCoroutine.Run()
