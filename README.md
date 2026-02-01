@@ -4,6 +4,10 @@ An NES emulator written in Go.
 [![Build Macos M1](https://github.com/kazzmir/nes/actions/workflows/build-macos-m1.yml/badge.svg?branch=master)](https://github.com/kazzmir/nes/actions/workflows/build-macos-m1.yml)
 [![Build Windows](https://github.com/kazzmir/nes/actions/workflows/build-windows.yml/badge.svg?branch=master)](https://github.com/kazzmir/nes/actions/workflows/build-windows.yml)
 
+Play in a browser:
+
+https://kazzmir.itch.io/nes
+
 Resources:
 
 * Nes Development Wiki http://wiki.nesdev.org/w/index.php/Nesdev_Wiki
@@ -129,3 +133,5 @@ Colors have been fixed, and rendering uses an in-memory `[]uint32` array, which 
 ![nsf](./pics/nsf.png)
 
 12/18/2024: Added support for [VRC6](https://www.nesdev.org/wiki/VRC6_audio) and bank switching in NSF files. Also the code can now be built for the windows platform.
+
+1/31/2026: Migrated the project from SDL to [ebiten](https://ebitengine.org).
