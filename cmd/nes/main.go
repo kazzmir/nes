@@ -792,9 +792,11 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     audioActionsInput := (<-chan AudioActions)(audioActions)
     audioActionsOutput := (chan<- AudioActions)(audioActions)
 
+    /*
     audioChannel := make(chan []float32, 2)
     audioInput := (<-chan []float32)(audioChannel)
     audioOutput := (chan<- []float32)(audioChannel)
+    */
 
     emulatorKeys := common.LoadEmulatorKeys()
     input := &common.SDLKeyboardButtons{
@@ -909,11 +911,13 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
             verbose := 1
 
+            /*
             nesAudio := AudioPlayer{
                 AudioChannel: audioInput,
             }
+            */
 
-            musicPlayer, err := audio.NewPlayerF32(&nesAudio)
+            musicPlayer, err := audio.NewPlayerF32(cpu.APU.GetAudioStream())
             if err != nil {
                 log.Printf("Warning: could not create audio player: %v", err)
             } else {
@@ -928,7 +932,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
 
             runNes := func(nesYield coroutine.YieldFunc) error {
-                return common.RunNES(nesFile.Path, &cpu, maxCycles, quit, bufferReady, buffer, audioOutput, emulatorActionsInput, &screenListeners, &overlayMessages, AudioSampleRate, verbose, debugger, nesYield)
+                return common.RunNES(nesFile.Path, &cpu, maxCycles, quit, bufferReady, buffer, emulatorActionsInput, &screenListeners, &overlayMessages, AudioSampleRate, verbose, debugger, nesYield)
             }
 
             nesCoroutine := coroutine.MakeCoroutine(runNes)

@@ -327,7 +327,6 @@ type OverlayMessage interface {
 var MaxCyclesReached error = errors.New("maximum cycles reached")
 func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Context,
             bufferReady chan<- bool, buffer nes.VirtualScreen,
-            audio chan<-[]float32,
             emulatorActions <-chan EmulatorAction, screenListeners *ScreenListeners,
             renderOverlayUpdate OverlayMessage,
             sampleRate float32, verbose int, debugger debug.Debugger, yield coroutine.YieldFunc) error {
@@ -570,8 +569,9 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
 
             cycleCounter -= float64(usedCycles - lastCpuCycle)
 
-            audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
+            cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
 
+            /*
             if audioData != nil {
                 screenListeners.ObserveAudio(audioData)
 
@@ -584,6 +584,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                         }
                 }
             }
+            */
 
             /* ppu runs 3 times faster than cpu */
             nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen, cpu.Mapper.Mapper)

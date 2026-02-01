@@ -3,6 +3,7 @@ package lib
 import (
     "log"
     "math"
+    "sync"
 )
 
 var ApuDebug int = 0
@@ -362,6 +363,77 @@ func (triangle *Triangle) GenerateSample() byte {
     return 0
 }
 
+type AudioStream struct {
+    // holds mono audio samples
+    Samples []float32
+    count int
+    start int
+    end int
+    lock sync.Mutex
+}
+
+func MakeAudioStream(size int) *AudioStream {
+    return &AudioStream{
+        Samples: make([]float32, size),
+    }
+}
+
+func (stream *AudioStream) Clear() {
+    stream.lock.Lock()
+    defer stream.lock.Unlock()
+    stream.count = 0
+    stream.start = 0
+    stream.end = 0
+}
+
+func (stream *AudioStream) AddSample(sample float32) {
+    stream.lock.Lock()
+    defer stream.lock.Unlock()
+
+    if stream.count < len(stream.Samples) {
+        stream.Samples[stream.end] = sample
+        stream.end = (stream.end + 1) % len(stream.Samples)
+        stream.count += 1
+    } else {
+        // log.Printf("dropping sample")
+    }
+}
+
+// out slice is always stereo float32LE
+func (stream *AudioStream) Read(out []byte) (int, error) {
+    stream.lock.Lock()
+    defer stream.lock.Unlock()
+
+    if stream.count == 0 {
+        for i := range 8 {
+            out[i] = 0
+        }
+        return 8, nil
+    }
+
+    samples := min(stream.count, len(out) / 4 / 2)
+    for i := range samples {
+        v := math.Float32bits(stream.Samples[stream.start])
+        out[i*4*2+0] = byte(v & 0xff)
+        out[i*4*2+1] = byte((v >> 8) & 0xff)
+        out[i*4*2+2] = byte((v >> 16) & 0xff)
+        out[i*4*2+3] = byte((v >> 24) & 0xff)
+
+        out[i*4*2+4] = byte(v & 0xff)
+        out[i*4*2+5] = byte((v >> 8) & 0xff)
+        out[i*4*2+6] = byte((v >> 16) & 0xff)
+        out[i*4*2+7] = byte((v >> 24) & 0xff)
+
+        stream.start = (stream.start + 1) % len(stream.Samples)
+    }
+
+    stream.count -= samples
+
+    // log.Printf("Read %v/%v samples from audio stream", samples, len(out) / 4 / 2)
+
+    return samples * 4 * 2, nil
+}
+
 type APUState struct {
     /* APU cycles, 1 apu cycle for every 2 cpu cycles */
     Cycles float64 `json:"cycles"`
@@ -389,6 +461,8 @@ type APUState struct {
     EnableTriangle bool `json:"enabletriangle"`
     EnablePulse2 bool `json:"enablepulse2"`
     EnablePulse1 bool `json:"enablepulse1"`
+
+    AudioStream *AudioStream `json:"-"`
 }
 
 func (apu *APUState) Copy() APUState {
@@ -411,6 +485,7 @@ func (apu *APUState) Copy() APUState {
         EnableTriangle: apu.EnableTriangle,
         EnablePulse2: apu.EnablePulse2,
         EnablePulse1: apu.EnablePulse1,
+        AudioStream: apu.AudioStream,
     }
 }
 
@@ -434,7 +509,12 @@ func MakeAPU() APUState {
             Silence: true,
             Frequency: 5000, // arbitrary value, just has to be non-zero
         },
+        AudioStream: MakeAudioStream(10000),
     }
+}
+
+func (apu *APUState) GetAudioStream() *AudioStream {
+    return apu.AudioStream
 }
 
 /* Quarter frame actions: envelope and triangle's linear counter */
@@ -459,7 +539,7 @@ func (apu *APUState) HalfFrame() {
     apu.Triangle.TickLengthCounter()
 }
 
-func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUState) []float32 {
+func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUState) {
     apu.Pulse1.Run(apuCycles)
     apu.Pulse2.Run(apuCycles)
     apu.Triangle.Run(apuCycles)
@@ -528,11 +608,12 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUSta
     }
 
     apu.SampleCycles += apuCycles
-    var out []float32
+    // var out []float32
     if apu.SampleCycles > cyclesPerSample {
         sample := apu.GenerateSample()
         for apu.SampleCycles >= cyclesPerSample {
             apu.SampleCycles -= cyclesPerSample
+            /*
             apu.SampleBuffer[apu.SamplePosition] = sample
             apu.SamplePosition += 1
             if apu.SamplePosition >= len(apu.SampleBuffer) {
@@ -542,10 +623,12 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUSta
                 }
                 copy(out, apu.SampleBuffer)
             }
+            */
+            apu.AudioStream.AddSample(sample)
         }
     }
 
-    return out
+    // return out
 }
 
 type DMC struct {

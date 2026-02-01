@@ -324,7 +324,7 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
 
     cpu.Input = nes.MakeInput(&NullInput{})
 
-    audioOutput := make(chan []float32, 1)
+    // audioOutput := make(chan []float32, 1)
     emulatorActionsInput := make(chan common.EmulatorAction, 5)
     emulatorActionsInput <- common.MakeEmulatorAction(common.EmulatorInfinite)
     var screenListeners common.ScreenListeners
@@ -396,7 +396,7 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
     const maxCycles = uint64(30 * nes.CPUSpeed)
 
     log.Printf("Start loading %v", path)
-    err = common.RunNES(path, &cpu, maxCycles, quit, bufferReady, buffer, audioOutput, emulatorActionsInput, &screenListeners, &IgnoreMessages{}, AudioSampleRate, 0, nil, handleDraw)
+    err = common.RunNES(path, &cpu, maxCycles, quit, bufferReady, buffer, emulatorActionsInput, &screenListeners, &IgnoreMessages{}, AudioSampleRate, 0, nil, handleDraw)
     if err == common.MaxCyclesReached {
         log.Printf("%v complete", path)
     }
