@@ -940,14 +940,10 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
             var keys []ebiten.Key
 
-            pausedAudio := false
+            systemPaused := false
+            audioPaused := 0
 
             for quit.Err() == nil {
-                if pausedAudio {
-                    pausedAudio = false
-                    musicPlayer.Play()
-                }
-
                 select {
                     case action := <-audioActionsInput:
                         switch action.(type) {
@@ -976,8 +972,14 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             case ebiten.KeyEscape, ebiten.KeyCapsLock:
                                 select {
                                     case doMenu <- true:
-                                        pausedAudio = true
                                         musicPlayer.Pause()
+                                        audioPaused += 1
+                                        // the menu will launch by virtue of the doMenu channel
+                                        yield()
+                                        audioPaused -= 1
+                                        if audioPaused == 0 {
+                                            musicPlayer.Play()
+                                        }
                                     default:
                                         // couldn't launch menu, just abort
                                         mainCancel()
@@ -1035,6 +1037,16 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                                     case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePause):
                                     default:
                                 }
+                                systemPaused = !systemPaused
+                                if systemPaused {
+                                    audioPaused += 1
+                                    musicPlayer.Pause()
+                                } else {
+                                    audioPaused -= 1
+                                    if audioPaused == 0 {
+                                        musicPlayer.Play()
+                                    }
+                                }
                             case emulatorKeys.PPUDebug:
                                 select {
                                     case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePPUDebug):
@@ -1059,6 +1071,12 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                                 log.Printf("Hard reset")
                                 nesChannel <- &NesActionRestart{}
                                 overlayMessages.Add("Hard reset")
+
+                                /*
+                                nesCoroutine.Stop()
+                                nesCoroutine = coroutine.MakeCoroutine(runNes)
+                                defer nesCoroutine.Stop()
+                                */
                                 return
                         }
 
