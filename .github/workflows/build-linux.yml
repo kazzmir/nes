@@ -16,7 +16,8 @@ jobs:
       - name: Install ubuntu dependencies
         run: |
           sudo apt-get -y update
-          sudo apt-get -y install libsdl2-dev libsdl2-ttf-dev libsdl2-mixer-dev
+          sudo apt-get -y install libasound2-dev xorg-dev
+          sudo apt-get -y install xvfb
 
       - name: Install go dependencies
         run: |
@@ -27,7 +28,7 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test ./...
+        run: xvfb-run go test ./...
 
       - name: Build
         run: go build ./cmd/nes

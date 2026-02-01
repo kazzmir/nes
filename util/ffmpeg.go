@@ -1,4 +1,4 @@
-// +build !windows
+//go:build !windows && !js
 
 package util
 
@@ -112,7 +112,7 @@ func waitForProcessDefault(process *os.Process){
 }
 
 /* Audio */
-func EncodeMp3(mp3out string, mainQuit context.Context, sampleRate int, audioOut chan []float32) error {
+func EncodeMp3(mp3out string, mainQuit context.Context, sampleRate int, audio_input io.Reader) error {
     ffmpeg_binary_path, err := FindFfmpegBinary()
     if err != nil {
         return fmt.Errorf("Could not find ffmpeg: %v", err)
@@ -128,7 +128,7 @@ func EncodeMp3(mp3out string, mainQuit context.Context, sampleRate int, audioOut
     "-use_wallclock_as_timestamps", "1", // treat the incoming data as a live stream
     "-f", "f32le", // audio is uncompressed pcm in float32 format
     "-ar", strconv.Itoa(int(sampleRate)), // sample rate
-    "-ac", "1",
+    "-ac", "2",
     "-i", "pipe:3", // audio is passed as fd 3
 
     "-tune", "zerolatency", // fast encoding
@@ -160,31 +160,8 @@ func EncodeMp3(mp3out string, mainQuit context.Context, sampleRate int, audioOut
         return err
     }
 
-    go func(stdout io.ReadCloser){
-        buffer := make([]byte, 4096)
-        for {
-            count, err := stdout.Read(buffer)
-            if err != nil {
-                log.Printf("Could not read ffmpeg stdout: %v", err)
-                return
-            }
-            _ = count
-            // log.Printf("ffmpeg: %v", string(buffer[0:count]))
-        }
-    }(stdout)
-
-    go func(stdout io.ReadCloser){
-        buffer := make([]byte, 4096)
-        for {
-            count, err := stdout.Read(buffer)
-            if err != nil {
-                log.Printf("Could not read ffmpeg stdout: %v", err)
-                return
-            }
-            _ = count
-            // log.Printf("ffmpeg: %v", string(buffer[0:count]))
-        }
-    }(stderr)
+    go io.Copy(io.Discard, stdout)
+    go io.Copy(io.Discard, stderr)
 
     log.Printf("Recording to %v", mp3out)
 
@@ -202,7 +179,13 @@ func EncodeMp3(mp3out string, mainQuit context.Context, sampleRate int, audioOut
 
     go func(){
         defer audio_reader.Close()
-        audioWriter(audio_writer, audioOut, quit)
+        io.Copy(audio_writer, audio_input)
+        /*
+        for quit.Err() == nil {
+            n, _ := io.CopyN(audio_writer, audio_input, int64(sampleRate * 4 * 2)) // 1 second worth of audio
+            log.Printf("Wrote %v bytes of audio data to ffmpeg", n)
+        }
+        */
     }()
 
     <-quit.Done()

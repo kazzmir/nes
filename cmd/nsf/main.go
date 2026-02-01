@@ -8,19 +8,21 @@ import (
     "time"
     "strings"
     "sync"
+    "errors"
     "path/filepath"
     "strconv"
-    "bytes"
-    "encoding/binary"
+    // "bytes"
+    // "encoding/binary"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/util"
-    "github.com/veandco/go-sdl2/sdl"
 
     "github.com/jroimartin/gocui"
+    "github.com/ebitengine/oto/v3"
 )
 
 
+/*
 func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     var audioSpec sdl.AudioSpec
     var obtainedSpec sdl.AudioSpec
@@ -36,6 +38,7 @@ func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
     device, err := sdl.OpenAudioDevice("", false, &audioSpec, &obtainedSpec, sdl.AUDIO_ALLOW_FORMAT_CHANGE)
     return device, err
 }
+*/
 
 
 type PlayerAction int
@@ -243,47 +246,22 @@ func run(nsfPath string) error {
 
     _ = nsf
 
-    err = sdl.Init(sdl.INIT_AUDIO)
-    if err != nil {
-        return err
-    }
-    defer sdl.Quit()
+    sampleRate := 44100
 
-    sampleRate := float32(44100)
-
-    audioDevice, err := setupAudio(sampleRate)
+    var options oto.NewContextOptions
+    options.SampleRate = sampleRate
+    options.ChannelCount = 2
+    options.Format = oto.FormatFloat32LE
+    audioContext, ready, err := oto.NewContext(&options)
     if err != nil {
-        log.Printf("Warning: could not set up audio: %v", err)
-        audioDevice = 0
-    } else {
-        defer sdl.CloseAudioDevice(audioDevice)
-        log.Printf("Opened SDL audio device %v", audioDevice)
-        sdl.PauseAudioDevice(audioDevice, false)
+        return fmt.Errorf("Could not create audio context: %v", err)
     }
 
-    audioOut := make(chan []float32, 2)
+    log.Printf("Wait for audio context to be ready")
+    <-ready
 
     quit, cancel := context.WithCancel(context.Background())
-
-    go func(){
-        var audioBuffer bytes.Buffer
-        for quit.Err() == nil {
-            select {
-                case <-quit.Done():
-                case audio := <-audioOut:
-                    audioBuffer.Reset()
-                    /* convert []float32 into []byte */
-                    for _, sample := range audio {
-                        binary.Write(&audioBuffer, binary.LittleEndian, sample)
-                    }
-
-                    err := sdl.QueueAudio(audioDevice, audioBuffer.Bytes())
-                    if err != nil {
-                        log.Printf("Error: could not queue audio data: %v", err)
-                    }
-            }
-        }
-    }()
+    _ = cancel
 
     playerActions := make(chan PlayerAction)
     updateTrack := make(chan byte, 10)
@@ -301,12 +279,22 @@ func run(nsfPath string) error {
     updateTrack <- track
 
     runPlayer := func(track byte, actions chan nes.NSFActions) (context.Context, context.CancelFunc) {
+        audioStreamOut := make(chan *nes.AudioStream, 1)
         playQuit, playCancel := context.WithCancel(quit)
         go func(){
-            err := nes.PlayNSF(nsf, track, audioOut, sampleRate, actions, playQuit)
+            err := nes.PlayNSF(nsf, track, audioStreamOut, float32(sampleRate), actions, playQuit, 0)
             if err != nil {
                 log.Printf("Unable to play: %v", err)
             }
+        }()
+
+        audioStream := <- audioStreamOut
+        player := audioContext.NewPlayer(audioStream)
+        player.SetBufferSize(44100 * 4 * 2 / 4)
+        player.Play()
+        go func(){
+            <- playQuit.Done()
+            player.Pause()
         }()
 
         return playQuit, playCancel
@@ -318,6 +306,7 @@ func run(nsfPath string) error {
 
     playQuit, playCancel := runPlayer(track, nsfActions)
     defer playCancel()
+
     for quit.Err() == nil {
         select {
             case action := <-playerActions:
@@ -433,7 +422,6 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
     }
 
     sampleRate := float32(44100)
-    audioOut := make(chan []float32, 2)
     actions := make(chan nes.NSFActions)
 
     quit, cancel := context.WithCancel(context.Background())
@@ -441,23 +429,25 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
 
     var waiter sync.WaitGroup
 
+    /*
     go func(){
         time.Sleep(time.Duration(renderTime) * time.Second)
         log.Printf("Done")
         cancel()
     }()
+    */
 
-    var encodeErr error
+    audioStreamOut := make(chan *nes.AudioStream, 1)
     waiter.Add(1)
     go func(){
         defer waiter.Done()
-        encodeErr = util.EncodeMp3(mp3out, quit, int(sampleRate), audioOut)
+        err = nes.PlayNSF(nsf, byte(track), audioStreamOut, sampleRate, actions, quit, uint64(float64(renderTime) * nes.CPUSpeed))
         cancel()
     }()
 
     log.Printf("Rendering track %v of %v to '%v' for %d:%02d", track+1, filepath.Base(nsfPath), mp3out, renderTime/60, renderTime % 60)
 
-    err = nes.PlayNSF(nsf, byte(track), audioOut, sampleRate, actions, quit)
+    encodeErr := util.EncodeMp3(mp3out, quit, int(sampleRate), <-audioStreamOut)
 
     waiter.Wait()
 
@@ -562,7 +552,7 @@ func main(){
             return
         }
         err := saveMp3(arguments.NSFPath, arguments.Mp3Out, arguments.Mp3Track - 1, arguments.Mp3Time)
-        if err != nil {
+        if err != nil && !errors.Is(err, nes.MaxCyclesReached) {
             log.Printf("Error: %v", err)
         }
     } else if arguments.Info {

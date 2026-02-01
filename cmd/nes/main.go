@@ -1,12 +1,5 @@
 package main
 
-/* golang sdl https://pkg.go.dev/github.com/veandco/go-sdl2@v0.4.8/sdl
- */
-
-/*
-#include <stdlib.h>
-*/
-import "C"
 import (
     "fmt"
     "log"
@@ -16,55 +9,102 @@ import (
     "io"
     "io/fs"
     "path/filepath"
-    "math"
-    "math/rand"
     "strings"
     "bufio"
+    "errors"
 
-    nes "github.com/kazzmir/nes/lib"
-    "github.com/kazzmir/nes/util"
-
-    "github.com/veandco/go-sdl2/sdl"
-    "github.com/veandco/go-sdl2/mix"
-    "github.com/veandco/go-sdl2/ttf"
-
-    "encoding/binary"
     "bytes"
     "time"
-    "sync"
     "context"
     "runtime/pprof"
-    "runtime"
+
+    nes "github.com/kazzmir/nes/lib"
+    "github.com/kazzmir/nes/lib/coroutine"
+    "github.com/kazzmir/nes/util"
 
     "github.com/kazzmir/nes/cmd/nes/common"
-    "github.com/kazzmir/nes/cmd/nes/gfx"
     "github.com/kazzmir/nes/cmd/nes/menu"
     "github.com/kazzmir/nes/cmd/nes/debug"
     "github.com/kazzmir/nes/data"
 
     // rdebug "runtime/debug"
+
+    "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/inpututil"
+    "github.com/hajimehoshi/ebiten/v2/text/v2"
+    audiolib "github.com/hajimehoshi/ebiten/v2/audio"
+    "github.com/hajimehoshi/ebiten/v2/audio/vorbis"
 )
 
-func setupAudio(sampleRate float32) (sdl.AudioDeviceID, error) {
-    var audioSpec sdl.AudioSpec
-    var obtainedSpec sdl.AudioSpec
-
-    audioSpec.Freq = int32(sampleRate)
-    audioSpec.Format = sdl.AUDIO_F32LSB
-    audioSpec.Channels = 1
-    audioSpec.Samples = 1024
-    // audioSpec.Callback = sdl.AudioCallback(C.generate_audio_c)
-    audioSpec.Callback = nil
-    audioSpec.UserData = nil
-
-    var device sdl.AudioDeviceID
-    var err error
-    sdl.Do(func(){
-        device, err = sdl.OpenAudioDevice("", false, &audioSpec, &obtainedSpec, sdl.AUDIO_ALLOW_FORMAT_CHANGE)
-    })
-    return device, err
+type DrawStep struct {
+    Draw func(*ebiten.Image)
+    DrawPrevious bool
 }
 
+type Engine struct {
+    Coroutine *coroutine.Coroutine
+    Draws []DrawStep
+    Quit context.Context
+    WindowSize common.WindowSize
+}
+
+func (engine *Engine) Update() error {
+    if engine.Quit.Err() != nil {
+        return ebiten.Termination
+    }
+
+    /*
+    keys := inpututil.AppendJustPressedKeys(nil)
+
+    for _, key := range keys {
+        switch key {
+            case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                return ebiten.Termination
+        }
+    }
+    */
+
+    return engine.Coroutine.Run()
+}
+
+func (engine *Engine) Layout(outsideWidth, outsideHeight int) (int, int) {
+    engine.WindowSize = common.WindowSize{X: outsideWidth, Y: outsideHeight}
+    return outsideWidth, outsideHeight
+}
+
+func (engine *Engine) GetWindowSize() common.WindowSize {
+    return engine.WindowSize
+}
+
+func (engine *Engine) Draw(screen *ebiten.Image) {
+
+    var draw func(int)
+
+    draw = func(i int){
+        if i < 0 {
+            return
+        }
+
+        step := engine.Draws[i]
+        if step.DrawPrevious {
+            draw(i - 1)
+        }
+
+        step.Draw(screen)
+    }
+
+    draw(len(engine.Draws) - 1)
+}
+
+func (engine *Engine) PushDraw(draw func(*ebiten.Image), drawPrevious bool) {
+    engine.Draws = append(engine.Draws, DrawStep{Draw: draw, DrawPrevious: drawPrevious})
+}
+
+func (engine *Engine) PopDraw() {
+    if len(engine.Draws) > 0 {
+        engine.Draws = engine.Draws[:len(engine.Draws)-1]
+    }
+}
 
 func stripExtension(path string) string {
     extension := filepath.Ext(path)
@@ -99,131 +139,16 @@ func RecordMp4(stop context.Context, romName string, overscanPixels int, sampleR
 type AudioActions interface {
 }
 
+type AudioState struct {
+    Enabled bool
+}
+
 type AudioToggle struct {
 }
 
 type AudioQueryEnabled struct {
     Response chan bool
 }
-
-func makeAudioWorker(audioDevice sdl.AudioDeviceID, audio <-chan []float32, audioActions <-chan AudioActions, mainQuit context.Context) func() {
-    if audioDevice != 0 {
-        /* runNES will generate arrays of samples that we enqueue into the SDL audio system */
-        return func(){
-            // var buffer bytes.Buffer
-            var audioBytes []byte
-            enabled := true
-            for {
-                select {
-                    case <-mainQuit.Done():
-                        return
-                    case action := <-audioActions:
-                        switch action.(type) {
-                            case *AudioToggle:
-                                enabled = !enabled
-                            case *AudioQueryEnabled:
-                                query := action.(*AudioQueryEnabled)
-                                query.Response <- enabled
-                        }
-                    case samples := <-audio:
-                        if !enabled {
-                            break
-                        }
-                        // log.Printf("Prepare audio to queue")
-                        // log.Printf("Enqueue data %v", samples)
-                        // buffer.Reset()
-                        /* convert []float32 into []byte */
-                        // slow method that does allocations
-                        // binary.Write(&buffer, binary.LittleEndian, samples)
-
-                        // fast method with no allocations, copied from binary.Write
-                        totalSize := len(samples) * 4
-                        for len(audioBytes) < totalSize {
-                            audioBytes = append(audioBytes, 0)
-                        }
-
-                        for i, sample := range samples {
-                            binary.LittleEndian.PutUint32(audioBytes[4*i:], math.Float32bits(sample))
-                        }
-
-                        // log.Printf("Enqueue audio")
-                        var err error
-                        sdl.Do(func(){
-                            err = sdl.QueueAudio(audioDevice, audioBytes[:totalSize])
-                        })
-                        if err != nil {
-                            log.Printf("Error: could not queue audio data: %v", err)
-                            return
-                        }
-                }
-            }
-        }
-    } else {
-        return func(){
-            for {
-                select {
-                    case <-mainQuit.Done():
-                        return
-                    case action := <-audioActions:
-                        switch action.(type) {
-                            case *AudioQueryEnabled:
-                                query := action.(*AudioQueryEnabled)
-                                query.Response <- false
-                        }
-                    case <-audio:
-                }
-            }
-        }
-    }
-}
-
-/* must be called in a sdl.Do */
-func doRenderNesPixels(width int, height int, raw_pixels []byte, pixelFormat gfx.PixelFormat, renderer *sdl.Renderer) error {
-
-    pixels := C.CBytes(raw_pixels)
-    defer C.free(pixels)
-
-    depth := 8 * 4 // RGBA8888
-    pitch := int(width) * int(depth) / 8
-
-    // pixelFormat := sdl.PIXELFORMAT_ABGR8888
-
-    /* pixelFormat should be ABGR8888 on little-endian (x86) and
-     * RBGA8888 on big-endian (arm)
-     */
-
-    surface, err := sdl.CreateRGBSurfaceWithFormatFrom(pixels, int32(width), int32(height), int32(depth), int32(pitch), uint32(pixelFormat))
-    if err != nil {
-        return fmt.Errorf("Unable to create surface from pixels: %v", err)
-    }
-    if surface == nil {
-        return fmt.Errorf("Did not create a surface somehow")
-    }
-
-    defer surface.Free()
-
-    texture, err := renderer.CreateTextureFromSurface(surface)
-    if err != nil {
-        return fmt.Errorf("Could not create texture: %v", err)
-    }
-
-    defer texture.Destroy()
-
-    // texture_format, access, width, height, err := texture.Query()
-    // log.Printf("Texture format=%v access=%v width=%v height=%v err=%v\n", get_pixel_format(texture_format), access, width, height, err)
-
-
-    renderer.SetLogicalSize(int32(width), int32(height))
-    err = renderer.Copy(texture, nil, nil)
-    if err != nil {
-        log.Printf("Warning: could not copy texture to renderer: %v\n", err)
-    }
-
-    renderer.SetLogicalSize(0, 0)
-
-    return nil
-}
-
 
 type NesAction interface {
 }
@@ -241,173 +166,6 @@ type NesActionRestart struct {
 type EmulatorMessage struct {
     Message string
     DeathTime time.Time
-}
-
-type DefaultRenderLayer struct {
-    RenderFunc func(gfx.RenderInfo) error
-    Index int
-}
-
-func (layer *DefaultRenderLayer) Render(info gfx.RenderInfo) error {
-    return layer.RenderFunc(info)
-}
-
-func (layer *DefaultRenderLayer) ZIndex() int {
-    return layer.Index
-}
-
-type EmulatorMessageLayer struct {
-    /* these messages appear in the bottom right */
-    emulatorMessages []EmulatorMessage
-    Index int
-    ReceiveMessages chan string
-    Lock sync.Mutex
-}
-
-func (layer *EmulatorMessageLayer) ZIndex() int {
-    return layer.Index
-}
-
-func (layer *EmulatorMessageLayer) Render(renderInfo gfx.RenderInfo) error {
-    windowWidth, windowHeight := renderInfo.Window.GetSize()
-
-    font := renderInfo.SmallFont
-
-    layer.Lock.Lock()
-    messages := gfx.CopyArray(layer.emulatorMessages)
-    layer.Lock.Unlock()
-
-    y := int(windowHeight) - font.Height() - 1
-    now := time.Now()
-    for i := len(messages)-1; i >= 0; i-- {
-        message := messages[i]
-        if message.DeathTime.After(now){
-            x := int(windowWidth) - 100
-            remaining := message.DeathTime.Sub(now)
-            alpha := 255
-            white := sdl.Color{R: 255, G: 255, B: 255, A: 255}
-            red := sdl.Color{R: 255, G: 0, B: 0, A: 255}
-
-            N := 800
-
-            color := gfx.InterpolateColor(red, white, N, N - int((remaining - time.Millisecond*500) / time.Millisecond))
-
-            if remaining < time.Millisecond * 500 {
-                alpha = int(255 * float64(remaining) / (float64(time.Millisecond) * 500))
-                if alpha > 255 {
-                    alpha = 255
-                }
-                /* strangely if alpha=0 it renders without transparency so the pixels are fully white */
-                if alpha < 1 {
-                    alpha = 1
-                }
-
-                color = white
-            }
-            color.A = uint8(alpha)
-            // white := sdl.Color{R: 255, G: 255, B: 255, A: uint8(alpha)}
-            // log.Printf("Write message '%v' at %v, %v remaining=%v color=%v", message, x, y, remaining, white)
-            gfx.WriteFont(font, renderInfo.Renderer, x, y, message.Message, color)
-            y -= font.Height() + 2
-        }
-    }
-
-    return nil
-}
-
-func (layer *EmulatorMessageLayer) Run(quit context.Context){
-    emulatorMessageTicker := time.NewTicker(time.Second * 1)
-    defer emulatorMessageTicker.Stop()
-    maxEmulatorMessages := 10
-
-    for {
-        select {
-            case <-quit.Done():
-                return
-            case message := <-layer.ReceiveMessages:
-                layer.Lock.Lock()
-                layer.emulatorMessages = append(layer.emulatorMessages, EmulatorMessage{
-                    Message: message,
-                    DeathTime: time.Now().Add(time.Millisecond * 1500),
-                })
-                if len(layer.emulatorMessages) > maxEmulatorMessages {
-                    layer.emulatorMessages = layer.emulatorMessages[len(layer.emulatorMessages) - maxEmulatorMessages:len(layer.emulatorMessages)]
-                }
-                layer.Lock.Unlock()
-                /* remove deceased messages */
-            case <-emulatorMessageTicker.C:
-                now := time.Now()
-                layer.Lock.Lock()
-                i := 0
-                for i < len(layer.emulatorMessages) {
-                    /* find the first non-dead message */
-                    if layer.emulatorMessages[i].DeathTime.Before(now) {
-                        i += 1
-                    } else {
-                        break
-                    }
-                }
-                layer.emulatorMessages = layer.emulatorMessages[i:]
-                layer.Lock.Unlock()
-        }
-    }
-}
-
-type OverlayMessageLayer struct {
-    Message string
-    Index int
-}
-
-func (layer *OverlayMessageLayer) ZIndex() int {
-    return layer.Index
-}
-
-func (layer *OverlayMessageLayer) Render(info gfx.RenderInfo) error {
-    width, height := info.Window.GetSize()
-
-    font := info.Font
-    renderer := info.Renderer
-
-    black := sdl.Color{R: 0, G: 0, B: 0, A: 200}
-    white := sdl.Color{R: 255, G: 255, B: 255, A: 200}
-    messageLength := gfx.TextWidth(font, layer.Message)
-    x := int(width)/2 - messageLength / 2
-    y := int(height)/2
-    renderer.SetDrawColor(black.R, black.G, black.B, black.A)
-    renderer.FillRect(&sdl.Rect{X: int32(x - 10), Y: int32(y - 10), W: int32(messageLength + 10 + 5), H: int32(font.Height() + 10 + 5)})
-
-    gfx.WriteFont(font, renderer, x, y, layer.Message, white)
-    return nil
-}
-
-func getWindowIdFromEvent(event sdl.Event) uint32 {
-    switch event.GetType() {
-        case sdl.TEXTEDITING:
-            text_event, ok := event.(*sdl.TextEditingEvent)
-            if ok {
-                return text_event.WindowID
-            }
-        case sdl.TEXTINPUT:
-            text_input, ok := event.(*sdl.TextInputEvent)
-            if ok {
-                return text_input.WindowID
-            }
-        case sdl.WINDOWEVENT:
-            window_event, ok := event.(*sdl.WindowEvent)
-            if ok {
-                return window_event.WindowID
-            }
-        case sdl.KEYDOWN, sdl.KEYUP:
-            keyboard_event, ok := event.(*sdl.KeyboardEvent)
-            if ok {
-                return keyboard_event.WindowID
-            }
-    }
-
-    log.Printf("Warning: unknown event type: %v", event.GetType())
-
-    /* FIXME: what is the invalid window id */
-    return 0
 }
 
 type ReplayKeysInput struct {
@@ -521,52 +279,115 @@ func makeReplayKeys(cpu *nes.CPUState, replayKeysPath string) (*ReplayKeysInput,
     }, nil
 }
 
-func loadTTF(path string, size int) (*ttf.Font, error) {
-    file, err := data.OpenFile(path)
+func loadFontSource() (*text.GoTextFaceSource, error) {
+    file, err := data.OpenFile("DejaVuSans.ttf")
     if err != nil {
         return nil, err
     }
-
     defer file.Close()
 
-    // make rwops, use OpenFontRW, close rwops
-    memory, err := io.ReadAll(file)
-    if err != nil {
-        return nil, err
+    return text.NewGoTextFaceSource(file)
+}
+
+type ProgramState struct {
+    loadRom chan common.ProgramLoadRom
+    audioEnabled bool
+}
+
+func (state *ProgramState) IsSoundEnabled() bool {
+    return state.audioEnabled
+}
+
+func (state *ProgramState) LoadRom(name string, file common.MakeFile) {
+    select {
+        case state.loadRom <- common.ProgramLoadRom{Name: name, File: file}:
+        default:
+            log.Printf("Warning: could not send load rom request")
     }
+}
 
-    rwops, err := sdl.RWFromMem(memory)
-    if err != nil {
-        return nil, err
+func (state *ProgramState) SetSoundEnabled(enabled bool) {
+    state.audioEnabled = enabled
+}
+
+type MessageTime struct {
+    Message string
+    Time time.Time
+}
+
+type OverlayMessages struct {
+    Messages []MessageTime
+}
+
+func (messages *OverlayMessages) Add(message string) {
+    messages.Messages = append(messages.Messages, MessageTime{Message: message, Time: time.Now()})
+}
+
+func (messages *OverlayMessages) Clear() {
+    messages.Messages = nil
+}
+
+func (messages *OverlayMessages) Process() {
+    for len(messages.Messages) > 0 {
+        if time.Since(messages.Messages[0].Time) > time.Second * 2 {
+            messages.Messages = messages.Messages[1:]
+        } else {
+            break
+        }
     }
+}
 
-    // defer rwops.Close()
+type AudioManager struct {
+    Beep *audiolib.Player
+}
 
-    out, err := ttf.OpenFontRW(rwops, 1, size)
+func (audioManager *AudioManager) PlayBeep() {
+    audioManager.Beep.Rewind()
+    audioManager.Beep.Play()
+}
+
+func MakeAudioManager(context *audiolib.Context) *AudioManager {
+    beep := context.NewPlayerFromBytes([]byte{})
+    file, err := data.OpenFile("beep.ogg")
     if err != nil {
-        rwops.Close()
-        return nil, err
     } else {
-        // the memory must exist longer than the rwops. we can't add a finalizer directly to the rwops
-        // because it is not a golang object, but rather allocated by sdl directly using malloc()
-        // instead we add the finalizer to the font, which is going to close the rwops anyway
-        runtime.SetFinalizer(out, func(font *ttf.Font){
-            memory = nil
-        })
-        return out, nil
+        defer file.Close()
+
+        allData, err := io.ReadAll(file)
+        if err == nil {
+            reader, err := vorbis.DecodeWithSampleRate(context.SampleRate(), bytes.NewReader(allData))
+            if err == nil {
+                beep, err = context.NewPlayer(reader)
+                if err != nil {
+                    log.Printf("Warning: could not create beep audio player: %v", err)
+                }
+            }
+        }
+    }
+
+    return &AudioManager{
+        Beep: beep,
     }
 }
 
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
-    randomSeed := time.Now().UnixNano()
-
-    rand.Seed(randomSeed)
-
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
-    renderOverlayUpdate := make(chan string, 5)
 
-    var renderManager gfx.RenderManager
+    // if mainCancel is called then the program should exit
+    mainQuit, mainCancel := context.WithCancel(context.Background())
+    defer mainCancel()
+
+    engine := Engine{
+        Quit: mainQuit,
+    }
+
+    var overlayMessages OverlayMessages
+
+    programActions := ProgramState{
+        loadRom: make(chan common.ProgramLoadRom, 1),
+        audioEnabled: true,
+    }
 
     if path != "" {
         log.Printf("Opening NES file '%v'", path)
@@ -578,166 +399,25 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     } else {
         /* if no nes file given then just load the main menu */
         doMenu <- true
-        renderOverlayUpdate <- "No ROM loaded"
+        overlayMessages.Add("No ROM loaded")
     }
-
-    // force a software renderer
-    if !util.HasGlxinfo() {
-        sdl.Do(func(){
-            sdl.SetHint(sdl.HINT_RENDER_DRIVER, "software")
-        })
-    }
-
-    log.Printf("Initializing SDL")
 
     var err error
-    sdl.Do(func(){
-        err = sdl.Init(sdl.INIT_EVERYTHING)
-    })
-    if err != nil {
-        return err
-    }
-    defer sdl.Do(func(){
-        sdl.Quit()
-    })
-
-    sdl.Do(func(){
-        sdl.DisableScreenSaver()
-    })
-    defer sdl.Do(func(){
-        sdl.EnableScreenSaver()
-    })
+    _ = err
 
     log.Printf("Create window")
-    /* to resize the window */
-    var window *sdl.Window
-    var renderer *sdl.Renderer
-
-    /* 7/5/2021: its apparently very important that the window and renderer be created
-     * in the sdl thread via sdl.Do. If the renderer calls are in sdl.Do, then so must
-     * also be the creation of the window and the renderer. Initially I did not have
-     * the creation of the window and renderer in sdl.Do, and thus in opengl mode
-     * the window would not be rendered.
-     */
-    sdl.Do(func(){
-        window, renderer, err = sdl.CreateWindowAndRenderer(
-            int32(nes.VideoWidth * windowSizeMultiple),
-            int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple),
-            sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
-
-        if window != nil {
-            window.SetTitle("Nes Emulator")
-        }
-    })
-
-    /*
-    window, err := sdl.CreateWindow("nes",
-                                    sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
-                                    int32(nes.VideoWidth * windowSizeMultiple),
-                                    int32((nes.VideoHeight - nes.OverscanPixels * 2) * windowSizeMultiple),
-                                    sdl.WINDOW_SHOWN | sdl.WINDOW_RESIZABLE)
-    if err != nil {
-        return err
-    }
-    defer window.Destroy()
-
-    softwareRenderer := true
-    _ = softwareRenderer
-    // renderer, err := sdl.CreateSoftwareRenderer(surface)
-    // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_SOFTWARE)
-
-    log.Printf("Create renderer")
-    / * Create an accelerated renderer * /
-    // renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
-    renderer, err := sdl.CreateRenderer(window, -1, 0)
-    */
-
-    if err != nil {
-        return fmt.Errorf("Unable to create SDL window: %v", err)
-    }
-
-    defer sdl.Do(func(){
-        window.Destroy()
-    })
-    defer sdl.Do(func(){
-        renderer.Destroy()
-    })
-
-    /* debug stuff
-    numDrivers, err := sdl.GetNumRenderDrivers()
-    if err != nil {
-        log.Printf("Could not get the number of render drivers\n")
-    } else {
-        for i := 0; i < numDrivers; i++ {
-            var renderInfo sdl.RendererInfo
-            _, err = sdl.GetRenderDriverInfo(0, &renderInfo)
-            if err != nil {
-                log.Printf("Could not get render driver info: %v\n", err)
-            } else {
-                log.Printf("Render driver info %v\n", i + 1)
-                log.Printf(" Name: %v\n", renderInfo.Name)
-                log.Printf(" Flags: %v\n", renderInfo.Flags)
-                log.Printf(" Number of texture formats: %v\n", renderInfo.NumTextureFormats)
-                log.Printf(" Texture formats: %v\n", renderInfo.TextureFormats)
-                log.Printf(" Max texture width: %v\n", renderInfo.MaxTextureWidth)
-                log.Printf(" Max texture height: %v\n", renderInfo.MaxTextureHeight)
-            }
-        }
-    }
-    */
 
     const AudioSampleRate float32 = 44100
 
-    err = mix.Init(mix.INIT_OGG)
-    if err != nil {
-        log.Printf("Could not initialize SDL mixer: %v", err)
-    } else {
-        err = mix.OpenAudio(int(AudioSampleRate), sdl.AUDIO_F32LSB, 2, 4096)
-        if err != nil {
-            log.Printf("Could not open mixer audio: %v", err)
-        }
-    }
+    audio := audiolib.NewContext(int(AudioSampleRate))
 
-    renderInfo, err := renderer.GetInfo()
-    if err != nil {
-        log.Printf("Could not get render info from renderer: %v\n", err)
-    } else {
-        log.Printf("Current render info\n")
-        log.Printf(" Name: %v\n", renderInfo.Name)
-        log.Printf(" Flags: %v\n", renderInfo.Flags)
-        log.Printf(" Number of texture formats: %v\n", renderInfo.NumTextureFormats)
-        var buffer bytes.Buffer
-        for texture := uint32(0); texture < renderInfo.NumTextureFormats; texture++ {
-            value := uint(renderInfo.TextureFormats[texture])
-            buffer.WriteString(sdl.GetPixelFormatName(value))
-            buffer.WriteString(" ")
-        }
-        // log.Printf(" Texture formats: %v\n", renderInfo.TextureFormats)
-        log.Printf(" Texture formats: %v\n", buffer.String())
-        log.Printf(" Max texture width: %v\n", renderInfo.MaxTextureWidth)
-        log.Printf(" Max texture height: %v\n", renderInfo.MaxTextureHeight)
-    }
-   
-    audioDevice, err := setupAudio(AudioSampleRate)
-    if err != nil {
-        log.Printf("Warning: could not set up audio: %v", err)
-        audioDevice = 0
-    } else {
-        defer sdl.CloseAudioDevice(audioDevice)
-        log.Printf("Opened SDL audio device %v", audioDevice)
-        sdl.PauseAudioDevice(audioDevice, false)
-    }
-
-    var waiter sync.WaitGroup
-
-    mainQuit, mainCancel := context.WithCancel(context.Background())
-    defer mainCancel()
+    audioManager := MakeAudioManager(audio)
 
     signalChannel := make(chan os.Signal, 10)
     signal.Notify(signalChannel, os.Interrupt)
 
     go func(){
-        for i := 0; i < 2; i++ {
+        for i := range 2 {
             select {
                 // case <-mainQuit.Done():
                 case <-signalChannel:
@@ -745,6 +425,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         log.Printf("Shutting down due to signal")
                         mainCancel()
                         go func(){
+                            log.Printf("Will exit in at most 2 seconds")
                             time.Sleep(2 * time.Second)
                             log.Printf("Bailing..")
                             os.Exit(1)
@@ -757,43 +438,40 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         }
     }()
 
-    toDraw := make(chan nes.VirtualScreen, 1)
-    bufferReady := make(chan nes.VirtualScreen, 1)
 
-    pixelFormat := gfx.FindPixelFormat()
-
-    log.Printf("Using pixel format %v\n", sdl.GetPixelFormatName(uint(pixelFormat)))
-
-    err = ttf.Init()
+    fontSource, err := loadFontSource() 
     if err != nil {
-        return fmt.Errorf("Unable to initialize ttf: %v", err)
+        return fmt.Errorf("Unable to load font source: %v", err)
     }
 
-    defer ttf.Quit()
-
-    font, err := loadTTF("DejaVuSans.ttf", 20)
-    if err != nil {
-        return fmt.Errorf("Unable to load font size 20: %v", err)
+    font := &text.GoTextFace{
+        Source: fontSource,
+        Size: 20,
     }
-    defer font.Close()
 
-    smallFont, err := loadTTF("DejaVuSans.ttf", 15)
-    if err != nil {
-        return fmt.Errorf("Unable to load font size 15: %v", err)
+    smallFont := &text.GoTextFace{
+        Source: fontSource,
+        Size: 15,
     }
-    defer smallFont.Close()
 
+    consoleFont := &text.GoTextFace{
+        Source: fontSource,
+        Size: 17,
+    }
+
+    joystickManager := common.NewJoystickManager()
+    /*
     log.Printf("Found joysticks: %v\n", sdl.NumJoysticks())
     for i := 0; i < sdl.NumJoysticks(); i++ {
         guid := sdl.JoystickGetDeviceGUID(i)
         log.Printf("Joystick %v: %v\n", i, guid)
     }
 
-    joystickManager := common.NewJoystickManager()
     defer joystickManager.Close()
 
     // sdl.Do(sdl.StopTextInput)
     sdl.Do(sdl.StartTextInput)
+    */
 
     // var joystickInput nes.HostInput
     /*
@@ -808,98 +486,56 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
     */
 
-    /*
-    err = renderer.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
-    if err != nil {
-        log.Printf("Could not set blend mode: %v", err)
-    }
-    */
+    makeRenderScreen := func(bufferReady chan bool, buffer nes.VirtualScreen) func(*ebiten.Image) {
+        /* FIXME: kind of ugly to keep this here */
+        raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
 
-    emulatorMessages := EmulatorMessageLayer{
-        ReceiveMessages: make(chan string, 10),
-        Index: 1,
-    }
-
-    go emulatorMessages.Run(mainQuit)
-
-    renderManager.AddLayer(&emulatorMessages)
-
-    /* Show black bars on the sides or top/bottom when the window changes size */
-    // renderer.SetLogicalSize(int32(256), int32(240-overscanPixels * 2))
-
-    /* create a surface from the pixels in one call, then create a texture and render it */
-
-    renderNow := make(chan bool, 2)
-
-    /* FIXME: kind of ugly to keep this here */
-    raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
-
-    waiter.Add(1)
-    go func(){
-        buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
-        bufferReady <- buffer
-        defer waiter.Done()
+        // buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
+        // defer waiter.Done()
         fpsCounter := 2.0
         fps := 0
         fpsTimer := time.NewTicker(time.Duration(fpsCounter) * time.Second)
-        defer fpsTimer.Stop()
+        // defer fpsTimer.Stop()
 
-        renderTimer := time.NewTicker(time.Second / time.Duration(desiredFps))
-        defer renderTimer.Stop()
-        canRender := false
+        bufferImage := ebiten.NewImage(nes.VideoWidth, nes.VideoHeight - nes.OverscanPixels * 2)
 
-        render := func (){
-            renderer.SetDrawColor(0, 0, 0, 0)
-            renderer.Clear()
+        return func(screen *ebiten.Image){
 
-            err := renderManager.RenderAll(gfx.RenderInfo{
-                Renderer: renderer,
-                Font: font,
-                SmallFont: smallFont,
-                Window: window,
-            })
+            // log.Printf("call draw")
 
-            if err != nil {
-                log.Printf("Warning: could not render: %v", err)
-            }
-
-            renderer.Present()
-        }
-
-        for {
             select {
-                case <-mainQuit.Done():
-                    return
-                case screen := <-toDraw:
-                    if canRender {
-                        fps += 1
-                        common.RenderPixelsRGBA(screen, raw_pixels, nes.OverscanPixels)
-                        sdl.Do(render)
-                    }
-                    canRender = false
-                    bufferReady <- screen
-                case message := <-renderOverlayUpdate:
-                    if message == "" {
-                        renderManager.RemoveByIndex(2)
-                    } else {
-                        renderManager.Replace(2, &OverlayMessageLayer{
-                            Message: message,
-                            Index: 2,
-                        })
-                    }
-                    sdl.Do(render)
-                case <-renderNow:
-                    /* Force a rerender */
-                    sdl.Do(render)
-                case <-renderTimer.C:
-                    canRender = true
                 case <-fpsTimer.C:
                     /* FIXME: don't print this while the menu is running */
                     log.Printf("FPS: %v", int(float64(fps) / fpsCounter))
                     fps = 0
+                default:
             }
+
+            fps += 1
+            select {
+                case <-bufferReady:
+                    common.RenderPixelsRGBA(buffer, raw_pixels, nes.OverscanPixels)
+                    bufferImage.WritePixels(raw_pixels)
+                default:
+            }
+
+            var options ebiten.DrawImageOptions
+            screenBounds := screen.Bounds()
+            bufferBounds := bufferImage.Bounds()
+
+            scaleX := float64(screenBounds.Dx()) / float64(bufferBounds.Dx())
+            scaleY := float64(screenBounds.Dy()) / float64(bufferBounds.Dy())
+            scale := min(scaleX, scaleY)
+
+            options.GeoM.Scale(scale, scale)
+
+            xDiff := float64(screenBounds.Dx()) - float64(bufferBounds.Dx()) * scale
+            yDiff := float64(screenBounds.Dy()) - float64(bufferBounds.Dy()) * scale
+
+            options.GeoM.Translate(xDiff / 2, yDiff / 2)
+            screen.DrawImage(bufferImage, &options)
         }
-    }()
+    }
 
     emulatorActions := make(chan common.EmulatorAction, 50)
     emulatorActionsInput := (<-chan common.EmulatorAction)(emulatorActions)
@@ -911,20 +547,15 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     audioActionsInput := (<-chan AudioActions)(audioActions)
     audioActionsOutput := (chan<- AudioActions)(audioActions)
 
-    audioChannel := make(chan []float32, 2)
-    audioInput := (<-chan []float32)(audioChannel)
-    audioOutput := (chan<- []float32)(audioChannel)
-
-    go makeAudioWorker(audioDevice, audioInput, audioActionsInput, mainQuit)()
-
     emulatorKeys := common.LoadEmulatorKeys()
-    input := &common.SDLKeyboardButtons{
+    input := &common.KeyboardButtons{
         Keys: &emulatorKeys,
     }
 
     debugWindow := debug.MakeDebugWindow(mainQuit, font, smallFont)
+    console := MakeConsole(mainCancel, mainQuit, emulatorActionsOutput, nesChannel)
 
-    startNES := func(nesFile nes.NESFile, quit context.Context){
+    startNES := func(nesFile nes.NESFile, quit context.Context, yield coroutine.YieldFunc){
         cpu, err := common.SetupCPU(nesFile, debugCpu, debugPpu)
 
         debugger := debug.MakeDebugger(&cpu, debugWindow)
@@ -978,91 +609,255 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
         }
 
-        renderNes := func(info gfx.RenderInfo) error {
-            return doRenderNesPixels(nes.VideoWidth, nes.VideoHeight-nes.OverscanPixels*2, raw_pixels, pixelFormat, info.Renderer)
-        }
-
-        layer := &DefaultRenderLayer{
-            RenderFunc: renderNes,
-            Index: 0,
-        }
-
-        renderManager.AddLayer(layer)
-        defer renderManager.RemoveLayer(layer)
-
         if err != nil {
             log.Printf("Error: CPU initialization error: %v", err)
             /* The main loop below is waiting for an event so we push the quit event */
-            select {
-                case renderOverlayUpdate <- "Unable to load":
-                default:
-            }
-            common.RunDummyNES(quit, emulatorActionsInput)
+            overlayMessages.Add("Unable to load")
+            // common.RunDummyNES(quit, emulatorActionsInput)
         } else {
             /* make sure no message appears on the screen in front of the nes output */
-            select {
-                case renderOverlayUpdate <- "":
-                default:
-            }
             log.Printf("Run NES")
-            err = common.RunNES(nesFile.Path, &cpu, maxCycles, quit, toDraw, bufferReady, audioOutput, emulatorActionsInput, &screenListeners, renderOverlayUpdate, AudioSampleRate, 1, debugger)
+
+            bufferReady := make(chan bool, 1)
+
+            buffer := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
+
+            engine.PushDraw(makeRenderScreen(bufferReady, buffer), false)
+            defer engine.PopDraw()
+
+            _, fontHeight := text.Measure("A", font, 1)
+            engine.PushDraw(func(screen *ebiten.Image){
+                var textOptions text.DrawOptions
+                textOptions.GeoM.Translate(float64(screen.Bounds().Dx()), float64(screen.Bounds().Dy() - 1))
+                for i := len(overlayMessages.Messages) - 1; i >= 0; i-- {
+                    message := overlayMessages.Messages[i]
+
+                    width, _ := text.Measure(message.Message, font, 1)
+                    textOptions.GeoM.Translate(-width - 1, -float64(fontHeight) - 1)
+
+                    alpha := float32(1.0)
+
+                    textOptions.ColorScale.Reset()
+
+                    elapsed := time.Since(message.Time)
+                    if elapsed > time.Second {
+                        alpha = min(1.0, max(0, float32(1.0 - float32(elapsed - time.Second) / float32(time.Second))))
+                    }
+
+                    textOptions.ColorScale.ScaleAlpha(alpha)
+
+                    text.Draw(screen, message.Message, font, &textOptions)
+
+                    textOptions.GeoM.Translate(width + 1, 0)
+                }
+            }, true)
+            defer engine.PopDraw()
+
+            engine.PushDraw(func(screen *ebiten.Image){
+                console.Render(screen, consoleFont)
+            }, true)
+            defer engine.PopDraw()
+
+            verbose := 1
+
+            musicPlayer, err := audio.NewPlayerF32(cpu.APU.GetAudioStream())
             if err != nil {
-                if err == common.MaxCyclesReached {
-                } else {
-                    log.Printf("Error running NES: %v", err)
+                log.Printf("Warning: could not create audio player: %v", err)
+            } else {
+                musicPlayer.SetBufferSize(time.Millisecond * 50)
+
+                musicPlayer.Play()
+                defer musicPlayer.Pause()
+
+                if ! programActions.IsSoundEnabled() {
+                    musicPlayer.SetVolume(0)
+                }
+            }
+
+            runNes := func(nesYield coroutine.YieldFunc) error {
+                return common.RunNES(nesFile.Path, &cpu, maxCycles, quit, bufferReady, buffer, emulatorActionsInput, &screenListeners, &overlayMessages, AudioSampleRate, verbose, debugger, nesYield)
+            }
+
+            nesCoroutine := coroutine.MakeCoroutine(runNes)
+            defer nesCoroutine.Stop()
+
+            var keys []ebiten.Key
+
+            systemPaused := false
+            audioPaused := 0
+
+            for quit.Err() == nil {
+                select {
+                    case action := <-audioActionsInput:
+                        switch action.(type) {
+                            case *AudioState:
+                                state := action.(*AudioState)
+                                if state.Enabled {
+                                    musicPlayer.SetVolume(1.0)
+                                } else {
+                                    musicPlayer.SetVolume(0)
+                                }
+                        }
+                    default:
                 }
 
-                mainCancel()
+                keys = inpututil.AppendJustPressedKeys(keys[:0])
+
+                // toggling the console could lead to re-enabling it, so check if we should skip normal input
+                skipInput := console.IsActive()
+
+                console.Update(mainCancel, emulatorActionsOutput, nesChannel, keys, emulatorKeys.Console)
+                overlayMessages.Process()
+
+                if !skipInput {
+                    for _, key := range keys {
+                        switch key {
+                            case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                                select {
+                                    case doMenu <- true:
+                                        musicPlayer.Pause()
+                                        audioPaused += 1
+                                        // the menu will launch by virtue of the doMenu channel
+                                        yield()
+                                        audioPaused -= 1
+                                        if audioPaused == 0 {
+                                            musicPlayer.Play()
+                                        }
+                                    default:
+                                        // couldn't launch menu, just abort
+                                        mainCancel()
+                                }
+                                // mainCancel()
+                            case emulatorKeys.Turbo:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
+                                    default:
+                                }
+                            case emulatorKeys.Console:
+                                console.Toggle()
+                            case emulatorKeys.StepFrame:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorStepFrame):
+                                    default:
+                                }
+                            case emulatorKeys.SaveState:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSaveState):
+                                        overlayMessages.Add("Saved state")
+                                    default:
+                                }
+                            case emulatorKeys.LoadState:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorLoadState):
+                                        overlayMessages.Add("Loaded state")
+                                    default:
+                                }
+                            case emulatorKeys.Record:
+                                /*
+                                if recordQuit.Err() == nil {
+                                    recordCancel()
+                                    select {
+                                        case emulatorMessages.ReceiveMessages <- "Stopped recording":
+                                        default:
+                                    }
+                                } else {
+                                    recordCancel()
+
+                                    recordQuit, recordCancel = context.WithCancel(mainQuit)
+                                    err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
+                                    if err != nil {
+                                        log.Printf("Could not record video: %v", err)
+                                    }
+                                    select {
+                                        case emulatorMessages.ReceiveMessages <- "Started recording":
+                                        default:
+                                    }
+                                }
+                                */
+                            case emulatorKeys.Pause:
+                                log.Printf("Pause/unpause")
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePause):
+                                    default:
+                                }
+                                systemPaused = !systemPaused
+                                if systemPaused {
+                                    audioPaused += 1
+                                    musicPlayer.Pause()
+                                } else {
+                                    audioPaused -= 1
+                                    if audioPaused == 0 {
+                                        musicPlayer.Play()
+                                    }
+                                }
+                            case emulatorKeys.PPUDebug:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePPUDebug):
+                                    default:
+                                }
+                            case emulatorKeys.SlowDown:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSlowDown):
+                                    default:
+                                }
+                            case emulatorKeys.SpeedUp:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSpeedUp):
+                                    default:
+                                }
+                            case emulatorKeys.Normal:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
+                                    default:
+                                }
+                            case emulatorKeys.HardReset:
+                                log.Printf("Hard reset")
+                                nesChannel <- &NesActionRestart{}
+                                overlayMessages.Add("Hard reset")
+
+                                /*
+                                nesCoroutine.Stop()
+                                nesCoroutine = coroutine.MakeCoroutine(runNes)
+                                defer nesCoroutine.Stop()
+                                */
+                                return
+                        }
+
+                        input.HandleEvent(key, true)
+                    }
+
+                    keys = inpututil.AppendJustReleasedKeys(keys[:0])
+                    for _, key := range keys {
+                        switch key {
+                            case emulatorKeys.Turbo:
+                                select {
+                                    case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
+                                    default:
+                                }
+                        }
+
+                        input.HandleEvent(key, false)
+                    }
+
+                    joystickManager.Update()
+                }
+
+                err := nesCoroutine.Run()
+                if err != nil {
+                    if err == common.MaxCyclesReached || errors.Is(err, coroutine.CoroutineCancelled) {
+                    } else {
+                        log.Printf("Error running NES: %v", err)
+                    }
+
+                    return
+                }
+
+                if yield() != nil {
+                    return
+                }
             }
         }
     }
-
-    /* runs the nes emulator */
-    waiter.Add(1)
-    go func(){
-        defer waiter.Done()
-
-        var nesWaiter sync.WaitGroup
-        nesQuit, nesCancel := context.WithCancel(mainQuit)
-
-        go common.RunDummyNES(nesQuit, emulatorActionsInput)
-
-        var currentFile nes.NESFile
-
-        for {
-            select {
-                case <-mainQuit.Done():
-                    nesCancel()
-                    return
-                case action := <-nesChannel:
-                    doRestart := false
-                    switch action.(type) {
-                        case *NesActionLoad:
-                            load := action.(*NesActionLoad)
-                            currentFile = load.File
-                            doRestart = true
-                        case *NesActionRestart:
-                            doRestart = true
-                        case *NesActionDebugger:
-                            debugWindow.Open(mainQuit)
-                    }
-
-                    if doRestart && currentFile.Path != "" {
-                        nesCancel()
-                        nesWaiter.Wait()
-                        nesQuit, nesCancel = context.WithCancel(mainQuit)
-
-                        nesWaiter.Add(1)
-                        go func(nesFile nes.NESFile, quit context.Context){
-                            defer nesWaiter.Done()
-                            startNES(nesFile, quit)
-                        }(currentFile, nesQuit)
-                    }
-            }
-        }
-
-        // nesWaiter.Wait()
-    }()
 
     recordQuit, recordCancel := context.WithCancel(mainQuit)
     if recordOnStart {
@@ -1075,24 +870,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         recordCancel()
     }
 
-    /* FIXME: this would be good to do as a generic function.
-     *   reader, writer := makeChannel(common.WindowSize, 2)
-     * Where the reader gets the <-chan and the writer gets the chan<-
-     */
-    /* Notify the menu when the window changes size */
     /*
-    windowSizeUpdates := make(chan common.WindowSize, 10)
-    windowSizeUpdatesInput := (<-chan common.WindowSize)(windowSizeUpdates)
-    windowSizeUpdatesOutput := (chan<- common.WindowSize)(windowSizeUpdates)
-    */
-
-    /* Actions done in the menu that should affect the program */
-    programActions := make(chan common.ProgramActions, 2)
-    programActionsInput := (<-chan common.ProgramActions)(programActions)
-    programActionsOutput := (chan<- common.ProgramActions)(programActions)
-
-    // theMenu := menu.MakeMenu(font, smallFont, mainQuit, renderFuncUpdate, windowSizeUpdatesInput, programActionsOutput)
-
     go func(){
         for {
             select {
@@ -1142,58 +920,15 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
             }
         }
     }()
+    */
 
     /* enable drag/drop events */
-    sdl.Do(func(){
-        sdl.EventState(sdl.DROPFILE, sdl.ENABLE)
-    })
 
-    console := MakeConsole(6, &renderManager, mainCancel, mainQuit, emulatorActionsOutput, nesChannel, renderNow)
-
-    mainWindowId, err := window.GetID()
-    if err != nil {
-        log.Printf("Could not get main window id: %v", err)
-        return err
-    }
-
+    /*
     events := make(chan sdl.Event, 20)
 
     handleOneEvent := func(event sdl.Event){
         switch event.GetType() {
-            case sdl.QUIT: mainCancel()
-            case sdl.WINDOWEVENT:
-                window_event := event.(*sdl.WindowEvent)
-                useWindowId := getWindowIdFromEvent(window_event)
-                switch window_event.Event {
-                    case sdl.WINDOWEVENT_EXPOSED:
-                        if useWindowId == mainWindowId {
-                            select {
-                                case renderNow <- true:
-                                default:
-                            }
-                        } else if debugWindow.IsWindow(useWindowId) {
-                            debugWindow.Redraw()
-                        }
-                    case sdl.WINDOWEVENT_CLOSE:
-                        if useWindowId == mainWindowId {
-                            mainCancel()
-                        } else if debugWindow.IsWindow(useWindowId) {
-                            debugWindow.Close()
-                        }
-                    case sdl.WINDOWEVENT_RESIZED:
-                        // log.Printf("Window resized")
-
-                }
-
-                /*
-                width, height := window.GetSize()
-                / * Not great but tolerate not updating the system when the window changes * /
-                select {
-                    case windowSizeUpdatesOutput <- common.WindowSize{X: int(width), Y: int(height)}:
-                    default:
-                        log.Printf("Warning: dropping a window event")
-                }
-                */
             case sdl.TEXTINPUT, sdl.TEXTEDITING:
                 useWindowId := getWindowIdFromEvent(event)
 
@@ -1242,93 +977,12 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         return
                     }
 
-                    /* Pass input to nes */
+                    / * Pass input to nes * /
                     input.HandleEvent(keyboard_event)
 
                     switch keyboard_event.Keysym.Sym {
                         case emulatorKeys.Console:
                             console.Toggle()
-                        case emulatorKeys.Turbo:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
-                                default:
-                            }
-                        case emulatorKeys.StepFrame:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorStepFrame):
-                                default:
-                            }
-                        case emulatorKeys.SaveState:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSaveState):
-                                    select {
-                                        case emulatorMessages.ReceiveMessages <- "Saved state":
-                                        default:
-                                    }
-                                default:
-                            }
-                        case emulatorKeys.LoadState:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorLoadState):
-                                    select {
-                                        case emulatorMessages.ReceiveMessages <- "Loaded state":
-                                        default:
-                                    }
-                                default:
-                            }
-                        case emulatorKeys.Record:
-                            if recordQuit.Err() == nil {
-                                recordCancel()
-                                select {
-                                    case emulatorMessages.ReceiveMessages <- "Stopped recording":
-                                    default:
-                                }
-                            } else {
-                                recordCancel()
-
-                                recordQuit, recordCancel = context.WithCancel(mainQuit)
-                                err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
-                                if err != nil {
-                                    log.Printf("Could not record video: %v", err)
-                                }
-                                select {
-                                    case emulatorMessages.ReceiveMessages <- "Started recording":
-                                    default:
-                                }
-                            }
-                        case emulatorKeys.Pause:
-                            log.Printf("Pause/unpause")
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePause):
-                                default:
-                            }
-                        case emulatorKeys.PPUDebug:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTogglePPUDebug):
-                                default:
-                            }
-                        case emulatorKeys.SlowDown:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSlowDown):
-                                default:
-                            }
-                        case emulatorKeys.SpeedUp:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSpeedUp):
-                                default:
-                            }
-                        case emulatorKeys.Normal:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
-                                default:
-                            }
-                        case emulatorKeys.HardReset:
-                            log.Printf("Hard reset")
-                            nesChannel <- &NesActionRestart{}
-                            select {
-                                case emulatorMessages.ReceiveMessages <- "Hard reset":
-                                default:
-                            }
                     }
                 } else if debugWindow.IsWindow(useWindowId) {
                     debugWindow.HandleKey(event)
@@ -1356,67 +1010,160 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                 }
         }
     }
+    */
 
-    /* Process events */
-    go func(){
-        for {
-            select {
-                case <-mainQuit.Done():
-                    return
-                case event := <-events:
-                    handleOneEvent(event)
-            }
-        }
-    }()
+    menu := coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
+        nesQuit, nesCancel := context.WithCancel(mainQuit)
 
-    /* This function executes in a sdl.Do context */
-    eventFunction := func(){
-        event := sdl.WaitEventTimeout(1)
-        if event != nil {
-            // log.Printf("Event %+v\n", event)
-            events <- event
-            /*
-            select {
-                case events <- event:
-                default:
-                    log.Printf("Dropping event %+v", event)
-            }
-            */
-        }
-    }
+        defer nesCancel()
 
-    for mainQuit.Err() == nil {
-        select {
-            case <-doMenu:
-                activeMenu := menu.MakeMenu(mainQuit, font)
-                emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
-                activeMenu.Run(window, mainCancel, font, smallFont, programActionsOutput, renderNow, &renderManager, joystickManager, &emulatorKeys)
-                emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
-                select {
-                    case renderNow<-true:
-                    default:
+        var currentFile nes.NESFile
+
+        nesCoroutine := coroutine.MakeCoroutine(func(nesYield coroutine.YieldFunc) error {
+            var textOptions text.DrawOptions
+            engine.PushDraw(func(screen *ebiten.Image){
+                textOptions.GeoM.Reset()
+                textOptions.GeoM.Translate(20, 20)
+                text.Draw(screen, "Drag and drop a rom", font, &textOptions)
+                textOptions.GeoM.Translate(0, 30)
+                text.Draw(screen, "or press Escape/CapsLock to open the menu", font, &textOptions)
+            }, true)
+            defer engine.PopDraw()
+
+            var keys []ebiten.Key
+            for nesQuit.Err() == nil {
+                keys = inpututil.AppendJustPressedKeys(keys[:0])
+                for _, key := range keys {
+                    switch key {
+                        case ebiten.KeyEscape, ebiten.KeyCapsLock:
+                            select {
+                                case doMenu <- true:
+                                default:
+                            }
+                    }
                 }
-            default:
-                sdl.Do(eventFunction)
+
+                common.RunDummyNES(emulatorActionsInput)
+
+                if nesYield() != nil {
+                    return coroutine.CoroutineCancelled
+                }
+            }
+
+            return nil
+        })
+
+        for mainQuit.Err() == nil {
+            joystickManager.Update()
+
+            droppedFiles := ebiten.DroppedFiles()
+            if droppedFiles != nil {
+                entries, err := fs.ReadDir(droppedFiles, ".")
+                if err == nil {
+                    for _, droppedFile := range entries {
+                        func(){
+                            name := droppedFile.Name()
+                            file, err := droppedFiles.Open(name)
+                            if err != nil {
+                                log.Printf("Could not load dropped rom '%v'", name)
+                                return
+                            }
+                            defer file.Close()
+                            nesFile, err := nes.ParseNes(file, true, name)
+                            if err != nil {
+                                log.Printf("Could not load dropped rom '%v'", name)
+                                return
+                            }
+
+                            log.Printf("Loaded rom '%v'", name)
+
+                            select {
+                                case nesChannel <- &NesActionLoad{File: nesFile}:
+                                    overlayMessages.Add("Loaded rom")
+                                default:
+                                    log.Printf("Could not send load rom request for dropped file '%v'", name)
+                            }
+                        }()
+                    }
+                }
+            }
+
+            select {
+                case <-doMenu:
+
+                    activeMenu := menu.MakeMenu(mainQuit, font, audioManager)
+                    // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause)
+                    activeMenu.Run(mainCancel, font, smallFont, &programActions, joystickManager, &emulatorKeys, yield, &engine)
+                    // emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause)
+
+                    select {
+                        case audioActionsOutput <- &AudioState{Enabled: programActions.IsSoundEnabled()}:
+                        default:
+                    }
+
+                    select {
+                        case loadRom := <-programActions.loadRom:
+                            file, err := loadRom.File()
+
+                            if err != nil {
+                                log.Printf("Could not load rom '%v'", loadRom.Name)
+                                break
+                            }
+
+                            nesFile, err := nes.ParseNes(file, true, loadRom.Name)
+                            file.Close()
+                            if err != nil {
+                                log.Printf("Could not load rom '%v'", path)
+                            } else {
+                                log.Printf("Loaded rom '%v'", loadRom.Name)
+                                nesChannel <- &NesActionLoad{File: nesFile}
+                                overlayMessages.Add("Loaded rom")
+                            }
+
+                        default:
+                    }
+
+                case action := <-nesChannel:
+                    doRestart := false
+                    switch action.(type) {
+                        case *NesActionLoad:
+                            load := action.(*NesActionLoad)
+                            currentFile = load.File
+                            doRestart = true
+                        case *NesActionRestart:
+                            doRestart = true
+                        case *NesActionDebugger:
+                            debugWindow.Open(mainQuit)
+                    }
+
+                    if doRestart && currentFile.Path != "" {
+                        nesCancel()
+                        nesQuit, nesCancel = context.WithCancel(mainQuit)
+                        defer nesCancel()
+
+                        nesCoroutine.Stop()
+                        nesCoroutine = coroutine.MakeCoroutine(func(nesYield coroutine.YieldFunc) error {
+                            startNES(currentFile, nesQuit, nesYield)
+                            return nil
+                        })
+                    }
+
+                default:
+            }
+
+            nesCoroutine.Run()
+
+            if yield() != nil {
+                return coroutine.CoroutineCancelled
+            }
         }
-    }
 
-    log.Printf("Waiting to quit..")
-    waiter.Wait()
+        return nil
+    })
 
-    return nil
-}
+    engine.Coroutine = menu
 
-
-func get_pixel_format(format uint32) string {
-    switch format {
-        case sdl.PIXELFORMAT_BGR888: return "BGR888"
-        case sdl.PIXELFORMAT_ARGB8888: return "ARGB8888"
-        case sdl.PIXELFORMAT_RGB888: return "RGB888"
-        case sdl.PIXELFORMAT_RGBA8888: return "RGBA8888"
-    }
-
-    return fmt.Sprintf("%v?", format)
+    return ebiten.RunGame(&engine)
 }
 
 type Arguments struct {
@@ -1543,6 +1290,10 @@ func main(){
         return
     }
 
+    ebiten.SetWindowTitle("NES Emulator")
+    ebiten.SetWindowSize(nes.VideoWidth * arguments.WindowSizeMultiple, (nes.VideoHeight - nes.OverscanPixels * 2) * arguments.WindowSizeMultiple)
+    ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+
     /*
     go func(){
         var stats rdebug.GCStats
@@ -1565,27 +1316,21 @@ func main(){
     }
 
     if nes.IsNESFile(arguments.NESPath) {
-        sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
-            if err != nil {
-                log.Printf("Error: %v\n", err)
-            }
-        })
+        err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
+        if err != nil {
+            log.Printf("Error: %v\n", err)
+        }
     } else if nes.IsNSFFile(arguments.NESPath) {
-        sdl.Main(func (){
-            err := RunNSF(arguments.NESPath)
-            if err != nil {
-                log.Printf("Error: %v\n", err)
-            }
-        })
+        err := RunNSF(arguments.NESPath)
+        if err != nil {
+            log.Printf("Error: %v\n", err)
+        }
     } else {
         /* Open up the loading menu immediately */
-        sdl.Main(func (){
-            err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
-            if err != nil {
-                log.Printf("Error: %v\n", err)
-            }
-        })
+        err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
+        if err != nil {
+            log.Printf("Error: %v\n", err)
+        }
     }
     log.Printf("Bye")
 

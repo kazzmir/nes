@@ -13,6 +13,7 @@ import (
     "compress/gzip"
     "encoding/json"
     nes "github.com/kazzmir/nes/lib"
+    "github.com/kazzmir/nes/lib/coroutine"
     "github.com/kazzmir/nes/cmd/nes/debug"
 )
 
@@ -319,15 +320,19 @@ func loadCpuState(sha256 string) (*nes.CPUState, error) {
     return out.State, nil
 }
 
+type OverlayMessage interface {
+    Add(string)
+}
+
 var MaxCyclesReached error = errors.New("maximum cycles reached")
-func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Context, toDraw chan<- nes.VirtualScreen,
-            bufferReady <-chan nes.VirtualScreen, audio chan<-[]float32,
+func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Context,
+            bufferReady chan<- bool, buffer nes.VirtualScreen,
             emulatorActions <-chan EmulatorAction, screenListeners *ScreenListeners,
-            renderOverlayUpdate chan<- string,
-            sampleRate float32, verbose int, debugger debug.Debugger) error {
+            renderOverlayUpdate OverlayMessage,
+            sampleRate float32, verbose int, debugger debug.Debugger, yield coroutine.YieldFunc) error {
     instructionTable := nes.MakeInstructionDescriptiontable()
 
-    screen := nes.MakeVirtualScreen(256, 240)
+    screen := nes.MakeVirtualScreen(nes.VideoWidth, nes.VideoHeight)
 
     var cycleCounter float64
 
@@ -336,14 +341,16 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
      *
      * anything higher than 1 seems ok, with 10 probably being an upper limit
      */
-    hostTickSpeed := 5
-    cycleDiff := nes.CPUSpeed / (1000.0 / float64(hostTickSpeed))
+    // hostTickSpeed := 5
+    // cycleDiff := nes.CPUSpeed / (1000.0 / float64(hostTickSpeed))
 
     /* about 20.292 */
     baseCyclesPerSample := nes.CPUSpeed / 2 / float64(sampleRate)
 
+    /*
     cycleTimer := time.NewTicker(time.Duration(hostTickSpeed) * time.Millisecond)
     defer cycleTimer.Stop()
+    */
 
     turboMultiplier := float64(1)
 
@@ -380,6 +387,8 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
     cycleCheck := time.NewTicker(time.Second * 2)
     defer cycleCheck.Stop()
     cycleStart := cpu.Cycle
+
+    // buffer := <-bufferReady
 
     for quit.Err() == nil {
         if maxCycles > 0 && cpu.Cycle >= maxCycles {
@@ -438,6 +447,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                         Cycles: cpu.Cycle,
                         Pc: cpu.PC,
                     }
+                    // info.Response had better be a buffered channel
                     select {
                         case info.Response<-data:
                         default:
@@ -447,6 +457,9 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     /* nothing */
                 case EmulatorTurbo:
                     turboMultiplier = 3
+                    if verbose >= 0 {
+                        log.Printf("Emulator speed set to %v", turboMultiplier)
+                    }
                 case EmulatorInfinite:
                     infiniteSpeed = true
                 case EmulatorNormal:
@@ -454,6 +467,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     if verbose > 0 {
                         log.Printf("Emulator speed set to %v", turboMultiplier)
                     }
+                    renderOverlayUpdate.Add("Speed: 1x")
                 case EmulatorSlowDown:
                     turboMultiplier -= 0.1
                     if turboMultiplier < 0.1 {
@@ -462,6 +476,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     if verbose > 0 {
                         log.Printf("Emulator speed set to %v", turboMultiplier)
                     }
+                    renderOverlayUpdate.Add(fmt.Sprintf("Speed: %.1fx", turboMultiplier))
                 case EmulatorStepFrame:
                     stepFrame = !stepFrame
                     if verbose > 0 {
@@ -472,30 +487,22 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     if verbose > 0 {
                         log.Printf("Emulator speed set to %v", turboMultiplier)
                     }
+                    renderOverlayUpdate.Add(fmt.Sprintf("Speed: %.1fx", turboMultiplier))
                 case EmulatorTogglePause:
                     paused = !paused
 
                     message := "Paused"
                     if !paused {
-                        message = ""
+                        message = "Unpaused"
                     }
-                    select {
-                        case renderOverlayUpdate <- message:
-                        default:
-                    }
+                    renderOverlayUpdate.Add(message)
 
                 case EmulatorSetPause:
                     paused = true
-                    select {
-                        case renderOverlayUpdate <- "Paused":
-                        default:
-                    }
+                    renderOverlayUpdate.Add("Paused")
                 case EmulatorUnpause:
                     paused = false
-                    select {
-                        case renderOverlayUpdate <- "":
-                        default:
-                    }
+                    renderOverlayUpdate.Add("Unpaused")
                 case EmulatorTogglePPUDebug:
                     cpu.PPU.ToggleDebug()
                 case EmulatorGetDebugger:
@@ -508,6 +515,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             }
         }
 
+        /*
         for cycleCounter <= 0 {
             select {
                 case <-quit.Done():
@@ -521,6 +529,18 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             if paused {
                 cycleCounter = 0
             }
+        }
+        */
+
+        select {
+            case action := <-emulatorActions:
+                handleAction(action)
+            default:
+        }
+
+        cycleCounter += nes.CPUSpeed / 60 * turboMultiplier
+        if paused {
+            cycleCounter = 0
         }
 
         if debugger != nil {
@@ -543,53 +563,76 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
 
         // log.Printf("Cycle counter %v\n", cycleCounter)
 
-        err := cpu.Run(instructionTable)
-        if err != nil {
-            return err
-        }
-        usedCycles := cpu.Cycle
+        for cycleCounter > 0 {
+            err := cpu.Run(instructionTable)
+            if err != nil {
+                return err
+            }
+            usedCycles := cpu.Cycle
 
-        cycleCounter -= float64(usedCycles - lastCpuCycle)
+            cycleCounter -= float64(usedCycles - lastCpuCycle)
 
-        audioData := cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
+            cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
 
-        if audioData != nil {
-            screenListeners.ObserveAudio(audioData)
+            /*
+            if audioData != nil {
+                screenListeners.ObserveAudio(audioData)
 
-            // log.Printf("Send audio data via channel")
-            select {
-                case audio<- audioData:
-                default:
-                    if verbose > 0 {
-                        log.Printf("Warning: audio falling behind")
-                    }
+                // log.Printf("Send audio data via channel")
+                select {
+                    case audio<- audioData:
+                    default:
+                        if verbose > 0 {
+                            log.Printf("Warning: audio falling behind")
+                        }
+                }
+            }
+            */
+
+            /* ppu runs 3 times faster than cpu */
+            nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen, cpu.Mapper.Mapper)
+
+            if drawn {
+                screenListeners.ObserveVideo(screen)
+
+                buffer.CopyFrom(&screen)
+
+                select {
+                    case bufferReady <- true:
+                    default:
+                }
+
+                /*
+                select {
+                    case buffer := <-bufferReady:
+                        buffer.CopyFrom(&screen)
+
+                        select {
+                            case toDraw <- buffer:
+                            default:
+                        }
+
+                        if stepFrame {
+                            paused = true
+                        }
+                    default:
+                }
+                */
+
+            }
+
+            lastCpuCycle = usedCycles
+
+            if nmi {
+                if cpu.Debug > 0 && verbose > 0 {
+                    log.Printf("Cycle %v Do NMI\n", cpu.Cycle)
+                }
+                cpu.NMI()
             }
         }
 
-        /* ppu runs 3 times faster than cpu */
-        nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen, cpu.Mapper.Mapper)
-
-        if drawn {
-            screenListeners.ObserveVideo(screen)
-
-            select {
-                case buffer := <-bufferReady:
-                    buffer.CopyFrom(&screen)
-                    toDraw <- buffer
-                    if stepFrame {
-                        paused = true
-                    }
-                default:
-            }
-        }
-
-        lastCpuCycle = usedCycles
-
-        if nmi {
-            if cpu.Debug > 0 && verbose > 0 {
-                log.Printf("Cycle %v Do NMI\n", cpu.Cycle)
-            }
-            cpu.NMI()
+        if yield() != nil {
+            return nil
         }
     }
 
@@ -598,18 +641,15 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
     return nil
 }
 
-func RunDummyNES(quit context.Context, actions <-chan EmulatorAction){
-    for {
-        select {
-            case <-quit.Done():
-                return
-            case action := <-actions:
-                switch action.Value() {
-                    case EmulatorGetInfo:
-                        info := action.(EmulatorActionGetInfo)
-                        close(info.Response)
-                }
-        }
+func RunDummyNES(actions <-chan EmulatorAction){
+    select {
+        case action := <-actions:
+            switch action.Value() {
+                case EmulatorGetInfo:
+                    info := action.(EmulatorActionGetInfo)
+                    close(info.Response)
+            }
+        default:
     }
 }
 

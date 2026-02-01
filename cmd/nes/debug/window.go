@@ -3,21 +3,21 @@ package debug
 import (
     "sync"
     "context"
-    "fmt"
-    "time"
+    _ "fmt"
+    _ "time"
     "log"
     "strings"
-    "strconv"
+    _ "strconv"
     nes "github.com/kazzmir/nes/lib"
-    "github.com/kazzmir/nes/cmd/nes/gfx"
-    "github.com/veandco/go-sdl2/sdl"
-    "github.com/veandco/go-sdl2/ttf"
+    // "github.com/kazzmir/nes/cmd/nes/gfx"
+
+    "github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 type WindowRequest any
 
 type WindowRequestWindow struct {
-    Response chan *sdl.Window
+    // Response chan *sdl.Window
 }
 
 type WindowRequestRedraw struct {
@@ -64,8 +64,8 @@ type DebugWindow struct {
     Requests chan WindowRequest
     IsOpen bool
     Wait sync.WaitGroup
-    BigFont *ttf.Font
-    SmallFont *ttf.Font
+    BigFont text.Face
+    SmallFont text.Face
     Line Line
     Instructions []Instruction
     Lock sync.Mutex
@@ -75,7 +75,7 @@ type DebugWindow struct {
     LastCommand string
 }
 
-func MakeDebugWindow(mainQuit context.Context, bigFont *ttf.Font, smallFont *ttf.Font) *DebugWindow {
+func MakeDebugWindow(mainQuit context.Context, bigFont text.Face, smallFont text.Face) *DebugWindow {
     quit, cancel := context.WithCancel(mainQuit)
     debug := DebugWindow{
         Quit: quit,
@@ -141,6 +141,7 @@ func (debug *DebugWindow) SetDebugger(debugger Debugger){
 }
 
 func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc) error {
+    /*
     var window *sdl.Window
     var renderer *sdl.Renderer
     var err error
@@ -269,13 +270,13 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
     redraw <- true
     defer close(redraw)
 
-    /* FIXME: make this atomic */
+    / * FIXME: make this atomic * /
     debug.IsOpen = true
     defer func(){
         debug.IsOpen = false
     }()
 
-    /* Listen for redraw events */
+    / * Listen for redraw events * /
     go func(){
         for {
             select {
@@ -371,10 +372,10 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
         }
     }
 
-    /* Do not make any sdl.Do() calls in this for loop. If sdl.Do is needed then wrap it in
+    / * Do not make any sdl.Do() calls in this for loop. If sdl.Do is needed then wrap it in
      * another go func, e.g.:
      *  go func(){ sdl.Do(...) }
-     */
+     * /
     for {
         select {
             case <-quit.Done():
@@ -384,7 +385,9 @@ func (debug *DebugWindow) doOpen(quit context.Context, cancel context.CancelFunc
         }
     }
 
-    // return nil
+    */
+
+    return nil
 }
 
 func (debug *DebugWindow) IsWindow(windowId uint32) bool {
@@ -392,6 +395,7 @@ func (debug *DebugWindow) IsWindow(windowId uint32) bool {
         return false
     }
 
+    /*
     request := WindowRequestWindow{
         Response: make(chan *sdl.Window),
     }
@@ -403,6 +407,7 @@ func (debug *DebugWindow) IsWindow(windowId uint32) bool {
             return id == windowId
         }
     }
+    */
     return false
 }
 
@@ -437,6 +442,7 @@ func (debug *DebugWindow) Redraw() {
     }
 }
 
+/*
 func (debug *DebugWindow) HandleText(event sdl.Event){
     switch event.GetType() {
         case sdl.TEXTINPUT:
@@ -448,11 +454,15 @@ func (debug *DebugWindow) HandleText(event sdl.Event){
             debug.Requests <- message
     }
 }
+*/
 
+/*
 func hasLeftControlKey(event *sdl.KeyboardEvent) bool {
     return (event.Keysym.Mod & sdl.KMOD_LCTRL) == sdl.KMOD_LCTRL
 }
+*/
 
+/*
 func (debug *DebugWindow) HandleKey(event sdl.Event){
     if !debug.IsOpen {
         return
@@ -495,3 +505,4 @@ func (debug *DebugWindow) HandleKey(event sdl.Event){
         case sdl.KEYUP:
     }
 }
+*/

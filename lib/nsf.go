@@ -240,11 +240,11 @@ func (mapper *NSFMapper) Kind() int {
     return -1
 }
 
-func MakeNSFMapper(data []byte, loadAddress uint16, banks []byte, extraSoundChip byte) *NSFMapper {
+func MakeNSFMapper(data []byte, loadAddress uint16, banks []byte, extraSoundChip byte, audioStream *AudioStream) *NSFMapper {
     var vrc6 *VRC6Audio
 
     if extraSoundChip & 0x1 != 0 {
-        vrc6 = MakeVRC6Audio()
+        vrc6 = MakeVRC6Audio(audioStream)
     }
 
     return &NSFMapper{
@@ -294,11 +294,13 @@ func mixAudio(audio1 []float32, audio2 []float32) []float32 {
  * 2. invoke INIT routine
  * 3. repeatedly invoke PLAY routine, followed by a nop loop until the play timer fires
  */
-func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float32, actions chan NSFActions, mainQuit context.Context) error {
+func PlayNSF(nsf NSFFile, track byte, audioStreamOut chan *AudioStream, sampleRate float32, actions chan NSFActions, mainQuit context.Context, maxCycles uint64) error {
     cpu := StartupState()
-    nsfMapper := MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, 8), nsf.ExtraSoundChip)
+    nsfMapper := MakeNSFMapper(nsf.Data, nsf.LoadAddress, make([]byte, 8), nsf.ExtraSoundChip, cpu.APU.GetAudioStream())
     cpu.SetMapper(nsfMapper)
     cpu.Input = MakeInput(&NoInput{})
+
+    audioStreamOut <- cpu.APU.GetAudioStream()
 
     // cpu.A = track
     cpu.X = 0 // ntsc or pal
@@ -352,20 +354,21 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
     defer playTimer.Stop()
 
     lastCpuCycle := cpu.Cycle
-    var maxCycles uint64 = 0
 
     quit, cancel := context.WithCancel(mainQuit)
     paused := false
     _ = cancel
 
     doAudio := func (cpuCycles float64) {
-        audioData := cpu.APU.Run(cpuCycles / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
+        cpu.APU.Run(cpuCycles / 2.0, turboMultiplier * baseCyclesPerSample, &cpu)
         // audioData = nil
         if nsfMapper.VRC6 != nil {
-            vrc6Audio := nsfMapper.VRC6.Run(cpuCycles, baseCyclesPerSample * 2)
-            audioData = mixAudio(audioData, vrc6Audio)
+            nsfMapper.VRC6.Run(cpuCycles, baseCyclesPerSample * 2)
+            // FIXME
+            // audioData = mixAudio(audioData, vrc6Audio)
         }
 
+        /*
         if audioData != nil {
             // log.Printf("Audio data: %v", audioData)
             select {
@@ -373,6 +376,7 @@ func PlayNSF(nsf NSFFile, track byte, audioOut chan []float32, sampleRate float3
                 default:
             }
         }
+        */
     }
 
     runFunction := func (address uint16) error {
