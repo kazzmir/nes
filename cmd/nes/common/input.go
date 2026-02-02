@@ -79,18 +79,22 @@ func (manager *JoystickManager) Update() []EmulatorActionValue {
 }
 
 func (manager *JoystickManager) NextJoystick() {
-    index := slices.Index(manager.JoystickOrder, manager.Player1.gamepad)
-    if index >= 0 {
-        index = (index + 1) % len(manager.JoystickOrder)
-        manager.Player1 = manager.Joysticks[manager.JoystickOrder[index]]
+    if manager.Player1 != nil {
+        index := slices.Index(manager.JoystickOrder, manager.Player1.gamepad)
+        if index >= 0 {
+            index = (index + 1) % len(manager.JoystickOrder)
+            manager.Player1 = manager.Joysticks[manager.JoystickOrder[index]]
+        }
     }
 }
 
 func (manager *JoystickManager) PreviousJoystick() {
-    index := slices.Index(manager.JoystickOrder, manager.Player1.gamepad)
-    if index >= 0 {
-        index = (index - 1 + len(manager.JoystickOrder)) % len(manager.JoystickOrder)
-        manager.Player1 = manager.Joysticks[manager.JoystickOrder[index]]
+    if manager.Player1 != nil {
+        index := slices.Index(manager.JoystickOrder, manager.Player1.gamepad)
+        if index >= 0 {
+            index = (index - 1 + len(manager.JoystickOrder)) % len(manager.JoystickOrder)
+            manager.Player1 = manager.Joysticks[manager.JoystickOrder[index]]
+        }
     }
 }
 
