@@ -287,10 +287,24 @@ type JoystickAxisType struct {
     Value int
     Name string
     Pressed bool
+    Zero float64
+}
+
+func abs(x float64) float64 {
+    if x < 0 {
+        return -x
+    }
+
+    return x
 }
 
 func (axis *JoystickAxisType) Update(gamepad ebiten.GamepadID){
-    // FIXME
+    value := ebiten.GamepadAxisValue(gamepad, axis.Axis)
+    if abs(value - float64(axis.Value)) < 0.1 {
+        axis.Pressed = true
+    } else {
+        axis.Pressed = false
+    }
 }
 
 func (axis *JoystickAxisType) IsPressed() bool {
@@ -516,7 +530,41 @@ func (menu *JoystickMenu) RawInput(event sdl.Event){
 
 func (menu *JoystickMenu) DoConfigure(joystick *common.JoystickButtons, yield coroutine.YieldFunc, buttonList []string) {
 
-    for _, button := range buttonList {
+    totalAxis := ebiten.GamepadAxisCount(joystick.GetGamepadID())
+
+    type AxisInfo struct {
+        Time time.Time
+        Value float64
+    }
+
+    abs := func(a float64) float64 {
+        if a < 0 {
+            return -a
+        }
+        return a
+    }
+
+    // what values the axis has when centered (untouched)
+    // most are 0, but some buttons start at either -1 or 1
+    axisZero := make(map[int]float64)
+
+    count := 10
+
+    for range count {
+        for axis := range totalAxis {
+            value := ebiten.GamepadAxisValue(joystick.GetGamepadID(), axis)
+            axisZero[axis] += value
+        }
+
+        yield()
+    }
+
+    for key, value := range axisZero {
+        axisZero[key] = value / float64(count)
+    }
+
+    configureButton := func(button string) bool {
+        axisValues := make(map[int]AxisInfo)
         var lastTime time.Time
         lastButton := ebiten.GamepadButton(-1)
         log.Printf("Configuring button '%v'", button)
@@ -537,12 +585,52 @@ func (menu *JoystickMenu) DoConfigure(joystick *common.JoystickButtons, yield co
             if lastButton != ebiten.GamepadButton(-1) && time.Since(lastTime) > 700 * time.Millisecond {
                 menu.Mapping.AddButtonMapping(button, lastButton)
                 menu.ConfigureButton += 1
-                break
+                return true
+            }
+
+            for axis := range totalAxis {
+                value := ebiten.GamepadAxisValue(joystick.GetGamepadID(), axis)
+                if abs(value - axisZero[axis]) > 0.5 {
+                    previous, ok := axisValues[axis]
+                    if ok {
+                        diff := abs(previous.Value - value)
+
+                        if diff < 0.2 {
+                            if time.Since(previous.Time) > 700 * time.Millisecond {
+                                menu.Mapping.AddAxisMapping(button, JoystickAxisType{
+                                    Axis: int(axis),
+                                    Value: int(value),
+                                    Name: button,
+                                    Pressed: false,
+                                    Zero: axisZero[axis],
+                                })
+                                menu.ConfigureButton += 1
+
+                                log.Printf("Configured button '%v' to axis %v value %v", button, axis, value)
+                                return true
+                            }
+                        } else {
+                            previous.Time = time.Now()
+                            previous.Value = value
+                            axisValues[axis] = previous
+                        }
+                    } else {
+                        previous.Time = time.Now()
+                        previous.Value = value
+                        axisValues[axis] = previous
+                    }
+                }
             }
 
             if yield() != nil {
-                return
+                return false
             }
+        }
+    }
+
+    for _, button := range buttonList {
+        if !configureButton(button) {
+            return
         }
     }
 
@@ -822,6 +910,16 @@ func (joystickMenu *JoystickMenu) UpdateMapping() {
             if ok {
                 joystickMenu.Mapping.AddButtonMapping(name, realButton.Button)
             }
+
+            realAxis, ok := input.(*common.JoystickAxis)
+            if ok {
+                joystickMenu.Mapping.AddAxisMapping(name, JoystickAxisType{
+                    Axis: realAxis.Axis,
+                    Value: realAxis.Value,
+                    Name: name,
+                    Pressed: false,
+                })
+            }
         }
 
         turboA, ok := joystick.TurboA.(*common.JoystickButton)
@@ -829,9 +927,29 @@ func (joystickMenu *JoystickMenu) UpdateMapping() {
             joystickMenu.Mapping.AddButtonMapping("Turbo A", turboA.Button)
         }
 
+        turboA_axis, ok := joystick.TurboA.(*common.JoystickAxis)
+        if ok {
+            joystickMenu.Mapping.AddAxisMapping("Turbo A", JoystickAxisType{
+                Axis: turboA_axis.Axis,
+                Value: turboA_axis.Value,
+                Name: "Turbo A",
+                Pressed: false,
+            })
+        }
+
         turboB, ok := joystick.TurboB.(*common.JoystickButton)
         if ok {
             joystickMenu.Mapping.AddButtonMapping("Turbo B", turboB.Button)
+        }
+
+        turboB_axis, ok := joystick.TurboB.(*common.JoystickAxis)
+        if ok {
+            joystickMenu.Mapping.AddAxisMapping("Turbo B", JoystickAxisType{
+                Axis: turboB_axis.Axis,
+                Value: turboB_axis.Value,
+                Name: "Turbo B",
+                Pressed: false,
+            })
         }
 
         for action, input := range joystick.ExtraInputs {
@@ -839,6 +957,16 @@ func (joystickMenu *JoystickMenu) UpdateMapping() {
             realButton, ok := input.(*common.JoystickButton)
             if ok {
                 joystickMenu.Mapping.AddButtonMapping(name, realButton.Button)
+            }
+
+            realAxis, ok := input.(*common.JoystickAxis)
+            if ok {
+                joystickMenu.Mapping.AddAxisMapping(name, JoystickAxisType{
+                    Axis: realAxis.Axis,
+                    Value: realAxis.Value,
+                    Name: name,
+                    Pressed: false,
+                })
             }
         }
     }

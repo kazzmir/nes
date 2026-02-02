@@ -31,7 +31,7 @@ func NewJoystickManager() *JoystickManager {
     return &manager
 }
 
-func (manager *JoystickManager) Update() []EmulatorActionValue {
+func (manager *JoystickManager) ScanForJoysticks() {
     loadedConfig := false
     var configData ConfigData
 
@@ -62,13 +62,15 @@ func (manager *JoystickManager) Update() []EmulatorActionValue {
         manager.JoystickOrder = append(manager.JoystickOrder, gamepadId)
     }
 
+    // FIXME: also handle removed joysticks
+
     if manager.Player1 == nil && len(manager.Joysticks) > 0 {
         // choose a random one
         manager.Player1 = manager.Joysticks[manager.JoystickOrder[0]]
     }
+}
 
-    // FIXME: also handle removed joysticks
-
+func (manager *JoystickManager) Update() []EmulatorActionValue {
     if manager.Player1 != nil {
         return manager.Player1.Update()
     }
@@ -358,6 +360,7 @@ func (button *JoystickButton) Serialize() string {
 type JoystickAxis struct {
     Axis int
     Value int
+    active bool
 }
 
 func (axis *JoystickAxis) Serialize() string {
@@ -515,6 +518,15 @@ func (joystick *JoystickButtons) Update() []EmulatorActionValue {
         justReleased[release] = true
     }
 
+    activatedAxis := func(input *JoystickAxis) bool {
+        value := ebiten.GamepadAxisValue(joystick.gamepad, input.Axis)
+        if (input.Value < 0 && value < -0.5) || (input.Value > 0 && value > 0.5) {
+            return true
+        } else {
+            return false
+        }
+    }
+
     for nesButton, button := range joystick.Inputs {
         realButton, ok := button.(*JoystickButton)
         if ok {
@@ -524,6 +536,11 @@ func (joystick *JoystickButtons) Update() []EmulatorActionValue {
             if justReleased[realButton.Button] {
                 joystick.Pressed[nesButton] = false
             }
+        }
+
+        realAxis, ok := button.(*JoystickAxis)
+        if ok {
+            joystick.Pressed[nesButton] = activatedAxis(realAxis)
         }
     }
 
@@ -537,15 +554,25 @@ func (joystick *JoystickButtons) Update() []EmulatorActionValue {
             joystick.TurboAPressed = false
             joystick.Pressed[nes.ButtonIndexA] = false
         }
+    }
 
-        if joystick.TurboAPressed {
-            joystick.TurboACounter += 1
-            if joystick.TurboACounter > 5 {
-                joystick.Pressed[nes.ButtonIndexA] = !joystick.Pressed[nes.ButtonIndexA]
-                joystick.TurboACounter = 0
-            }
+    turboA_axis, ok := joystick.TurboA.(*JoystickAxis)
+    if ok && turboA_axis != nil {
+        joystick.TurboAPressed = activatedAxis(turboA_axis)
+
+        if turboA_axis.active && !joystick.TurboAPressed {
+            joystick.Pressed[nes.ButtonIndexA] = false
         }
 
+        turboA_axis.active = joystick.TurboAPressed
+    }
+
+    if joystick.TurboAPressed {
+        joystick.TurboACounter += 1
+        if joystick.TurboACounter > 5 {
+            joystick.Pressed[nes.ButtonIndexA] = !joystick.Pressed[nes.ButtonIndexA]
+            joystick.TurboACounter = 0
+        }
     }
 
     turboB, ok := joystick.TurboB.(*JoystickButton)
@@ -558,13 +585,24 @@ func (joystick *JoystickButtons) Update() []EmulatorActionValue {
             joystick.TurboBPressed = false
             joystick.Pressed[nes.ButtonIndexB] = false
         }
+    }
 
-        if joystick.TurboBPressed {
-            joystick.TurboBCounter += 1
-            if joystick.TurboBCounter > 5 {
-                joystick.Pressed[nes.ButtonIndexB] = !joystick.Pressed[nes.ButtonIndexB]
-                joystick.TurboBCounter = 0
-            }
+    turboB_axis, ok := joystick.TurboB.(*JoystickAxis)
+    if ok && turboB_axis != nil {
+        joystick.TurboBPressed = activatedAxis(turboB_axis)
+
+        if turboB_axis.active && !joystick.TurboBPressed {
+            joystick.Pressed[nes.ButtonIndexB] = false
+        }
+
+        turboB_axis.active = joystick.TurboBPressed
+    }
+
+    if joystick.TurboBPressed {
+        joystick.TurboBCounter += 1
+        if joystick.TurboBCounter > 5 {
+            joystick.Pressed[nes.ButtonIndexB] = !joystick.Pressed[nes.ButtonIndexB]
+            joystick.TurboBCounter = 0
         }
     }
 
@@ -579,6 +617,21 @@ func (joystick *JoystickButtons) Update() []EmulatorActionValue {
                 actions = append(actions, EmulatorNormal)
             }
         }
+
+        realAxis, ok := turboInput.(*JoystickAxis)
+        if ok {
+            active := activatedAxis(realAxis)
+
+            if !realAxis.active && active {
+                actions = append(actions, EmulatorTurbo)
+            }
+
+            if realAxis.active && !active {
+                actions = append(actions, EmulatorNormal)
+            }
+
+            realAxis.active = active
+        }
     }
 
     pauseInput, ok := joystick.ExtraInputs[EmulatorTogglePause]
@@ -589,6 +642,17 @@ func (joystick *JoystickButtons) Update() []EmulatorActionValue {
                 actions = append(actions, EmulatorTogglePause)
             }
         }
+    }
+
+    pauseAxis, ok := pauseInput.(*JoystickAxis)
+    if ok {
+        active := activatedAxis(pauseAxis)
+
+        if !pauseAxis.active && active {
+            actions = append(actions, EmulatorTogglePause)
+        }
+
+        pauseAxis.active = active
     }
 
     return actions
