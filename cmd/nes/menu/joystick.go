@@ -261,12 +261,17 @@ func (mapping *JoystickButtonMapping) IsPressed(name string) bool {
 type JoystickInputType interface {
     IsPressed() bool
     ToString() string
+    Update(ebiten.GamepadID)
 }
 
 type JoystickButtonType struct {
     Button ebiten.GamepadButton
     Name string
     Pressed bool
+}
+
+func (button *JoystickButtonType) Update(gamepad ebiten.GamepadID) {
+    button.Pressed = ebiten.IsGamepadButtonPressed(gamepad, button.Button)
 }
 
 func (button *JoystickButtonType) IsPressed() bool {
@@ -282,6 +287,10 @@ type JoystickAxisType struct {
     Value int
     Name string
     Pressed bool
+}
+
+func (axis *JoystickAxisType) Update(gamepad ebiten.GamepadID){
+    // FIXME
 }
 
 func (axis *JoystickAxisType) IsPressed() bool {
@@ -541,6 +550,18 @@ func (menu *JoystickMenu) DoConfigure(joystick *common.JoystickButtons, yield co
 }
 
 func (menu *JoystickMenu) Update(){
+
+    if menu.JoystickManager.Player1 != nil {
+        gamepadID := menu.JoystickManager.Player1.GetGamepadID()
+        for _, input := range menu.Mapping.Inputs {
+            input.Update(gamepadID)
+        }
+
+        for _, input := range menu.Mapping.ExtraInputs {
+            input.Update(gamepadID)
+        }
+    }
+
     if menu.ConfigureCoroutine != nil {
         menu.ConfigureCoroutine.Run()
         if !menu.Configuring {
@@ -840,18 +861,6 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
         ConfigurePrevious: nil,
         JoystickManager: joystickManager,
     }
-
-    /* playstation 3 mapping */
-    /*
-    menu.Mapping.AddButtonMapping("Up", 13)
-    menu.Mapping.AddButtonMapping("Down", 14)
-    menu.Mapping.AddButtonMapping("Left", 15)
-    menu.Mapping.AddButtonMapping("Right", 16)
-    menu.Mapping.AddButtonMapping("A", 0) // X
-    menu.Mapping.AddButtonMapping("B", 3) // square
-    menu.Mapping.AddButtonMapping("Select", 8)
-    menu.Mapping.AddButtonMapping("Start", 9)
-    */
 
     menu.UpdateMapping()
 
