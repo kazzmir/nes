@@ -235,6 +235,15 @@ func (mapping *JoystickButtonMapping) ExtraButtonList() []string {
     return []string{"Fast emulation", "Turbo A", "Turbo B", "Pause/Unpause Emulator"}
 }
 
+func actionName(action common.EmulatorActionValue) string {
+    switch action {
+        case common.EmulatorTurbo: return "Fast emulation"
+        case common.EmulatorTogglePause: return "Pause/Unpause Emulator"
+    }
+
+    return ""
+}
+
 func (mapping *JoystickButtonMapping) IsPressed(name string) bool {
     input, ok := mapping.Inputs[name]
     if ok && input.IsPressed(){
@@ -774,23 +783,44 @@ func (menu *JoystickMenu) MakeRenderer(font text.Face, smallFont text.Face, cloc
     }
 }
 
-func forkJoystickInput(channel <-chan JoystickState) (<-chan JoystickState, <-chan JoystickState){
-    /* FIXME: pass in the buffer size as an argument? */
-    copy1 := make(chan JoystickState, 5)
-    copy2 := make(chan JoystickState, 5)
+func (joystickMenu *JoystickMenu) UpdateMapping() {
+    joystickMenu.Lock.Lock()
+    defer joystickMenu.Lock.Unlock()
 
+    joystickMenu.Mapping = JoystickButtonMapping{
+        Inputs: make(map[string]JoystickInputType),
+        ExtraInputs: make(map[string]JoystickInputType),
+    }
 
-    go func(){
-        defer close(copy1)
-        defer close(copy2)
+    joystick := joystickMenu.JoystickManager.Player1
+    if joystick != nil {
+        for button, input := range joystick.Inputs {
+            name := nes.ButtonName(button)
 
-        for input := range channel {
-            copy1 <- input
-            copy2 <- input
+            realButton, ok := input.(*common.JoystickButton)
+            if ok {
+                joystickMenu.Mapping.AddButtonMapping(name, realButton.Button)
+            }
         }
-    }()
 
-    return copy1, copy2
+        turboA, ok := joystick.TurboA.(*common.JoystickButton)
+        if ok {
+            joystickMenu.Mapping.AddButtonMapping("Turbo A", turboA.Button)
+        }
+
+        turboB, ok := joystick.TurboB.(*common.JoystickButton)
+        if ok {
+            joystickMenu.Mapping.AddButtonMapping("Turbo B", turboB.Button)
+        }
+
+        for action, input := range joystick.ExtraInputs {
+            name := actionName(action)
+            realButton, ok := input.(*common.JoystickButton)
+            if ok {
+                joystickMenu.Mapping.AddButtonMapping(name, realButton.Button)
+            }
+        }
+    }
 }
 
 func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState, joystickManager *common.JoystickManager, audioManager AudioManager) SubMenu {
@@ -812,6 +842,7 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
     }
 
     /* playstation 3 mapping */
+    /*
     menu.Mapping.AddButtonMapping("Up", 13)
     menu.Mapping.AddButtonMapping("Down", 14)
     menu.Mapping.AddButtonMapping("Left", 15)
@@ -820,8 +851,9 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
     menu.Mapping.AddButtonMapping("B", 3) // square
     menu.Mapping.AddButtonMapping("Select", 8)
     menu.Mapping.AddButtonMapping("Start", 9)
+    */
 
-    // copy1, copy2 := forkJoystickInput(joystickStateChanges)
+    menu.UpdateMapping()
 
     go func(){
         for stateChange := range joystickStateChanges {
@@ -869,10 +901,12 @@ func MakeJoystickMenu(parent SubMenu, joystickStateChanges <-chan JoystickState,
     menu.Buttons.Add(&MenuNextLine{})
     menu.Buttons.Add(&SubMenuButton{Name: "Previous Joystick", Func: func() SubMenu {
         joystickManager.PreviousJoystick()
+        menu.UpdateMapping()
         return menu
     }})
     menu.Buttons.Add(&SubMenuButton{Name: "Next Joystick", Func: func() SubMenu {
         joystickManager.NextJoystick()
+        menu.UpdateMapping()
         return menu
     }})
     menu.Buttons.Add(&MenuNextLine{})
