@@ -31,7 +31,10 @@ func NewJoystickManager() *JoystickManager {
     return &manager
 }
 
-func (manager *JoystickManager) Update() {
+func (manager *JoystickManager) ScanForJoysticks() {
+    loadedConfig := false
+    var configData ConfigData
+
     gamepadIds := inpututil.AppendJustConnectedGamepadIDs(nil)
     for _, gamepadId := range gamepadIds {
         _, exists := manager.Joysticks[gamepadId]
@@ -45,22 +48,34 @@ func (manager *JoystickManager) Update() {
             continue
         }
 
+        if !loadedConfig {
+            loadedConfig = true
+            configData, err = LoadConfigData()
+            if err == nil {
+                input.Load(configData.Player1Joystick)
+            }
+        }
+
         log.Printf("Found joystick: %v\n", input.Name)
 
         manager.Joysticks[gamepadId] = input
         manager.JoystickOrder = append(manager.JoystickOrder, gamepadId)
     }
 
+    // FIXME: also handle removed joysticks
+
     if manager.Player1 == nil && len(manager.Joysticks) > 0 {
         // choose a random one
         manager.Player1 = manager.Joysticks[manager.JoystickOrder[0]]
     }
+}
 
-    // FIXME: also handle removed joysticks
-
+func (manager *JoystickManager) Update() []EmulatorActionValue {
     if manager.Player1 != nil {
-        manager.Player1.Update()
+        return manager.Player1.Update()
     }
+
+    return nil
 }
 
 func (manager *JoystickManager) NextJoystick() {
@@ -110,6 +125,26 @@ func (manager *JoystickManager) SaveInput() error {
             Right: manager.Player1.Inputs[nes.ButtonIndexRight].Serialize(),
             Guid: ebiten.GamepadSDLID(manager.Player1.gamepad),
             Name: strings.TrimSpace(manager.Player1.Name),
+        }
+
+        turboA := manager.Player1.TurboA
+        if turboA != nil {
+            data.Player1Joystick.TurboA = turboA.Serialize()
+        }
+
+        turboB := manager.Player1.TurboB
+        if turboB != nil {
+            data.Player1Joystick.TurboB = turboB.Serialize()
+        }
+
+        turboButton, ok := manager.Player1.ExtraInputs[EmulatorTurbo]
+        if ok {
+            data.Player1Joystick.Turbo = turboButton.Serialize()
+        }
+
+        pauseButton, ok := manager.Player1.ExtraInputs[EmulatorTogglePause]
+        if ok {
+            data.Player1Joystick.Pause = pauseButton.Serialize()
         }
 
         return SaveConfigData(data)
@@ -325,19 +360,82 @@ func (button *JoystickButton) Serialize() string {
 type JoystickAxis struct {
     Axis int
     Value int
+    active bool
 }
 
 func (axis *JoystickAxis) Serialize() string {
     return fmt.Sprintf("axis=%v value=%v", axis.Axis, axis.Value)
 }
 
+func DeserializeJoystickInput(data string) JoystickInput {
+    if strings.HasPrefix(data, "axis=") {
+        var axis int
+        var value int
+        n, err := fmt.Sscanf(data, "axis=%d value=%d", &axis, &value)
+        if err == nil && n == 2 {
+            return &JoystickAxis{
+                Axis: axis,
+                Value: value,
+            }
+        }
+
+        return nil
+    }
+
+    var button ebiten.GamepadButton
+    n, err := fmt.Sscanf(data, "%d", &button)
+    if err == nil && n == 1 {
+        return &JoystickButton{
+            Button: button,
+        }
+    }
+
+    return nil
+}
+
 type JoystickButtons struct {
     gamepad ebiten.GamepadID
     Inputs map[nes.Button]JoystickInput // normal nes buttons
+    TurboA JoystickInput
+    TurboB JoystickInput
+    TurboAPressed bool
+    TurboBPressed bool
+    TurboACounter int
+    TurboBCounter int
     ExtraInputs map[EmulatorActionValue]JoystickInput // extra emulator-only buttons
     Pressed nes.ButtonMapping
     Lock sync.Mutex
     Name string
+}
+
+func (buttons *JoystickButtons) Load(data ConfigJoystickData) {
+    if data.Guid != ebiten.GamepadSDLID(buttons.gamepad) {
+        return
+    }
+
+    buttons.Inputs[nes.ButtonIndexA] = DeserializeJoystickInput(data.A)
+    buttons.Inputs[nes.ButtonIndexB] = DeserializeJoystickInput(data.B)
+    buttons.Inputs[nes.ButtonIndexSelect] = DeserializeJoystickInput(data.Select)
+    buttons.Inputs[nes.ButtonIndexStart] = DeserializeJoystickInput(data.Start)
+    buttons.Inputs[nes.ButtonIndexUp] = DeserializeJoystickInput(data.Up)
+    buttons.Inputs[nes.ButtonIndexDown] = DeserializeJoystickInput(data.Down)
+    buttons.Inputs[nes.ButtonIndexLeft] = DeserializeJoystickInput(data.Left)
+    buttons.Inputs[nes.ButtonIndexRight] = DeserializeJoystickInput(data.Right)
+
+    if data.TurboA != "" {
+        buttons.TurboA = DeserializeJoystickInput(data.TurboA)
+    }
+
+    if data.TurboB != "" {
+        buttons.TurboB = DeserializeJoystickInput(data.TurboB)
+    }
+
+    if data.Turbo != "" {
+        buttons.ExtraInputs[EmulatorTurbo] = DeserializeJoystickInput(data.Turbo)
+    }
+    if data.Pause != "" {
+        buttons.ExtraInputs[EmulatorTogglePause] = DeserializeJoystickInput(data.Pause)
+    }
 }
 
 type IControlPad struct {
@@ -393,12 +491,18 @@ func OpenJoystick(gamepad ebiten.GamepadID) (*JoystickButtons, error){
         buttons.Inputs[nes.ButtonIndexB] = &JoystickButton{Button: ebiten.GamepadButton3} // square
         buttons.Inputs[nes.ButtonIndexSelect] = &JoystickButton{Button: ebiten.GamepadButton8}
         buttons.Inputs[nes.ButtonIndexStart] = &JoystickButton{Button: ebiten.GamepadButton9}
+        buttons.TurboA = &JoystickButton{Button: ebiten.GamepadButton2} // circle
+        buttons.TurboB = &JoystickButton{Button: ebiten.GamepadButton1} // triangle
+        buttons.ExtraInputs[EmulatorTurbo] = &JoystickButton{Button: ebiten.GamepadButton10} // L1
+        buttons.ExtraInputs[EmulatorTogglePause] = &JoystickButton{Button: ebiten.GamepadButton12} // PS
     }
 
     return &buttons, nil
 }
 
-func (joystick *JoystickButtons) Update() {
+func (joystick *JoystickButtons) Update() []EmulatorActionValue {
+
+    var actions []EmulatorActionValue
 
     justPressed := make(map[ebiten.GamepadButton]bool)
 
@@ -414,6 +518,15 @@ func (joystick *JoystickButtons) Update() {
         justReleased[release] = true
     }
 
+    activatedAxis := func(input *JoystickAxis) bool {
+        value := ebiten.GamepadAxisValue(joystick.gamepad, input.Axis)
+        if (input.Value < 0 && value < -0.5) || (input.Value > 0 && value > 0.5) {
+            return true
+        } else {
+            return false
+        }
+    }
+
     for nesButton, button := range joystick.Inputs {
         realButton, ok := button.(*JoystickButton)
         if ok {
@@ -424,7 +537,125 @@ func (joystick *JoystickButtons) Update() {
                 joystick.Pressed[nesButton] = false
             }
         }
+
+        realAxis, ok := button.(*JoystickAxis)
+        if ok {
+            joystick.Pressed[nesButton] = activatedAxis(realAxis)
+        }
     }
+
+    turboA, ok := joystick.TurboA.(*JoystickButton)
+    if ok && turboA != nil {
+        if justPressed[turboA.Button] {
+            joystick.TurboAPressed = true
+        }
+
+        if justReleased[turboA.Button] {
+            joystick.TurboAPressed = false
+            joystick.Pressed[nes.ButtonIndexA] = false
+        }
+    }
+
+    turboA_axis, ok := joystick.TurboA.(*JoystickAxis)
+    if ok && turboA_axis != nil {
+        joystick.TurboAPressed = activatedAxis(turboA_axis)
+
+        if turboA_axis.active && !joystick.TurboAPressed {
+            joystick.Pressed[nes.ButtonIndexA] = false
+        }
+
+        turboA_axis.active = joystick.TurboAPressed
+    }
+
+    if joystick.TurboAPressed {
+        joystick.TurboACounter += 1
+        if joystick.TurboACounter > 5 {
+            joystick.Pressed[nes.ButtonIndexA] = !joystick.Pressed[nes.ButtonIndexA]
+            joystick.TurboACounter = 0
+        }
+    }
+
+    turboB, ok := joystick.TurboB.(*JoystickButton)
+    if ok && turboB != nil {
+        if justPressed[turboB.Button] {
+            joystick.TurboBPressed = true
+        }
+
+        if justReleased[turboB.Button] {
+            joystick.TurboBPressed = false
+            joystick.Pressed[nes.ButtonIndexB] = false
+        }
+    }
+
+    turboB_axis, ok := joystick.TurboB.(*JoystickAxis)
+    if ok && turboB_axis != nil {
+        joystick.TurboBPressed = activatedAxis(turboB_axis)
+
+        if turboB_axis.active && !joystick.TurboBPressed {
+            joystick.Pressed[nes.ButtonIndexB] = false
+        }
+
+        turboB_axis.active = joystick.TurboBPressed
+    }
+
+    if joystick.TurboBPressed {
+        joystick.TurboBCounter += 1
+        if joystick.TurboBCounter > 5 {
+            joystick.Pressed[nes.ButtonIndexB] = !joystick.Pressed[nes.ButtonIndexB]
+            joystick.TurboBCounter = 0
+        }
+    }
+
+    turboInput, ok := joystick.ExtraInputs[EmulatorTurbo]
+    if ok {
+        realButton, ok := turboInput.(*JoystickButton)
+        if ok {
+            if justPressed[realButton.Button] {
+                actions = append(actions, EmulatorTurbo)
+            }
+            if justReleased[realButton.Button] {
+                actions = append(actions, EmulatorNormal)
+            }
+        }
+
+        realAxis, ok := turboInput.(*JoystickAxis)
+        if ok {
+            active := activatedAxis(realAxis)
+
+            if !realAxis.active && active {
+                actions = append(actions, EmulatorTurbo)
+            }
+
+            if realAxis.active && !active {
+                actions = append(actions, EmulatorNormal)
+            }
+
+            realAxis.active = active
+        }
+    }
+
+    pauseInput, ok := joystick.ExtraInputs[EmulatorTogglePause]
+    if ok {
+        realButton, ok := pauseInput.(*JoystickButton)
+        if ok {
+            if justPressed[realButton.Button] {
+                actions = append(actions, EmulatorTogglePause)
+            }
+        }
+    }
+
+    pauseAxis, ok := pauseInput.(*JoystickAxis)
+    if ok {
+        active := activatedAxis(pauseAxis)
+
+        if !pauseAxis.active && active {
+            actions = append(actions, EmulatorTogglePause)
+        }
+
+        pauseAxis.active = active
+    }
+
+    return actions
 }
 
 /*
@@ -486,6 +717,14 @@ func (joystick *JoystickButtons) Close(){
 
 func (joystick *JoystickButtons) SetButton(button nes.Button, input JoystickInput){
     joystick.Inputs[button] = input
+}
+
+func (joystick *JoystickButtons) SetTurboA(input JoystickInput){
+    joystick.TurboA = input
+}
+
+func (joystick *JoystickButtons) SetTurboB(input JoystickInput){
+    joystick.TurboB = input
 }
 
 func (joystick *JoystickButtons) SetExtraButton(button EmulatorActionValue, input JoystickInput){

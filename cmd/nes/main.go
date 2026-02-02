@@ -859,7 +859,16 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                         input.HandleEvent(key, false)
                     }
 
-                    joystickManager.Update()
+                    joystickActions := joystickManager.Update()
+                    if len(joystickActions) > 0 {
+                        log.Printf("Joystick actions: %v", joystickActions)
+                    }
+                    for _, action := range joystickActions {
+                        select {
+                            case emulatorActionsOutput <- common.MakeEmulatorAction(action):
+                            default:
+                        }
+                    }
                 }
 
                 err := nesCoroutine.Run()
@@ -1076,7 +1085,7 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         })
 
         for mainQuit.Err() == nil {
-            joystickManager.Update()
+            joystickManager.ScanForJoysticks()
 
             droppedFiles := ebiten.DroppedFiles()
             if droppedFiles != nil {
