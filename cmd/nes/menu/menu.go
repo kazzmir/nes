@@ -1619,6 +1619,7 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
 
     /* Reset the default renderer */
     for menu.quit.Err() == nil {
+        joystickManager.ScanForJoysticks()
         clock += 1
 
         keys := inpututil.AppendJustPressedKeys(nil)
