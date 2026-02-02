@@ -17,6 +17,7 @@ import (
     "time"
     "context"
     "runtime/pprof"
+    "image/png"
 
     nes "github.com/kazzmir/nes/lib"
     "github.com/kazzmir/nes/lib/coroutine"
@@ -368,6 +369,29 @@ func MakeAudioManager(context *audiolib.Context) *AudioManager {
     }
 }
 
+func saveScreenshot(romName string, buffer nes.VirtualScreen) {
+    screenshotPath := fmt.Sprintf("%v-%v.png", stripExtension(romName), time.Now().Format("2006-01-02-15:04:05"))
+
+    screenshot := ebiten.NewImage(nes.VideoWidth, nes.VideoHeight - nes.OverscanPixels * 2)
+    raw_pixels := make([]byte, nes.VideoWidth*(nes.VideoHeight-nes.OverscanPixels*2) * 4)
+    common.RenderPixelsRGBA(buffer, raw_pixels, nes.OverscanPixels)
+    screenshot.WritePixels(raw_pixels)
+
+    file, err := os.Create(screenshotPath)
+    if err != nil {
+        log.Printf("Could not save screenshot to %v: %v", screenshotPath, err)
+        return
+    }
+
+    defer file.Close()
+    err = png.Encode(file, screenshot)
+    if err != nil {
+        log.Printf("Could not save screenshot to %v: %v", screenshotPath, err)
+        return
+    }
+    log.Printf("Saved screenshot to %v", screenshotPath)
+}
+
 func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
@@ -458,31 +482,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
     }
 
     joystickManager := common.NewJoystickManager()
-    /*
-    log.Printf("Found joysticks: %v\n", sdl.NumJoysticks())
-    for i := 0; i < sdl.NumJoysticks(); i++ {
-        guid := sdl.JoystickGetDeviceGUID(i)
-        log.Printf("Joystick %v: %v\n", i, guid)
-    }
-
-    defer joystickManager.Close()
-
-    // sdl.Do(sdl.StopTextInput)
-    sdl.Do(sdl.StartTextInput)
-    */
-
-    // var joystickInput nes.HostInput
-    /*
-    var joystickInput *common.SDLJoystickButtons
-    if sdl.NumJoysticks() > 0 {
-        input, err := common.OpenJoystick(0)
-        // input, err := MakeIControlPadInput(0)
-        if err == nil {
-            defer input.Close()
-            joystickInput = &input
-        }
-    }
-    */
 
     makeRenderScreen := func(bufferReady chan bool, buffer nes.VirtualScreen) func(*ebiten.Image) {
         /* FIXME: kind of ugly to keep this here */
@@ -768,6 +767,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                                         mainCancel()
                                 }
                                 // mainCancel()
+                            case ebiten.KeyF1:
+                                saveScreenshot(filepath.Base(nesFile.Path), buffer)
                             case emulatorKeys.Turbo:
                                 select {
                                     case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorTurbo):
@@ -888,161 +889,6 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
         }
     }
 
-    /*
-    recordQuit, recordCancel := context.WithCancel(mainQuit)
-    if recordOnStart {
-        err := RecordMp4(recordQuit, stripExtension(filepath.Base(path)), nes.OverscanPixels, int(AudioSampleRate), &screenListeners)
-        if err != nil {
-            log.Printf("Error: could not record: %v", err)
-        }
-        defer recordCancel()
-    } else {
-        recordCancel()
-    }
-    */
-
-    /*
-    go func(){
-        for {
-            select {
-                case <-mainQuit.Done():
-                    return
-                case action := <-programActionsInput:
-                    switch action.(type) {
-                        case *common.ProgramToggleSound:
-                            audioActionsOutput <- &AudioToggle{}
-                        case *common.ProgramQueryAudioState:
-                            query := action.(*common.ProgramQueryAudioState)
-                            audioActionsOutput <- &AudioQueryEnabled{Response: query.Response}
-                        case *common.ProgramQuit:
-                            mainCancel()
-                        case *common.ProgramPauseEmulator:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorSetPause):
-                                default:
-                            }
-                        case *common.ProgramUnpauseEmulator:
-                            select {
-                                case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorUnpause):
-                                default:
-                            }
-                        case *common.ProgramLoadRom:
-                            loadRom := action.(*common.ProgramLoadRom)
-                            file, err := loadRom.File()
-
-                            if err != nil {
-                                log.Printf("Could not load rom '%v'", loadRom.Name)
-                                break
-                            }
-
-                            nesFile, err := nes.ParseNes(file, true, loadRom.Name)
-                            file.Close()
-                            if err != nil {
-                                log.Printf("Could not load rom '%v'", path)
-                            } else {
-                                log.Printf("Loaded rom '%v'", loadRom.Name)
-                                nesChannel <- &NesActionLoad{File: nesFile}
-                                select {
-                                    case emulatorMessages.ReceiveMessages <- "Loaded rom":
-                                    default:
-                                }
-                            }
-                    }
-            }
-        }
-    }()
-    */
-
-    /* enable drag/drop events */
-
-    /*
-    events := make(chan sdl.Event, 20)
-
-    handleOneEvent := func(event sdl.Event){
-        switch event.GetType() {
-            case sdl.TEXTINPUT, sdl.TEXTEDITING:
-                useWindowId := getWindowIdFromEvent(event)
-
-                if useWindowId == mainWindowId {
-                    if console.IsActive() {
-                        console.HandleText(event)
-                    }
-                } else if debugWindow.IsWindow(useWindowId) {
-                    debugWindow.HandleText(event)
-                }
-            case sdl.DROPFILE:
-                drop_event := event.(*sdl.DropEvent)
-                switch drop_event.Type {
-                    case sdl.DROPFILE:
-                        // log.Printf("drop file '%v'\n", drop_event.File)
-                        open := func() (fs.File, error){
-                            return os.Open(drop_event.File)
-                        }
-                        programActionsOutput <- &common.ProgramLoadRom{Name: drop_event.File, File: open}
-                    case sdl.DROPBEGIN:
-                        log.Printf("drop begin '%v'\n", drop_event.File)
-                    case sdl.DROPCOMPLETE:
-                        log.Printf("drop complete '%v'\n", drop_event.File)
-                    case sdl.DROPTEXT:
-                        log.Printf("drop text '%v'\n", drop_event.File)
-                }
-
-            case sdl.KEYDOWN:
-                keyboard_event := event.(*sdl.KeyboardEvent)
-                useWindowId := getWindowIdFromEvent(event)
-                if useWindowId == mainWindowId {
-                    // log.Printf("key down %+v pressed %v escape %v", keyboard_event, keyboard_event.State == sdl.PRESSED, keyboard_event.Keysym.Sym == sdl.K_ESCAPE)
-                    quit_pressed := keyboard_event.State == sdl.PRESSED && (keyboard_event.Keysym.Sym == sdl.K_ESCAPE || keyboard_event.Keysym.Sym == sdl.K_CAPSLOCK)
-
-                    if quit_pressed {
-                        select {
-                            case doMenu <- true:
-                            default:
-                        }
-
-                        // theMenu.Input <- menu.MenuToggle
-                    }
-
-                    if console.IsActive() {
-                        console.HandleKey(keyboard_event, emulatorKeys)
-                        return
-                    }
-
-                    / * Pass input to nes * /
-                    input.HandleEvent(keyboard_event)
-
-                    switch keyboard_event.Keysym.Sym {
-                        case emulatorKeys.Console:
-                            console.Toggle()
-                    }
-                } else if debugWindow.IsWindow(useWindowId) {
-                    debugWindow.HandleKey(event)
-                }
-            case sdl.KEYUP:
-                keyboard_event := event.(*sdl.KeyboardEvent)
-                useWindowId := getWindowIdFromEvent(keyboard_event)
-                if useWindowId == mainWindowId {
-                    input.HandleEvent(keyboard_event)
-                    code := keyboard_event.Keysym.Sym
-                    if code == emulatorKeys.Turbo || code == emulatorKeys.Pause {
-                        select {
-                            case emulatorActionsOutput <- common.MakeEmulatorAction(common.EmulatorNormal):
-                            default:
-                        }
-                    }
-                } else if debugWindow.IsWindow(useWindowId) {
-                    debugWindow.HandleKey(event)
-                }
-            case sdl.JOYBUTTONDOWN, sdl.JOYBUTTONUP, sdl.JOYAXISMOTION:
-                action := joystickManager.HandleEvent(event)
-                select {
-                    case emulatorActionsOutput <- action:
-                    default:
-                }
-        }
-    }
-    */
-
     menu := coroutine.MakeCoroutine(func(yield coroutine.YieldFunc) error {
         nesQuit, nesCancel := context.WithCancel(mainQuit)
 
@@ -1052,6 +898,12 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
         nesCoroutine := coroutine.MakeCoroutine(func(nesYield coroutine.YieldFunc) error {
             var textOptions text.DrawOptions
+
+            showScreenshots := MakeScreenshotsBackground()
+
+            engine.PushDraw(showScreenshots.Draw, true)
+            defer engine.PopDraw()
+
             engine.PushDraw(func(screen *ebiten.Image){
                 textOptions.GeoM.Reset()
                 textOptions.GeoM.Translate(20, 20)
@@ -1073,6 +925,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             }
                     }
                 }
+
+                showScreenshots.Update()
 
                 common.RunDummyNES(emulatorActionsInput)
 

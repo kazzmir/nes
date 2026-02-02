@@ -14,3 +14,6 @@ func OpenFile(path string) (fs.File, error) {
 
 //go:embed roms/*
 var RomsFS embed.FS
+
+//go:embed screenshots/*
+var ScreenshotFS embed.FS
