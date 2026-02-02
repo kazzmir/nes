@@ -22,6 +22,9 @@ type ConfigJoystickData struct {
     Right string `json:"right,omitempty"`
     Guid string `json:"guid,omitempty"`
     Name string `json:"name,omitempty"`
+
+    Turbo string `json:"turbo,omitempty"`
+    Pause string `json:"pause,omitempty"`
 }
 
 type ConfigKeys struct {

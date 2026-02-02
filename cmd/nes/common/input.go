@@ -104,8 +104,6 @@ func (manager *JoystickManager) SaveInput() error {
         data.Player1Joystick = ConfigJoystickData{
             A: manager.Player1.Inputs[nes.ButtonIndexA].Serialize(),
             B: manager.Player1.Inputs[nes.ButtonIndexB].Serialize(),
-            TurboA: manager.Player1.TurboA.Serialize(),
-            TurboB: manager.Player1.TurboB.Serialize(),
             Select: manager.Player1.Inputs[nes.ButtonIndexSelect].Serialize(),
             Start: manager.Player1.Inputs[nes.ButtonIndexStart].Serialize(),
             Up: manager.Player1.Inputs[nes.ButtonIndexUp].Serialize(),
@@ -114,6 +112,26 @@ func (manager *JoystickManager) SaveInput() error {
             Right: manager.Player1.Inputs[nes.ButtonIndexRight].Serialize(),
             Guid: ebiten.GamepadSDLID(manager.Player1.gamepad),
             Name: strings.TrimSpace(manager.Player1.Name),
+        }
+
+        turboA := manager.Player1.TurboA
+        if turboA != nil {
+            data.Player1Joystick.TurboA = turboA.Serialize()
+        }
+
+        turboB := manager.Player1.TurboB
+        if turboB != nil {
+            data.Player1Joystick.TurboB = turboB.Serialize()
+        }
+
+        turboButton, ok := manager.Player1.ExtraInputs[EmulatorTurbo]
+        if ok {
+            data.Player1Joystick.Turbo = turboButton.Serialize()
+        }
+
+        pauseButton, ok := manager.Player1.ExtraInputs[EmulatorTogglePause]
+        if ok {
+            data.Player1Joystick.Pause = pauseButton.Serialize()
         }
 
         return SaveConfigData(data)
@@ -405,6 +423,8 @@ func OpenJoystick(gamepad ebiten.GamepadID) (*JoystickButtons, error){
         buttons.Inputs[nes.ButtonIndexStart] = &JoystickButton{Button: ebiten.GamepadButton9}
         buttons.TurboA = &JoystickButton{Button: ebiten.GamepadButton2} // circle
         buttons.TurboB = &JoystickButton{Button: ebiten.GamepadButton1} // triangle
+        buttons.ExtraInputs[EmulatorTurbo] = &JoystickButton{Button: ebiten.GamepadButton10} // L1
+        buttons.ExtraInputs[EmulatorTogglePause] = &JoystickButton{Button: ebiten.GamepadButton12} // PS
     }
 
     return &buttons, nil
@@ -490,6 +510,16 @@ func (joystick *JoystickButtons) Update() []EmulatorActionValue {
             }
             if justReleased[realButton.Button] {
                 actions = append(actions, EmulatorNormal)
+            }
+        }
+    }
+
+    pauseInput, ok := joystick.ExtraInputs[EmulatorTogglePause]
+    if ok {
+        realButton, ok := pauseInput.(*JoystickButton)
+        if ok {
+            if justPressed[realButton.Button] {
+                actions = append(actions, EmulatorTogglePause)
             }
         }
     }
