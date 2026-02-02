@@ -32,6 +32,9 @@ func NewJoystickManager() *JoystickManager {
 }
 
 func (manager *JoystickManager) Update() []EmulatorActionValue {
+    loadedConfig := false
+    var configData ConfigData
+
     gamepadIds := inpututil.AppendJustConnectedGamepadIDs(nil)
     for _, gamepadId := range gamepadIds {
         _, exists := manager.Joysticks[gamepadId]
@@ -43,6 +46,14 @@ func (manager *JoystickManager) Update() []EmulatorActionValue {
         if err != nil {
             log.Printf("Could not open joystick %v: %v\n", gamepadId, err)
             continue
+        }
+
+        if !loadedConfig {
+            loadedConfig = true
+            configData, err = LoadConfigData()
+            if err == nil {
+                input.Load(configData.Player1Joystick)
+            }
         }
 
         log.Printf("Found joystick: %v\n", input.Name)
@@ -353,6 +364,32 @@ func (axis *JoystickAxis) Serialize() string {
     return fmt.Sprintf("axis=%v value=%v", axis.Axis, axis.Value)
 }
 
+func DeserializeJoystickInput(data string) JoystickInput {
+    if strings.HasPrefix(data, "axis=") {
+        var axis int
+        var value int
+        n, err := fmt.Sscanf(data, "axis=%d value=%d", &axis, &value)
+        if err == nil && n == 2 {
+            return &JoystickAxis{
+                Axis: axis,
+                Value: value,
+            }
+        }
+
+        return nil
+    }
+
+    var button ebiten.GamepadButton
+    n, err := fmt.Sscanf(data, "%d", &button)
+    if err == nil && n == 1 {
+        return &JoystickButton{
+            Button: button,
+        }
+    }
+
+    return nil
+}
+
 type JoystickButtons struct {
     gamepad ebiten.GamepadID
     Inputs map[nes.Button]JoystickInput // normal nes buttons
@@ -366,6 +403,36 @@ type JoystickButtons struct {
     Pressed nes.ButtonMapping
     Lock sync.Mutex
     Name string
+}
+
+func (buttons *JoystickButtons) Load(data ConfigJoystickData) {
+    if data.Guid != ebiten.GamepadSDLID(buttons.gamepad) {
+        return
+    }
+
+    buttons.Inputs[nes.ButtonIndexA] = DeserializeJoystickInput(data.A)
+    buttons.Inputs[nes.ButtonIndexB] = DeserializeJoystickInput(data.B)
+    buttons.Inputs[nes.ButtonIndexSelect] = DeserializeJoystickInput(data.Select)
+    buttons.Inputs[nes.ButtonIndexStart] = DeserializeJoystickInput(data.Start)
+    buttons.Inputs[nes.ButtonIndexUp] = DeserializeJoystickInput(data.Up)
+    buttons.Inputs[nes.ButtonIndexDown] = DeserializeJoystickInput(data.Down)
+    buttons.Inputs[nes.ButtonIndexLeft] = DeserializeJoystickInput(data.Left)
+    buttons.Inputs[nes.ButtonIndexRight] = DeserializeJoystickInput(data.Right)
+
+    if data.TurboA != "" {
+        buttons.TurboA = DeserializeJoystickInput(data.TurboA)
+    }
+
+    if data.TurboB != "" {
+        buttons.TurboB = DeserializeJoystickInput(data.TurboB)
+    }
+
+    if data.Turbo != "" {
+        buttons.ExtraInputs[EmulatorTurbo] = DeserializeJoystickInput(data.Turbo)
+    }
+    if data.Pause != "" {
+        buttons.ExtraInputs[EmulatorTogglePause] = DeserializeJoystickInput(data.Pause)
+    }
 }
 
 type IControlPad struct {
