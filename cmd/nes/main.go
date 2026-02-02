@@ -898,6 +898,12 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
         nesCoroutine := coroutine.MakeCoroutine(func(nesYield coroutine.YieldFunc) error {
             var textOptions text.DrawOptions
+
+            showScreenshots := MakeScreenshotsBackground()
+
+            engine.PushDraw(showScreenshots.Draw, true)
+            defer engine.PopDraw()
+
             engine.PushDraw(func(screen *ebiten.Image){
                 textOptions.GeoM.Reset()
                 textOptions.GeoM.Translate(20, 20)
@@ -919,6 +925,8 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
                             }
                     }
                 }
+
+                showScreenshots.Update()
 
                 common.RunDummyNES(emulatorActionsInput)
 
