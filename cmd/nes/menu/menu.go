@@ -884,6 +884,9 @@ type LoadRomInfoMenu struct {
     Filesize int64
     Mapper int
     Info *RomLoaderInfo
+
+    SelectRect image.Rectangle
+    BackRect image.Rectangle
 }
 
 const (
@@ -895,11 +898,16 @@ func (loader *LoadRomInfoMenu) Update(){
 }
 
 func (loader *LoadRomInfoMenu) MouseMove(x int, y int){
+    switch {
+        case image.Pt(x, y).In(loader.SelectRect):
+            loader.Selection = LoadRomInfoSelect
+        case image.Pt(x, y).In(loader.BackRect):
+            loader.Selection = LoadRomInfoBack
+    }
 }
 
 func (loader *LoadRomInfoMenu) MouseClick(x int, y int) SubMenu {
-    // TODO
-    return loader
+    return loader.Input(MenuSelect)
 }
 
 func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
@@ -1040,16 +1048,26 @@ func (loader *LoadRomInfoMenu) MakeRenderer(font text.Face, smallFont text.Face,
             out.DrawImage(frame, &draw)
         }
 
+        makeRect := func(name string, geoM *ebiten.GeoM) image.Rectangle {
+            width, height := text.Measure(name, font, 1)
+            x, y := geoM.Apply(0, 0)
+            return image.Rect(int(x), int(y), int(x) + int(width), int(y) + int(height))
+        }
+
         yPos := float64(maxY) - fontHeight * 4
         textOptions.GeoM.Reset()
         textOptions.GeoM.Translate(float64(x), yPos)
         textOptions.ColorScale.ScaleWithColor(loader.GetSelectionColor(LoadRomInfoSelect))
         text.Draw(out, "Load rom", font, &textOptions)
 
+        loader.SelectRect = makeRect("Load Rom", &textOptions.GeoM)
+
         textOptions.GeoM.Translate(0, fontHeight + 2)
         textOptions.ColorScale.Reset()
         textOptions.ColorScale.ScaleWithColor(loader.GetSelectionColor(LoadRomInfoBack))
         text.Draw(out, "Back", font, &textOptions)
+
+        loader.BackRect = makeRect("Back", &textOptions.GeoM)
 
         return nil
     }
