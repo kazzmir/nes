@@ -659,6 +659,10 @@ func (menu *JoystickMenu) Update(){
     }
 }
 
+func (menu *JoystickMenu) MouseClick(x int, y int) SubMenu {
+    return menu
+}
+
 func (menu *JoystickMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuQuit:
@@ -747,10 +751,7 @@ func (menu *JoystickMenu) MakeRenderer(font text.Face, smallFont text.Face, cloc
                 color = red
             }
 
-            width, height, err := drawButton(smallFont, screen, x, y, button, color)
-            if err != nil {
-                return err
-            }
+            width, height := drawButton(smallFont, screen, x, y, button, color)
             if width > maxWidth {
                 maxWidth = width
             }
@@ -830,10 +831,7 @@ func (menu *JoystickMenu) MakeRenderer(font text.Face, smallFont text.Face, cloc
                 color = red
             }
 
-            width, height, err := drawButton(smallFont, screen, x, y, button, color)
-            if err != nil {
-                return err
-            }
+            width, height := drawButton(smallFont, screen, x, y, button, color)
             if width > maxWidthExtra {
                 maxWidthExtra = width
             }
