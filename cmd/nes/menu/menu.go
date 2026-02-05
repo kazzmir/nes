@@ -814,8 +814,7 @@ func (loadRomMenu *LoadRomMenu) MouseMove(x int, y int){
 }
 
 func (loadRomMenu *LoadRomMenu) MouseClick(x int, y int) SubMenu {
-    // TODO
-    return loadRomMenu
+    return loadRomMenu.Input(MenuSelect)
 }
 
 func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
