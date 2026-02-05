@@ -105,7 +105,7 @@ type AudioManager interface {
 }
 
 /* an interactable button */
-func drawButton(font text.Face, out *ebiten.Image, x float64, y float64, message string, col color.Color) (float64, float64, error) {
+func drawButton(font text.Face, out *ebiten.Image, x float64, y float64, message string, col color.Color) (float64, float64) {
     buttonInside := color.RGBA{R: 64, G: 64, B: 64, A: 255}
     buttonOutline := color.RGBA{R: 32, G: 32, B: 32, A: 255}
 
@@ -121,10 +121,10 @@ func drawButton(font text.Face, out *ebiten.Image, x float64, y float64, message
     options.ColorScale.ScaleWithColor(col)
     text.Draw(out, message, font, &options)
 
-    return width, height, nil
+    return width, height
 }
 
-func drawFixedWidthButton(font text.Face, out *ebiten.Image, width float64, x float64, y float64, message string, col color.Color) (float64, float64, error) {
+func drawFixedWidthButton(font text.Face, out *ebiten.Image, width float64, x float64, y float64, message string, col color.Color) (float64, float64) {
     buttonInside := color.RGBA{R: 64, G: 64, B: 64, A: 255}
     buttonOutline := color.RGBA{R: 32, G: 32, B: 32, A: 255}
 
@@ -140,7 +140,7 @@ func drawFixedWidthButton(font text.Face, out *ebiten.Image, width float64, x fl
     textOptions.ColorScale.ScaleWithColor(col)
     text.Draw(out, message, font, &textOptions)
 
-    return width + margin, height, nil
+    return width + margin, height
 }
 
 /* a button that cannot be interacted with */
@@ -237,10 +237,15 @@ type MenuItem interface {
     Text() string
     /* returns next x,y coordinate where rendering can occur, and a possible error */
     Render(text.Face, *ebiten.Image, float64, float64, bool, uint64) (float64, float64, error)
+    Inside(int, int) bool
 }
 
 type MenuSpace struct {
     Space int
+}
+
+func (space *MenuSpace) Inside(x int, y int) bool {
+    return false
 }
 
 func (space *MenuSpace) Text() string {
@@ -252,6 +257,10 @@ func (space *MenuSpace) Render(font text.Face, out *ebiten.Image, x float64, y f
 }
 
 type MenuNextLine struct {
+}
+
+func (line *MenuNextLine) Inside(x int, y int) bool {
+    return false
 }
 
 func (line *MenuNextLine) Text() string {
@@ -266,14 +275,29 @@ func (line *MenuNextLine) Render(font text.Face, out *ebiten.Image, x float64, y
 type MenuLabel struct {
     Label string
     Color color.Color
+
+    X float64
+    Y float64
+    Width float64
+    Height float64
 }
 
 func (label *MenuLabel) Text() string {
     return label.Label
 }
 
+func (label *MenuLabel) Inside(x int, y int) bool {
+    return float64(x) >= label.X && float64(x) <= label.X + label.Width &&
+        float64(y) >= label.Y && float64(y) <= label.Y + label.Height
+}
+
 func (label *MenuLabel) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
-    return drawButton(font, out, x, y, label.Text(), label.Color)
+    label.X = x
+    label.Y = y
+    width, height := drawButton(font, out, x, y, label.Text(), label.Color)
+    label.Width = width
+    label.Height = height
+    return width, height, nil
 }
 
 type Button interface {
@@ -289,6 +313,11 @@ type StaticButton struct {
     Name string
     Func StaticButtonFunc
     Lock sync.Mutex
+
+    X float64
+    Y float64
+    Width float64
+    Height float64
 }
 
 func (button *StaticButton) Text() string {
@@ -311,8 +340,18 @@ func (button *StaticButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
+func (button *StaticButton) Inside(x int, y int) bool {
+    return float64(x) >= button.X && float64(x) <= button.X + button.Width &&
+        float64(y) >= button.Y && float64(y) <= button.Y + button.Height
+}
+
 func (button *StaticButton) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
-    return _doRenderButton(button, font, out, x, y, selected, clock)
+    button.X = x
+    button.Y = y
+    width, height := _doRenderButton(button, font, out, x, y, selected, clock)
+    button.Width = width
+    button.Height = height
+    return width, height, nil
 }
 
 type ToggleButtonFunc func(bool)
@@ -322,6 +361,11 @@ type ToggleButton struct {
     State2 string
     state bool
     Func ToggleButtonFunc
+
+    X float64
+    Y float64
+    Width float64
+    Height float64
 }
 
 func (toggle *ToggleButton) Text() string {
@@ -338,8 +382,18 @@ func (toggle *ToggleButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
+func (toggle *ToggleButton) Inside(x int, y int) bool {
+    return float64(x) >= toggle.X && float64(x) <= toggle.X + toggle.Width &&
+        float64(y) >= toggle.Y && float64(y) <= toggle.Y + toggle.Height
+}
+
 func (button *ToggleButton) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
-    return _doRenderButton(button, font, out, x, y, selected, clock)
+    button.X = x
+    button.Y = y
+    width, height := _doRenderButton(button, font, out, x, y, selected, clock)
+    button.Width = width
+    button.Height = height
+    return width, height, nil
 }
 
 type SubMenuFunc func() SubMenu
@@ -347,9 +401,14 @@ type SubMenuFunc func() SubMenu
 type SubMenuButton struct {
     Name string
     Func SubMenuFunc
+
+    X float64
+    Y float64
+    Width float64
+    Height float64
 }
 
-func _doRenderButton(button Button, font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
+func _doRenderButton(button Button, font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64) {
     yellow := color.RGBA{R: 255, G: 255, B: 0, A: 255}
     red := color.RGBA{R: 255, G: 0, B: 0, A: 255}
     white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
@@ -370,6 +429,16 @@ type StaticFixedWidthButton struct {
     Parts []string
     Func StaticFixedButtonFunc
     Lock sync.Mutex
+
+    X float64
+    Y float64
+    width float64
+    height float64
+}
+
+func (button *StaticFixedWidthButton) Inside(x int, y int) bool {
+    return float64(x) >= button.X && float64(x) <= button.X + button.width &&
+        float64(y) >= button.Y && float64(y) <= button.Y + button.height
 }
 
 func (button *StaticFixedWidthButton) Text() string {
@@ -407,6 +476,9 @@ func (button *StaticFixedWidthButton) Render(font text.Face, screen *ebiten.Imag
         col = gfx.Glow(red, yellow, 40, clock)
     }
 
+    button.X = x
+    button.Y = y
+
     /*
     button.Lock.Lock()
     parts := gfx.CopyArray(button.Parts)
@@ -441,13 +513,27 @@ func (button *StaticFixedWidthButton) Render(font text.Face, screen *ebiten.Imag
         }
     }
 
-    width, height, err := drawFixedWidthButton(font, screen, float64(button.Width), x, y, out, col)
+    width, height := drawFixedWidthButton(font, screen, float64(button.Width), x, y, out, col)
 
-    return width, height, err
+    button.width = width
+    button.height = height
+
+    return width, height, nil
+}
+
+func (button *SubMenuButton) Inside(x int, y int) bool {
+    return float64(x) >= button.X && float64(x) <= button.X + button.Width &&
+        float64(y) >= button.Y && float64(y) <= button.Y + button.Height
 }
 
 func (button *SubMenuButton) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
-    return _doRenderButton(button, font, out, x, y, selected, clock)
+    button.X = x
+    button.Y = y
+
+    width, height := _doRenderButton(button, font, out, x, y, selected, clock)
+    button.Width = width
+    button.Height = height
+    return width, height, nil
 }
 
 func (button *SubMenuButton) Text() string {
@@ -509,10 +595,33 @@ func (buttons *MenuButtons) Add(item MenuItem){
 type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
     Input(input MenuInput) SubMenu
+    MouseClick(x int, y int) SubMenu
+    MouseMove(x int, y int)
+    MouseWheel(dy int)
     MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction
     UpdateWindowSize(int, int)
     PlayBeep()
     Update()
+}
+
+func (buttons *MenuButtons) MouseMove(x int, y int){
+    for i, item := range buttons.Items {
+        button, ok := item.(Button)
+        if ok && button.Inside(x, y) {
+            buttons.Selected = i
+        }
+    }
+}
+
+func (buttons *MenuButtons) MouseClick(x int, y int, menu SubMenu) SubMenu {
+    for _, item := range buttons.Items {
+        button, ok := item.(Button)
+        if ok && button.Inside(x, y) {
+            return button.Interact(menu)
+        }
+    }
+
+    return menu
 }
 
 func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
@@ -605,6 +714,17 @@ func (menu *StaticMenu) UpdateWindowSize(x int, y int){
 func (menu *StaticMenu) Update(){
 }
 
+func (menu *StaticMenu) MouseMove(x int, y int){
+    menu.Buttons.MouseMove(x, y)
+}
+
+func (menu *StaticMenu) MouseWheel(dy int){
+}
+
+func (menu *StaticMenu) MouseClick(x int, y int) SubMenu {
+    return menu.Buttons.MouseClick(x, y, menu)
+}
+
 func (menu *StaticMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuQuit:
@@ -693,6 +813,18 @@ func (loadRomMenu *LoadRomMenu) KeyDown(key ebiten.Key){
     }
 }
 
+func (loadRomMenu *LoadRomMenu) MouseMove(x int, y int){
+    loadRomMenu.LoaderState.MouseMove(x, y)
+}
+
+func (loadRomMenu *LoadRomMenu) MouseClick(x int, y int) SubMenu {
+    return loadRomMenu.Input(MenuSelect)
+}
+
+func (loadRomMenu *LoadRomMenu) MouseWheel(dy int){
+    loadRomMenu.LoaderState.MouseWheel(dy)
+}
+
 func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuNext:
@@ -760,6 +892,9 @@ type LoadRomInfoMenu struct {
     Filesize int64
     Mapper int
     Info *RomLoaderInfo
+
+    SelectRect image.Rectangle
+    BackRect image.Rectangle
 }
 
 const (
@@ -768,6 +903,22 @@ const (
 )
 
 func (loader *LoadRomInfoMenu) Update(){
+}
+
+func (loader *LoadRomInfoMenu) MouseWheel(dy int){
+}
+
+func (loader *LoadRomInfoMenu) MouseMove(x int, y int){
+    switch {
+        case image.Pt(x, y).In(loader.SelectRect):
+            loader.Selection = LoadRomInfoSelect
+        case image.Pt(x, y).In(loader.BackRect):
+            loader.Selection = LoadRomInfoBack
+    }
+}
+
+func (loader *LoadRomInfoMenu) MouseClick(x int, y int) SubMenu {
+    return loader.Input(MenuSelect)
 }
 
 func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
@@ -908,16 +1059,26 @@ func (loader *LoadRomInfoMenu) MakeRenderer(font text.Face, smallFont text.Face,
             out.DrawImage(frame, &draw)
         }
 
+        makeRect := func(name string, geoM *ebiten.GeoM) image.Rectangle {
+            width, height := text.Measure(name, font, 1)
+            x, y := geoM.Apply(0, 0)
+            return image.Rect(int(x), int(y), int(x) + int(width), int(y) + int(height))
+        }
+
         yPos := float64(maxY) - fontHeight * 4
         textOptions.GeoM.Reset()
         textOptions.GeoM.Translate(float64(x), yPos)
         textOptions.ColorScale.ScaleWithColor(loader.GetSelectionColor(LoadRomInfoSelect))
         text.Draw(out, "Load rom", font, &textOptions)
 
+        loader.SelectRect = makeRect("Load Rom", &textOptions.GeoM)
+
         textOptions.GeoM.Translate(0, fontHeight + 2)
         textOptions.ColorScale.Reset()
         textOptions.ColorScale.ScaleWithColor(loader.GetSelectionColor(LoadRomInfoBack))
         text.Draw(out, "Back", font, &textOptions)
+
+        loader.BackRect = makeRect("Back", &textOptions.GeoM)
 
         return nil
     }
@@ -1000,77 +1161,6 @@ func (menu *ChangeKeyMenu) PlayBeep() {
 func (menu *ChangeKeyMenu) UpdateWindowSize(x int, y int){
 }
 
-/*
-func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
-    if menu.IsChoosing() {
-        key, ok := event.(*sdl.KeyboardEvent)
-        if ok {
-            switch key.GetType() {
-                case sdl.KEYDOWN:
-                    code := key.Keysym.Sym
-
-                    / * check if the user pressed a new key. if they pressed the same key that is being changed then don't do anything * /
-                    if code != menu.TempChoice {
-
-                        menu.ChooseCancel()
-                        menu.Lock.Lock()
-                        menu.ChooseDone, menu.ChooseCancel = context.WithCancel(menu.MenuQuit)
-
-                        // log.Printf("Change key %v", code)
-                        choosingKey := menu.ChoosingKey
-                        menu.TempChoice = code
-                        menu.Current = 0
-
-                        for _, check := range menu.Keys.AllKeys() {
-                            if check.Name != menu.ChoosingKey && code == check.Code {
-                                menu.Warning = fmt.Sprintf("%v already in use", check.Name)
-                            }
-                        }
-
-                        menu.Lock.Unlock()
-
-
-                        go func(done context.Context){
-                            xtime := time.NewTicker(time.Second / 10)
-                            defer xtime.Stop()
-                            after := time.After(500 * time.Millisecond)
-                            for {
-                                select {
-                                    case <-xtime.C:
-                                        menu.Lock.Lock()
-                                        menu.Current += 1
-                                        menu.Lock.Unlock()
-                                    case <-done.Done():
-                                        return
-                                    case <-after:
-                                        menu.Lock.Lock()
-                                        menu.TempChoice = 0
-                                        menu.Current = 0
-                                        menu.ChooseCancel()
-                                        menu.Keys.Update(choosingKey, code)
-                                        name := sdl.GetKeyName(code)
-                                        menu.ChoosingButton.Update(choosingKey, name)
-                                        common.SaveEmulatorKeys(*menu.Keys)
-                                        menu.Lock.Unlock()
-
-                                        menu.SetChoosing(false, "", nil)
-                                        return
-                                }
-                            }
-                        }(menu.ChooseDone)
-                    }
-                case sdl.KEYUP:
-                    menu.ChooseCancel()
-                    menu.Lock.Lock()
-                    menu.TempChoice = 0
-                    menu.Warning = ""
-                    menu.Lock.Unlock()
-            }
-        }
-    }
-}
-*/
-
 func (menu *ChangeKeyMenu) SetChoosing(v bool, key string, button *StaticFixedWidthButton){
     menu.Choosing = v
     menu.ChoosingKey = key
@@ -1115,6 +1205,17 @@ func (menu *ChangeKeyMenu) Update(){
             menu.SetChoosing(false, "", nil)
         }
     }
+}
+
+func (menu *ChangeKeyMenu) MouseMove(x int, y int){
+    menu.Buttons.MouseMove(x, y)
+}
+
+func (menu *ChangeKeyMenu) MouseWheel(dy int){
+}
+
+func (menu *ChangeKeyMenu) MouseClick(x int, y int) SubMenu {
+    return menu.Buttons.MouseClick(x, y, menu)
 }
 
 func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
@@ -1213,6 +1314,11 @@ type ChooseButton struct {
     Lock sync.Mutex
     Items []string
     Choice int
+
+    X float64
+    Y float64
+    Width float64
+    Height float64
 }
 
 func (choose *ChooseButton) Text() string {
@@ -1240,20 +1346,33 @@ func (choose *ChooseButton) Interact(menu SubMenu) SubMenu {
     return menu
 }
 
+func (choose *ChooseButton) Inside(x int, y int) bool {
+    return float64(x) >= choose.X && float64(x) <= choose.X + choose.Width &&
+        float64(y) >= choose.Y && float64(y) <= choose.Y + choose.Height
+}
+
 func (choose *ChooseButton) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
+    choose.X = x
+    choose.Y = y
+
     // FIXME
     if choose.IsEnabled() {
 
         size := 10.0
         // gfx.DrawEquilateralTriange(renderer, x-size*2, y + size + font.Height() / 4, float64(size), 180.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
-        width, height, err := _doRenderButton(choose, font, out, x, y, selected, clock)
+        width, height := _doRenderButton(choose, font, out, x, y, selected, clock)
         x += width
         _ = height
         // gfx.DrawEquilateralTriange(renderer, x+size*2, y + size + font.Height() / 4, float64(size), 0.0, sdl.Color{R: 255, G: 255, B: 255, A: 255})
 
         _, fontHeight := text.Measure("A", font, 1)
 
-        return x + size*2 + size*2, fontHeight, err
+        widthOut := x + size*2 + size*2
+        heightOut := fontHeight
+        choose.Width = widthOut - choose.X
+        choose.Height = heightOut
+        return widthOut, heightOut, nil
+
     } else {
         return x, y, nil
     }
@@ -1617,6 +1736,8 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
     drawManager.PushDraw(draw, true)
     defer drawManager.PopDraw()
 
+    lastMouseX, lastMouseY := ebiten.CursorPosition()
+
     /* Reset the default renderer */
     for menu.quit.Err() == nil {
         joystickManager.ScanForJoysticks()
@@ -1640,6 +1761,25 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
             }
         }
 
+        mouseX, mouseY := ebiten.CursorPosition()
+
+        if mouseX != lastMouseX || mouseY != lastMouseY {
+            lastMouseX = mouseX
+            lastMouseY = mouseY
+            currentMenu.MouseMove(mouseX, mouseY)
+        }
+
+        _, wheelY := ebiten.Wheel()
+        if wheelY > 0 {
+            currentMenu.MouseWheel(1)
+        } else if wheelY < 0 {
+            currentMenu.MouseWheel(-1)
+        }
+
+        if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+            currentMenu = currentMenu.MouseClick(mouseX, mouseY)
+        }
+
         currentMenu.Update()
 
         windowSize := drawManager.GetWindowSize()
@@ -1651,21 +1791,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
             return
         }
     }
-
-    /*
-    sdl.Do(func(){
-        // log.Printf("Found joysticks: %v\n", sdl.NumJoysticks())
-        for i := 0; i < sdl.NumJoysticks(); i++ {
-            // guid := sdl.JoystickGetDeviceGUID(i)
-            // log.Printf("Joystick %v: %v = %v\n", i, guid, sdl.JoystickNameForIndex(i))
-
-            joystickStateChanges <- &JoystickStateAdd{
-                Index: i,
-                Name: strings.TrimSpace(sdl.JoystickNameForIndex(i)),
-            }
-        }
-    })
-    */
 }
 
 func (menu *Menu) Close() {
