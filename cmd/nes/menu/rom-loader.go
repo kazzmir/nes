@@ -65,6 +65,14 @@ func (info *RomLoaderInfo) NextFrame() {
     }
 }
 
+type RomLoaderOnScreenTile struct {
+    Rom *RomIdAndPath
+    X int
+    Y int
+    Width int
+    Height int
+}
+
 type RomLoaderState struct {
     Roms map[RomId]*RomLoaderInfo
     NewRom chan RomLoaderAdd
@@ -98,6 +106,7 @@ type RomLoaderState struct {
     SelectedRomKey string
 
     Layout TileLayout
+    OnScreenTiles []RomLoaderOnScreenTile
 }
 
 func (loader *RomLoaderState) CurrentScanDescription(maxWidth int) string {
@@ -606,6 +615,16 @@ func (loader *RomLoaderState) GetSelectedRom() (string, common.MakeFile, bool) {
     return "", nil, false
 }
 
+func (loader *RomLoaderState) MouseMove(x int, y int) {
+    for _, tile := range loader.OnScreenTiles {
+        if x >= tile.X && x < tile.X + tile.Width &&
+              y >= tile.Y && y < tile.Y + tile.Height {
+            loader.SelectedRomKey = tile.Rom.SortKey()
+            return
+        }
+    }
+}
+
 func (loader *RomLoaderState) moveSelection(count int){
     loader.Lock.Lock()
     defer loader.Lock.Unlock()
@@ -822,24 +841,6 @@ func (loader *RomLoaderState) TileRows(maxHeight int) int {
     return count
 }
 
-/*
-func renderUpArrow(x int, y int, texture *sdl.Texture, renderer *sdl.Renderer){
-    _, _, width, height, err := texture.Query()
-    if err == nil {
-        dest := sdl.Rect{X: int32(x), Y: int32(y), W: width, H: height}
-        renderer.Copy(texture, nil, &dest)
-    }
-}
-
-func renderDownArrow(x int, y int, texture *sdl.Texture, renderer *sdl.Renderer){
-    _, _, width, height, err := texture.Query()
-    if err == nil {
-        dest := sdl.Rect{X: int32(x), Y: int32(y), W: width, H: height}
-        renderer.CopyEx(texture, nil, &dest, 0, nil, sdl.FLIP_VERTICAL)
-    }
-}
-*/
-
 func (loader *RomLoaderState) GetFilteredRoms() []*RomIdAndPath {
     return loader.RomIdsAndPaths.Filtered()
 }
@@ -1033,6 +1034,10 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
 
     MaxNameSize := maxTextWidth(smallFont, int(float32(width) / layout.Thumbnail))
 
+    // FIXME: this can be cached across draw calls. Only set this to null if the roms change
+    // or the layout changes
+    loader.OnScreenTiles = loader.OnScreenTiles[:0]
+
     for _, romIdAndPath := range showTiles[start:end+1] {
         // log.Printf("Rendering rom id %v path %v at x=%v y=%v", romIdAndPath.Id, romIdAndPath.Path, x, y)
 
@@ -1044,12 +1049,6 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
 
         /* Highlight the selected rom with a yellow outline */
         if selectedId == romIdAndPath.Id {
-            /*
-            renderer.SetDrawColor(255, 255, 0, 255)
-            rect := sdl.Rect{X: int32(x-float32(outlineSize)), Y: int32(y-float32(outlineSize)), W: int32(float32(width) / layout.Thumbnail + float32(outlineSize*2)), H: int32(float32(height) / layout.Thumbnail + float32(outlineSize*2))}
-            renderer.FillRect(&rect)
-            */
-
             x1 := x - float32(outlineSize)
             y1 := y - float32(outlineSize)
             width := float32(nes.VideoWidth) / layout.Thumbnail + float32(outlineSize*2)
@@ -1072,6 +1071,14 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
         textOptions.GeoM.Translate(float64(x), float64(y + float32(height) / layout.Thumbnail + 2))
         textOptions.ColorScale.Reset()
         text.Draw(screen, name, smallFont, &textOptions)
+
+        loader.OnScreenTiles = append(loader.OnScreenTiles, RomLoaderOnScreenTile{
+            Rom: romIdAndPath,
+            X: int(x),
+            Y: int(y),
+            Width: int(float32(width) / layout.Thumbnail),
+            Height: int(float32(height) / layout.Thumbnail),
+        })
 
         x += float32(width) / layout.Thumbnail + float32(layout.XSpace)
         if x + float32(width) / layout.Thumbnail + 5 > float32(maxWidth) {

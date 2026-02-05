@@ -810,7 +810,7 @@ func (loadRomMenu *LoadRomMenu) KeyDown(key ebiten.Key){
 }
 
 func (loadRomMenu *LoadRomMenu) MouseMove(x int, y int){
-    // TODO
+    loadRomMenu.LoaderState.MouseMove(x, y)
 }
 
 func (loadRomMenu *LoadRomMenu) MouseClick(x int, y int) SubMenu {
