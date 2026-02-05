@@ -659,8 +659,12 @@ func (menu *JoystickMenu) Update(){
     }
 }
 
+func (menu *JoystickMenu) MouseMove(x int, y int) {
+    menu.Buttons.MouseMove(x, y)
+}
+
 func (menu *JoystickMenu) MouseClick(x int, y int) SubMenu {
-    return menu
+    return menu.Buttons.MouseClick(x, y, menu)
 }
 
 func (menu *JoystickMenu) Input(input MenuInput) SubMenu {

@@ -596,10 +596,20 @@ type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
     Input(input MenuInput) SubMenu
     MouseClick(x int, y int) SubMenu
+    MouseMove(x int, y int)
     MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction
     UpdateWindowSize(int, int)
     PlayBeep()
     Update()
+}
+
+func (buttons *MenuButtons) MouseMove(x int, y int){
+    for i, item := range buttons.Items {
+        button, ok := item.(Button)
+        if ok && button.Inside(x, y) {
+            buttons.Selected = i
+        }
+    }
 }
 
 func (buttons *MenuButtons) MouseClick(x int, y int, menu SubMenu) SubMenu {
@@ -703,6 +713,10 @@ func (menu *StaticMenu) UpdateWindowSize(x int, y int){
 func (menu *StaticMenu) Update(){
 }
 
+func (menu *StaticMenu) MouseMove(x int, y int){
+    menu.Buttons.MouseMove(x, y)
+}
+
 func (menu *StaticMenu) MouseClick(x int, y int) SubMenu {
     return menu.Buttons.MouseClick(x, y, menu)
 }
@@ -795,6 +809,10 @@ func (loadRomMenu *LoadRomMenu) KeyDown(key ebiten.Key){
     }
 }
 
+func (loadRomMenu *LoadRomMenu) MouseMove(x int, y int){
+    // TODO
+}
+
 func (loadRomMenu *LoadRomMenu) MouseClick(x int, y int) SubMenu {
     // TODO
     return loadRomMenu
@@ -875,6 +893,9 @@ const (
 )
 
 func (loader *LoadRomInfoMenu) Update(){
+}
+
+func (loader *LoadRomInfoMenu) MouseMove(x int, y int){
 }
 
 func (loader *LoadRomInfoMenu) MouseClick(x int, y int) SubMenu {
@@ -1112,77 +1133,6 @@ func (menu *ChangeKeyMenu) PlayBeep() {
 func (menu *ChangeKeyMenu) UpdateWindowSize(x int, y int){
 }
 
-/*
-func (menu *ChangeKeyMenu) RawInput(event sdl.Event){
-    if menu.IsChoosing() {
-        key, ok := event.(*sdl.KeyboardEvent)
-        if ok {
-            switch key.GetType() {
-                case sdl.KEYDOWN:
-                    code := key.Keysym.Sym
-
-                    / * check if the user pressed a new key. if they pressed the same key that is being changed then don't do anything * /
-                    if code != menu.TempChoice {
-
-                        menu.ChooseCancel()
-                        menu.Lock.Lock()
-                        menu.ChooseDone, menu.ChooseCancel = context.WithCancel(menu.MenuQuit)
-
-                        // log.Printf("Change key %v", code)
-                        choosingKey := menu.ChoosingKey
-                        menu.TempChoice = code
-                        menu.Current = 0
-
-                        for _, check := range menu.Keys.AllKeys() {
-                            if check.Name != menu.ChoosingKey && code == check.Code {
-                                menu.Warning = fmt.Sprintf("%v already in use", check.Name)
-                            }
-                        }
-
-                        menu.Lock.Unlock()
-
-
-                        go func(done context.Context){
-                            xtime := time.NewTicker(time.Second / 10)
-                            defer xtime.Stop()
-                            after := time.After(500 * time.Millisecond)
-                            for {
-                                select {
-                                    case <-xtime.C:
-                                        menu.Lock.Lock()
-                                        menu.Current += 1
-                                        menu.Lock.Unlock()
-                                    case <-done.Done():
-                                        return
-                                    case <-after:
-                                        menu.Lock.Lock()
-                                        menu.TempChoice = 0
-                                        menu.Current = 0
-                                        menu.ChooseCancel()
-                                        menu.Keys.Update(choosingKey, code)
-                                        name := sdl.GetKeyName(code)
-                                        menu.ChoosingButton.Update(choosingKey, name)
-                                        common.SaveEmulatorKeys(*menu.Keys)
-                                        menu.Lock.Unlock()
-
-                                        menu.SetChoosing(false, "", nil)
-                                        return
-                                }
-                            }
-                        }(menu.ChooseDone)
-                    }
-                case sdl.KEYUP:
-                    menu.ChooseCancel()
-                    menu.Lock.Lock()
-                    menu.TempChoice = 0
-                    menu.Warning = ""
-                    menu.Lock.Unlock()
-            }
-        }
-    }
-}
-*/
-
 func (menu *ChangeKeyMenu) SetChoosing(v bool, key string, button *StaticFixedWidthButton){
     menu.Choosing = v
     menu.ChoosingKey = key
@@ -1229,9 +1179,12 @@ func (menu *ChangeKeyMenu) Update(){
     }
 }
 
+func (menu *ChangeKeyMenu) MouseMove(x int, y int){
+    menu.Buttons.MouseMove(x, y)
+}
+
 func (menu *ChangeKeyMenu) MouseClick(x int, y int) SubMenu {
-    // TODO
-    return menu
+    return menu.Buttons.MouseClick(x, y, menu)
 }
 
 func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
@@ -1752,6 +1705,8 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
     drawManager.PushDraw(draw, true)
     defer drawManager.PopDraw()
 
+    lastMouseX, lastMouseY := ebiten.CursorPosition()
+
     /* Reset the default renderer */
     for menu.quit.Err() == nil {
         joystickManager.ScanForJoysticks()
@@ -1775,9 +1730,14 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
             }
         }
 
+        mouseX, mouseY := ebiten.CursorPosition()
+
+        if mouseX != lastMouseX || mouseY != lastMouseY {
+            currentMenu.MouseMove(mouseX, mouseY)
+        }
+
         if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-            x, y := ebiten.CursorPosition()
-            currentMenu = currentMenu.MouseClick(x, y)
+            currentMenu = currentMenu.MouseClick(mouseX, mouseY)
         }
 
         currentMenu.Update()
