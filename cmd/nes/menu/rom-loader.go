@@ -1069,7 +1069,7 @@ func (loader *RomLoaderState) Render(font text.Face, smallFont text.Face, screen
         }
 
         textOptions.GeoM.Reset()
-        textOptions.GeoM.Translate(float64(x), float64(y + float32(height) / layout.Thumbnail + 1))
+        textOptions.GeoM.Translate(float64(x), float64(y + float32(height) / layout.Thumbnail + 2))
         textOptions.ColorScale.Reset()
         text.Draw(screen, name, smallFont, &textOptions)
 
