@@ -597,6 +597,7 @@ type SubMenu interface {
     Input(input MenuInput) SubMenu
     MouseClick(x int, y int) SubMenu
     MouseMove(x int, y int)
+    MouseWheel(dy int)
     MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction
     UpdateWindowSize(int, int)
     PlayBeep()
@@ -717,6 +718,9 @@ func (menu *StaticMenu) MouseMove(x int, y int){
     menu.Buttons.MouseMove(x, y)
 }
 
+func (menu *StaticMenu) MouseWheel(dy int){
+}
+
 func (menu *StaticMenu) MouseClick(x int, y int) SubMenu {
     return menu.Buttons.MouseClick(x, y, menu)
 }
@@ -817,6 +821,10 @@ func (loadRomMenu *LoadRomMenu) MouseClick(x int, y int) SubMenu {
     return loadRomMenu.Input(MenuSelect)
 }
 
+func (loadRomMenu *LoadRomMenu) MouseWheel(dy int){
+    loadRomMenu.LoaderState.MouseWheel(dy)
+}
+
 func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
     switch input {
         case MenuNext:
@@ -895,6 +903,9 @@ const (
 )
 
 func (loader *LoadRomInfoMenu) Update(){
+}
+
+func (loader *LoadRomInfoMenu) MouseWheel(dy int){
 }
 
 func (loader *LoadRomInfoMenu) MouseMove(x int, y int){
@@ -1198,6 +1209,9 @@ func (menu *ChangeKeyMenu) Update(){
 
 func (menu *ChangeKeyMenu) MouseMove(x int, y int){
     menu.Buttons.MouseMove(x, y)
+}
+
+func (menu *ChangeKeyMenu) MouseWheel(dy int){
 }
 
 func (menu *ChangeKeyMenu) MouseClick(x int, y int) SubMenu {
@@ -1750,7 +1764,16 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
         mouseX, mouseY := ebiten.CursorPosition()
 
         if mouseX != lastMouseX || mouseY != lastMouseY {
+            lastMouseX = mouseX
+            lastMouseY = mouseY
             currentMenu.MouseMove(mouseX, mouseY)
+        }
+
+        _, wheelY := ebiten.Wheel()
+        if wheelY > 0 {
+            currentMenu.MouseWheel(1)
+        } else if wheelY < 0 {
+            currentMenu.MouseWheel(-1)
         }
 
         if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {

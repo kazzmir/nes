@@ -663,6 +663,9 @@ func (menu *JoystickMenu) MouseMove(x int, y int) {
     menu.Buttons.MouseMove(x, y)
 }
 
+func (menu *JoystickMenu) MouseWheel(y int) {
+}
+
 func (menu *JoystickMenu) MouseClick(x int, y int) SubMenu {
     return menu.Buttons.MouseClick(x, y, menu)
 }

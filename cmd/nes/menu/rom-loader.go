@@ -615,6 +615,14 @@ func (loader *RomLoaderState) GetSelectedRom() (string, common.MakeFile, bool) {
     return "", nil, false
 }
 
+func (loader *RomLoaderState) MouseWheel(dy int) {
+    if dy > 0 {
+        loader.PreviousUpSelection()
+    } else {
+        loader.NextDownSelection()
+    }
+}
+
 func (loader *RomLoaderState) MouseMove(x int, y int) {
     for _, tile := range loader.OnScreenTiles {
         if x >= tile.X && x < tile.X + tile.Width &&
