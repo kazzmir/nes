@@ -230,6 +230,7 @@ const (
     Instruction_STX_zero =            0x86
     Instruction_SAX_zero =            0x87
     Instruction_DEY =                 0x88
+    Instruction_NOP_8 =               0x89
     Instruction_TXA =                 0x8a
     Instruction_STY_absolute =        0x8c
     Instruction_XAA =                 0x8b
@@ -247,6 +248,7 @@ const (
     Instruction_TYA =                 0x98
     Instruction_STA_absolute_y =      0x99
     Instruction_TXS =                 0x9a
+    Instruction_TAS_absolute_y =      0x9b
     Instruction_SHY =                 0x9c
     Instruction_STA_absolute_x =      0x9d
     Instruction_SHX =                 0x9e
@@ -502,6 +504,7 @@ func MakeInstructionDescriptiontable() InstructionTable {
     table[Instruction_NOP_5] = InstructionDescription{Name: "nop", Operands: 0}
     table[Instruction_NOP_6] = InstructionDescription{Name: "nop", Operands: 0}
     table[Instruction_NOP_7] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_NOP_8] = InstructionDescription{Name: "nop", Operands: 0}
     table[Instruction_NOP_absolute] = InstructionDescription{Name: "nop", Operands: 2}
     table[Instruction_NOP_zero_x] = InstructionDescription{Name: "nop", Operands: 1}
     table[Instruction_NOP_zero_x_1] = InstructionDescription{Name: "nop", Operands: 1}
@@ -595,6 +598,7 @@ func MakeInstructionDescriptiontable() InstructionTable {
     table[Instruction_ASL_zero_x] = InstructionDescription{Name: "asl", Operands: 1}
     table[Instruction_CLV] = InstructionDescription{Name: "clv", Operands: 0}
     table[Instruction_TXS] = InstructionDescription{Name: "txs", Operands: 0}
+    table[Instruction_TAS_absolute_y] = InstructionDescription{Name: "txs", Operands: 2}
     table[Instruction_BIT_absolute] = InstructionDescription{Name: "bit", Operands: 2}
     table[Instruction_STX_absolute] = InstructionDescription{Name: "stx", Operands: 2}
     table[Instruction_ASL_zero] = InstructionDescription{Name: "asl", Operands: 1}
@@ -2329,9 +2333,30 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             return nil
 
         case Instruction_SHY:
-            return fmt.Errorf("cpu instruction SHY unimplemented")
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.X)
+
+            cpu.StoreMemory(full, cpu.Y & (uint8(full >> 8) + 1))
+
+            cpu.PC += instruction.Length()
+            cpu.Cycle += 5
+            return nil
+
         case Instruction_SHX:
-            return fmt.Errorf("cpu instruction SHX unimplemented")
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.Y)
+
+            cpu.StoreMemory(full, cpu.X & (uint8(full >> 8) + 1))
+
+            cpu.PC += instruction.Length()
+            cpu.Cycle += 5
+            return nil
 
         case Instruction_AHX_indirect_y:
             value, err := instruction.OperandByte()
@@ -3480,6 +3505,19 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC += instruction.Length()
             cpu.Cycle += 2
             return nil
+        case Instruction_TAS_absolute_y:
+            cpu.SP = cpu.X & cpu.A
+            address, err := instruction.OperandWord()
+            if err != nil {
+                return err
+            }
+            full := address + uint16(cpu.Y)
+
+            cpu.StoreMemory(full, cpu.SP & (uint8(full >> 8) + 1))
+
+            cpu.PC += instruction.Length()
+            cpu.Cycle += 5
+            return nil
         case Instruction_DEC_absolute_x:
             address, err := instruction.OperandWord()
             if err != nil {
@@ -3741,7 +3779,8 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
              Instruction_NOP_4,
              Instruction_NOP_5,
              Instruction_NOP_6,
-             Instruction_NOP_7:
+             Instruction_NOP_7,
+             Instruction_NOP_8:
             cpu.PC += instruction.Length()
             cpu.Cycle += 2
             return nil
