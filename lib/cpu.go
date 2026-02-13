@@ -827,6 +827,9 @@ type CPUState struct {
     PC uint16 `json:"pc"`
     Status byte `json:"status"`
 
+    // the last value read from memory sitting in the databus
+    databus byte `json:"databus"`
+
     Cycle uint64 `json:"cycle"`
 
     /* holds a reference to the 2k ram the cpu can directly access.
@@ -961,6 +964,11 @@ func (cpu *CPUState) PopStack() byte {
 }
 
 func (cpu *CPUState) LoadMemory(address uint16) byte {
+    cpu.databus = cpu.loadMemory(address)
+    return cpu.databus
+}
+
+func (cpu *CPUState) loadMemory(address uint16) byte {
     // large := uint64(address)
 
     page := address >> 8
@@ -1006,7 +1014,7 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
 
     if cpu.Maps[page] == nil {
         log.Printf("Warning: loading unmapped memory at 0x%x\n", address)
-        return 0
+        return cpu.databus
     }
 
     return cpu.Maps[page][address & 0xff]
