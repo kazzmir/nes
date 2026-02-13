@@ -438,7 +438,7 @@ func MakeInstructionDescriptiontable() InstructionTable {
     table[Instruction_SAX_absolute] = InstructionDescription{Name: "sax", Operands: 2}
     table[Instruction_SAX_zero] = InstructionDescription{Name: "sax", Operands: 1}
     table[Instruction_SAX_zero_y] = InstructionDescription{Name: "sax", Operands: 1}
-    table[Instruction_JSR] = InstructionDescription{Name: "jsr", Operands: 2}
+    table[Instruction_JSR] = InstructionDescription{Name: "jsr", Operands: 0} // WARNING: JSR does its own operand loading
     table[Instruction_LDY_absolute] = InstructionDescription{Name: "ldy", Operands: 2}
     table[Instruction_LDY_absolute_x] = InstructionDescription{Name: "ldy", Operands: 2}
     table[Instruction_LDY_zero_x] = InstructionDescription{Name: "ldy", Operands: 1}
@@ -1134,6 +1134,8 @@ func (cpu *CPUState) GetMemoryPage(address uint16) []byte {
 
 func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     // large := uint64(address)
+
+    cpu.databus = value
 
     /* writes to certain ppu register are ignored before this cycle
      * http://wiki.nesdev.org/w/index.php/PPU_power_up_state
@@ -3099,6 +3101,25 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             return nil
         /* push PC+2 on stack, jump to address */
         case Instruction_JSR:
+            // this ordering is weird but its how the nes does it
+            operand1 := cpu.LoadMemory(cpu.PC + 1)
+            cpu.LoadStack(cpu.SP) // dummy read from stack
+
+            next := cpu.PC + 2
+
+            low := byte(next & 0xff)
+            high := byte(next >> 8)
+
+            cpu.PushStack(high)
+            cpu.PushStack(low)
+
+            operand2 := cpu.LoadMemory(cpu.PC + 2)
+            address := (uint16(operand2)) << 8 | uint16(operand1)
+            cpu.PC = address
+            cpu.Cycle += 6
+            return nil
+
+            /*
             address, err := instruction.OperandWord()
             if err != nil {
                 return err
@@ -3115,6 +3136,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC = address
             cpu.Cycle += 6
             return nil
+            */
         case Instruction_AND_absolute_x:
             address, err := instruction.OperandWord()
             if err != nil {
