@@ -287,6 +287,7 @@ const (
     Instruction_LAX_absolute_y =      0xbf
     Instruction_CPY_immediate =       0xc0
     Instruction_CMP_indirect_x =      0xc1
+    Instruction_NOP_9 =               0xc2
     Instruction_DCP_indirect_x =      0xc3
     Instruction_CPY_zero =            0xc4
     Instruction_CMP_zero =            0xc5
@@ -318,6 +319,7 @@ const (
     Instruction_DCP_absolute_x =      0xdf
     Instruction_CPX_immediate =       0xe0
     Instruction_SBC_indirect_x =      0xe1
+    Instruction_NOP_10 =              0xe2
     Instruction_ISC_indirect_x =      0xe3
     Instruction_CPX_zero =            0xe4
     Instruction_SBC_zero =            0xe5
@@ -504,7 +506,9 @@ func MakeInstructionDescriptiontable() InstructionTable {
     table[Instruction_NOP_5] = InstructionDescription{Name: "nop", Operands: 0}
     table[Instruction_NOP_6] = InstructionDescription{Name: "nop", Operands: 0}
     table[Instruction_NOP_7] = InstructionDescription{Name: "nop", Operands: 0}
-    table[Instruction_NOP_8] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_NOP_8] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_9] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_10] = InstructionDescription{Name: "nop", Operands: 1}
     table[Instruction_NOP_absolute] = InstructionDescription{Name: "nop", Operands: 2}
     table[Instruction_NOP_zero_x] = InstructionDescription{Name: "nop", Operands: 1}
     table[Instruction_NOP_zero_x_1] = InstructionDescription{Name: "nop", Operands: 1}
@@ -3780,7 +3784,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
              Instruction_NOP_5,
              Instruction_NOP_6,
              Instruction_NOP_7,
-             Instruction_NOP_8:
+             Instruction_NOP_8,
+             Instruction_NOP_9,
+             Instruction_NOP_10:
             cpu.PC += instruction.Length()
             cpu.Cycle += 2
             return nil
