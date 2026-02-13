@@ -973,25 +973,7 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
 
     page := address >> 8
     if page >= 0x20 && page < 0x40 {
-        /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
-        use := address & 0x7
-        switch 0x2000 | use {
-            case PPUCTRL:
-                log.Printf("Warning: reading from PPUCTRL location is not allowed\n")
-                return cpu.PPU.DummyRead()
-            case PPUMASK:
-                log.Printf("Warning: reading from PPUMASK location is not allowed\n")
-                return 0
-            case PPUDATA:
-                return cpu.PPU.ReadVideoMemory()
-            case PPUSTATUS:
-                return cpu.PPU.ReadStatus()
-            case OAMDATA:
-                return cpu.PPU.ReadOAM(byte(address))
-        }
-
-        log.Printf("Unhandled PPU read to 0x%x\n", address)
-        return 0
+        return cpu.PPU.ReadMemory(address)
     }
 
     switch address {
@@ -1137,65 +1119,9 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
 
     cpu.databus = value
 
-    /* writes to certain ppu register are ignored before this cycle
-     * http://wiki.nesdev.org/w/index.php/PPU_power_up_state
-     */
-    const ignore_ppu_write_cycle = 29658
-
     page := address >> 8
     if page >= 0x20 && page < 0x40 {
-        /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
-        use := address & 0x7
-        switch 0x2000 | use {
-            case PPUCTRL:
-                if cpu.Cycle > ignore_ppu_write_cycle {
-                    cpu.PPU.SetControllerFlags(value)
-                    if cpu.Debug > 0 {
-                        log.Printf("Set PPUCTRL to 0x%x: %v", value, cpu.PPU.ControlString())
-                    }
-                }
-                return
-            case PPUSTATUS:
-                if cpu.Cycle > ignore_ppu_write_cycle {
-                    cpu.PPU.DummyWrite(value)
-                }
-                return
-            case PPUMASK:
-                if cpu.Cycle > ignore_ppu_write_cycle {
-                    cpu.PPU.SetMask(value)
-                    if cpu.Debug > 0 {
-                        log.Printf("Set PPUMASK to 0x%x: %v", value, cpu.PPU.MaskString())
-                    }
-                }
-                return
-            case PPUSCROLL:
-                if cpu.Cycle > ignore_ppu_write_cycle {
-                    if cpu.Debug > 0 {
-                        log.Printf("Write 0x%x to PPUSCROLL", value)
-                    }
-                    cpu.PPU.WriteScroll(value)
-                }
-                return
-            case PPUADDR:
-                if cpu.Cycle > ignore_ppu_write_cycle {
-                    if cpu.Debug > 0 {
-                        log.Printf("Write 0x%x to PPUADDR", value)
-                    }
-                    cpu.PPU.WriteAddress(value)
-                }
-                return
-            case PPUDATA:
-                cpu.PPU.WriteVideoMemory(value)
-                return
-            case OAMADDR:
-                cpu.PPU.SetOAMAddress(value)
-                return
-            case OAMDATA:
-                cpu.PPU.WriteOAM(value)
-                return
-        }
-
-        log.Printf("Unhandled PPU write to 0x%x\n", address)
+        cpu.PPU.WriteMemory(address, value, cpu.Cycle)
         return
     }
 

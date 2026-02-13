@@ -202,12 +202,74 @@ func (ppu *PPUState) CopyOAM(data []byte){
     }
 }
 
-func (ppu *PPUState) DummyWrite(value byte) {
-    ppu.InternalVideoBuffer = value
+func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
+    /* writes to certain ppu register are ignored before this cycle
+     * http://wiki.nesdev.org/w/index.php/PPU_power_up_state
+     */
+    const ignore_ppu_write_cycle = 29658
+
+    /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
+    ppu.databus = value
+    use := address & 0x7
+    switch 0x2000 | use {
+        case PPUCTRL:
+            if cycle > ignore_ppu_write_cycle {
+                ppu.SetControllerFlags(value)
+                if ppu.Debug > 0 {
+                    log.Printf("Set PPUCTRL to 0x%x: %v", value, ppu.ControlString())
+                }
+            }
+        case PPUSTATUS:
+        case PPUMASK:
+            if cycle > ignore_ppu_write_cycle {
+                ppu.SetMask(value)
+                if ppu.Debug > 0 {
+                    log.Printf("Set PPUMASK to 0x%x: %v", value, ppu.MaskString())
+                }
+            }
+        case PPUSCROLL:
+            if cycle > ignore_ppu_write_cycle {
+                if ppu.Debug > 0 {
+                    log.Printf("Write 0x%x to PPUSCROLL", value)
+                }
+                ppu.WriteScroll(value)
+            }
+        case PPUADDR:
+            if cycle > ignore_ppu_write_cycle {
+                if ppu.Debug > 0 {
+                    log.Printf("Write 0x%x to PPUADDR", value)
+                }
+                ppu.WriteAddress(value)
+            }
+        case PPUDATA:
+            ppu.WriteVideoMemory(value)
+        case OAMADDR:
+            ppu.SetOAMAddress(value)
+        case OAMDATA:
+            ppu.WriteOAM(value)
+        default:
+            log.Printf("Unhandled PPU write to 0x%x\n", address)
+    }
 }
 
-func (ppu *PPUState) DummyRead() byte {
-    return ppu.InternalVideoBuffer
+func (ppu *PPUState) ReadMemory(address uint16) byte {
+    /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
+    use := address & 0x7
+    switch 0x2000 | use {
+        case PPUCTRL:
+            log.Printf("Warning: reading from PPUCTRL location is not allowed\n")
+        case PPUMASK:
+            log.Printf("Warning: reading from PPUMASK location is not allowed\n")
+        case PPUDATA:
+            return ppu.ReadVideoMemory()
+        case PPUSTATUS:
+            return ppu.ReadStatus()
+        case OAMDATA:
+            return ppu.ReadOAM(byte(address))
+    }
+
+    log.Printf("Unhandled PPU read to 0x%x\n", address)
+    return ppu.databus
 }
 
 func (ppu *PPUState) WriteScroll(value byte){
