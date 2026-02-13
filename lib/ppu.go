@@ -47,6 +47,8 @@ type PPUState struct {
     VideoAddress uint16 `json:"videoaddress"` /* the v register */
     WriteState byte `json:"writestate"` /* for writing to the video address or the t register */
 
+    databus byte `json:"databus"`
+
     NametableMirror NametableMirrorConfiguration `json:"nametablemirror"`
 
     /* for scrolling */
@@ -198,6 +200,14 @@ func (ppu *PPUState) CopyOAM(data []byte){
         }
         ppu.OAM[address] = data[i]
     }
+}
+
+func (ppu *PPUState) DummyWrite(value byte) {
+    ppu.InternalVideoBuffer = value
+}
+
+func (ppu *PPUState) DummyRead() byte {
+    return ppu.InternalVideoBuffer
 }
 
 func (ppu *PPUState) WriteScroll(value byte){
@@ -423,6 +433,9 @@ func (ppu *PPUState) GetVRamIncrement() uint16 {
 }
 
 func (ppu *PPUState) WriteVideoMemory(value byte){
+    // ppu.databus = value
+    ppu.InternalVideoBuffer = value
+
     actualAddress := ppu.VideoAddress
 
     /* Mirror writes to the universal background color */

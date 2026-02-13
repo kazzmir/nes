@@ -978,7 +978,7 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
         switch 0x2000 | use {
             case PPUCTRL:
                 log.Printf("Warning: reading from PPUCTRL location is not allowed\n")
-                return 0
+                return cpu.PPU.DummyRead()
             case PPUMASK:
                 log.Printf("Warning: reading from PPUMASK location is not allowed\n")
                 return 0
@@ -1153,6 +1153,11 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
                     if cpu.Debug > 0 {
                         log.Printf("Set PPUCTRL to 0x%x: %v", value, cpu.PPU.ControlString())
                     }
+                }
+                return
+            case PPUSTATUS:
+                if cpu.Cycle > ignore_ppu_write_cycle {
+                    cpu.PPU.DummyWrite(value)
                 }
                 return
             case PPUMASK:
@@ -1793,8 +1798,15 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
+
             full := address + uint16(cpu.X)
             page_cross := (full>>8) != (address>>8)
+
+            if page_cross {
+                // do a dummy read of just the high byte
+                cpu.LoadMemory(address & 0xff00)
+            }
+
             cpu.loadA(cpu.LoadMemory(full))
             cpu.PC += instruction.Length()
             cpu.Cycle += 4
