@@ -729,10 +729,18 @@ type HostInput interface {
     Get() ButtonMapping
 }
 
+type InputMode int
+const (
+    InputModeShift InputMode = 0
+    InputModeParallel InputMode = 1
+)
+
 type Input struct {
     Buttons []bool
     NextRead byte
     Host HostInput
+
+    InputMode InputMode
 
     LastButtons []bool
     RecordInput bool
@@ -750,14 +758,24 @@ func (input *Input) Reset() {
     input.Buttons[ButtonIndexDown] = mapping[ButtonIndexDown]
     input.Buttons[ButtonIndexLeft] = mapping[ButtonIndexLeft]
     input.Buttons[ButtonIndexRight] = mapping[ButtonIndexRight]
+
+    input.InputMode = InputModeParallel
+    input.NextRead = 0
 }
 
 func (input *Input) Read() byte {
+    if int(input.NextRead) >= len(input.Buttons) {
+        return 0
+    }
+
     var out byte
     if input.Buttons[input.NextRead] {
         out = 1
     }
-    input.NextRead = (input.NextRead + 1) % 8
+    // only shift the register in shift mode, parallel mode will not shift
+    if input.InputMode == InputModeShift {
+        input.NextRead += 1
+    }
     return out
 }
 
@@ -978,10 +996,13 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
 
     switch address {
         case JOYPAD1:
-            return cpu.Input.Read()
+            value := (cpu.databus & 0b11100000) | (cpu.Input.Read() & 0b11111)
+            return value
         case JOYPAD2:
             /* FIXME: handle player 2 input */
-            return 0
+            input := byte(0)
+            value := (cpu.databus & 0b11100000) | (input & 0b11111)
+            return value
         case APUStatus:
             return cpu.APU.ReadStatus()
     }
@@ -1197,21 +1218,25 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             cpu.APU.WriteDMCLength(value)
             return
         case INPUT_POLL:
-            cpu.Input.Reset()
-            if cpu.Input.RecordInput {
-                // showInputDifference(cpu.Cycle, cpu.Input.LastButtons, cpu.Input.Buttons)
-                out := make(map[Button]bool)
-                for i := 0; i < len(cpu.Input.LastButtons); i++ {
-                    if cpu.Input.LastButtons[i] != cpu.Input.Buttons[i] {
-                        out[Button(i)] = cpu.Input.Buttons[i]
+            if value == 1 {
+                cpu.Input.Reset()
+                if cpu.Input.RecordInput {
+                    // showInputDifference(cpu.Cycle, cpu.Input.LastButtons, cpu.Input.Buttons)
+                    out := make(map[Button]bool)
+                    for i := 0; i < len(cpu.Input.LastButtons); i++ {
+                        if cpu.Input.LastButtons[i] != cpu.Input.Buttons[i] {
+                            out[Button(i)] = cpu.Input.Buttons[i]
+                        }
+                    }
+                    if len(out) > 0 {
+                        cpu.Input.RecordedInput <- RecordInput{
+                            Cycle: cpu.Cycle,
+                            Difference: out,
+                        }
                     }
                 }
-                if len(out) > 0 {
-                    cpu.Input.RecordedInput <- RecordInput{
-                        Cycle: cpu.Cycle,
-                        Difference: out,
-                    }
-                }
+            } else if value == 0 {
+                cpu.Input.InputMode = InputModeShift
             }
             return
         case OAMDMA:
