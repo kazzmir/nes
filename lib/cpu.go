@@ -287,6 +287,7 @@ const (
     Instruction_LAX_absolute_y =      0xbf
     Instruction_CPY_immediate =       0xc0
     Instruction_CMP_indirect_x =      0xc1
+    Instruction_NOP_9 =               0xc2
     Instruction_DCP_indirect_x =      0xc3
     Instruction_CPY_zero =            0xc4
     Instruction_CMP_zero =            0xc5
@@ -318,6 +319,7 @@ const (
     Instruction_DCP_absolute_x =      0xdf
     Instruction_CPX_immediate =       0xe0
     Instruction_SBC_indirect_x =      0xe1
+    Instruction_NOP_10 =              0xe2
     Instruction_ISC_indirect_x =      0xe3
     Instruction_CPX_zero =            0xe4
     Instruction_SBC_zero =            0xe5
@@ -436,7 +438,7 @@ func MakeInstructionDescriptiontable() InstructionTable {
     table[Instruction_SAX_absolute] = InstructionDescription{Name: "sax", Operands: 2}
     table[Instruction_SAX_zero] = InstructionDescription{Name: "sax", Operands: 1}
     table[Instruction_SAX_zero_y] = InstructionDescription{Name: "sax", Operands: 1}
-    table[Instruction_JSR] = InstructionDescription{Name: "jsr", Operands: 2}
+    table[Instruction_JSR] = InstructionDescription{Name: "jsr", Operands: 0} // WARNING: JSR does its own operand loading
     table[Instruction_LDY_absolute] = InstructionDescription{Name: "ldy", Operands: 2}
     table[Instruction_LDY_absolute_x] = InstructionDescription{Name: "ldy", Operands: 2}
     table[Instruction_LDY_zero_x] = InstructionDescription{Name: "ldy", Operands: 1}
@@ -504,7 +506,9 @@ func MakeInstructionDescriptiontable() InstructionTable {
     table[Instruction_NOP_5] = InstructionDescription{Name: "nop", Operands: 0}
     table[Instruction_NOP_6] = InstructionDescription{Name: "nop", Operands: 0}
     table[Instruction_NOP_7] = InstructionDescription{Name: "nop", Operands: 0}
-    table[Instruction_NOP_8] = InstructionDescription{Name: "nop", Operands: 0}
+    table[Instruction_NOP_8] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_9] = InstructionDescription{Name: "nop", Operands: 1}
+    table[Instruction_NOP_10] = InstructionDescription{Name: "nop", Operands: 1}
     table[Instruction_NOP_absolute] = InstructionDescription{Name: "nop", Operands: 2}
     table[Instruction_NOP_zero_x] = InstructionDescription{Name: "nop", Operands: 1}
     table[Instruction_NOP_zero_x_1] = InstructionDescription{Name: "nop", Operands: 1}
@@ -725,10 +729,18 @@ type HostInput interface {
     Get() ButtonMapping
 }
 
+type InputMode int
+const (
+    InputModeShift InputMode = 0
+    InputModeParallel InputMode = 1
+)
+
 type Input struct {
     Buttons []bool
     NextRead byte
     Host HostInput
+
+    InputMode InputMode
 
     LastButtons []bool
     RecordInput bool
@@ -746,14 +758,24 @@ func (input *Input) Reset() {
     input.Buttons[ButtonIndexDown] = mapping[ButtonIndexDown]
     input.Buttons[ButtonIndexLeft] = mapping[ButtonIndexLeft]
     input.Buttons[ButtonIndexRight] = mapping[ButtonIndexRight]
+
+    input.InputMode = InputModeParallel
+    input.NextRead = 0
 }
 
 func (input *Input) Read() byte {
+    if int(input.NextRead) >= len(input.Buttons) {
+        return 0
+    }
+
     var out byte
     if input.Buttons[input.NextRead] {
         out = 1
     }
-    input.NextRead = (input.NextRead + 1) % 8
+    // only shift the register in shift mode, parallel mode will not shift
+    if input.InputMode == InputModeShift {
+        input.NextRead += 1
+    }
     return out
 }
 
@@ -822,6 +844,9 @@ type CPUState struct {
     SP byte `json:"sp"`
     PC uint16 `json:"pc"`
     Status byte `json:"status"`
+
+    // the last value read from memory sitting in the databus
+    Databus byte `json:"databus"`
 
     Cycle uint64 `json:"cycle"`
 
@@ -957,37 +982,27 @@ func (cpu *CPUState) PopStack() byte {
 }
 
 func (cpu *CPUState) LoadMemory(address uint16) byte {
+    cpu.Databus = cpu.loadMemory(address)
+    return cpu.Databus
+}
+
+func (cpu *CPUState) loadMemory(address uint16) byte {
     // large := uint64(address)
 
     page := address >> 8
     if page >= 0x20 && page < 0x40 {
-        /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
-        use := address & 0x7
-        switch 0x2000 | use {
-            case PPUCTRL:
-                log.Printf("Warning: reading from PPUCTRL location is not allowed\n")
-                return 0
-            case PPUMASK:
-                log.Printf("Warning: reading from PPUMASK location is not allowed\n")
-                return 0
-            case PPUDATA:
-                return cpu.PPU.ReadVideoMemory()
-            case PPUSTATUS:
-                return cpu.PPU.ReadStatus()
-            case OAMDATA:
-                return cpu.PPU.ReadOAM(byte(address))
-        }
-
-        log.Printf("Unhandled PPU read to 0x%x\n", address)
-        return 0
+        return cpu.PPU.ReadMemory(address)
     }
 
     switch address {
         case JOYPAD1:
-            return cpu.Input.Read()
+            value := (cpu.Databus & 0b11100000) | (cpu.Input.Read() & 0b11111)
+            return value
         case JOYPAD2:
             /* FIXME: handle player 2 input */
-            return 0
+            input := byte(0)
+            value := (cpu.Databus & 0b11100000) | (input & 0b11111)
+            return value
         case APUStatus:
             return cpu.APU.ReadStatus()
     }
@@ -1002,7 +1017,7 @@ func (cpu *CPUState) LoadMemory(address uint16) byte {
 
     if cpu.Maps[page] == nil {
         log.Printf("Warning: loading unmapped memory at 0x%x\n", address)
-        return 0
+        return cpu.Databus
     }
 
     return cpu.Maps[page][address & 0xff]
@@ -1123,60 +1138,11 @@ func (cpu *CPUState) GetMemoryPage(address uint16) []byte {
 func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     // large := uint64(address)
 
-    /* writes to certain ppu register are ignored before this cycle
-     * http://wiki.nesdev.org/w/index.php/PPU_power_up_state
-     */
-    const ignore_ppu_write_cycle = 29658
+    cpu.Databus = value
 
     page := address >> 8
     if page >= 0x20 && page < 0x40 {
-        /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
-        use := address & 0x7
-        switch 0x2000 | use {
-            case PPUCTRL:
-                if cpu.Cycle > ignore_ppu_write_cycle {
-                    cpu.PPU.SetControllerFlags(value)
-                    if cpu.Debug > 0 {
-                        log.Printf("Set PPUCTRL to 0x%x: %v", value, cpu.PPU.ControlString())
-                    }
-                }
-                return
-            case PPUMASK:
-                if cpu.Cycle > ignore_ppu_write_cycle {
-                    cpu.PPU.SetMask(value)
-                    if cpu.Debug > 0 {
-                        log.Printf("Set PPUMASK to 0x%x: %v", value, cpu.PPU.MaskString())
-                    }
-                }
-                return
-            case PPUSCROLL:
-                if cpu.Cycle > ignore_ppu_write_cycle {
-                    if cpu.Debug > 0 {
-                        log.Printf("Write 0x%x to PPUSCROLL", value)
-                    }
-                    cpu.PPU.WriteScroll(value)
-                }
-                return
-            case PPUADDR:
-                if cpu.Cycle > ignore_ppu_write_cycle {
-                    if cpu.Debug > 0 {
-                        log.Printf("Write 0x%x to PPUADDR", value)
-                    }
-                    cpu.PPU.WriteAddress(value)
-                }
-                return
-            case PPUDATA:
-                cpu.PPU.WriteVideoMemory(value)
-                return
-            case OAMADDR:
-                cpu.PPU.SetOAMAddress(value)
-                return
-            case OAMDATA:
-                cpu.PPU.WriteOAM(value)
-                return
-        }
-
-        log.Printf("Unhandled PPU write to 0x%x\n", address)
+        cpu.PPU.WriteMemory(address, value, cpu.Cycle)
         return
     }
 
@@ -1252,21 +1218,25 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             cpu.APU.WriteDMCLength(value)
             return
         case INPUT_POLL:
-            cpu.Input.Reset()
-            if cpu.Input.RecordInput {
-                // showInputDifference(cpu.Cycle, cpu.Input.LastButtons, cpu.Input.Buttons)
-                out := make(map[Button]bool)
-                for i := 0; i < len(cpu.Input.LastButtons); i++ {
-                    if cpu.Input.LastButtons[i] != cpu.Input.Buttons[i] {
-                        out[Button(i)] = cpu.Input.Buttons[i]
+            if value == 1 {
+                cpu.Input.Reset()
+                if cpu.Input.RecordInput {
+                    // showInputDifference(cpu.Cycle, cpu.Input.LastButtons, cpu.Input.Buttons)
+                    out := make(map[Button]bool)
+                    for i := 0; i < len(cpu.Input.LastButtons); i++ {
+                        if cpu.Input.LastButtons[i] != cpu.Input.Buttons[i] {
+                            out[Button(i)] = cpu.Input.Buttons[i]
+                        }
+                    }
+                    if len(out) > 0 {
+                        cpu.Input.RecordedInput <- RecordInput{
+                            Cycle: cpu.Cycle,
+                            Difference: out,
+                        }
                     }
                 }
-                if len(out) > 0 {
-                    cpu.Input.RecordedInput <- RecordInput{
-                        Cycle: cpu.Cycle,
-                        Difference: out,
-                    }
-                }
+            } else if value == 0 {
+                cpu.Input.InputMode = InputModeShift
             }
             return
         case OAMDMA:
@@ -1779,8 +1749,15 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
+
             full := address + uint16(cpu.X)
             page_cross := (full>>8) != (address>>8)
+
+            if page_cross {
+                // do a dummy read of just the high byte
+                cpu.LoadMemory(address & 0xff00)
+            }
+
             cpu.loadA(cpu.LoadMemory(full))
             cpu.PC += instruction.Length()
             cpu.Cycle += 4
@@ -3087,6 +3064,25 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             return nil
         /* push PC+2 on stack, jump to address */
         case Instruction_JSR:
+            // this ordering is weird but its how the nes does it
+            operand1 := cpu.LoadMemory(cpu.PC + 1)
+            cpu.LoadStack(cpu.SP) // dummy read from stack
+
+            next := cpu.PC + 2
+
+            low := byte(next & 0xff)
+            high := byte(next >> 8)
+
+            cpu.PushStack(high)
+            cpu.PushStack(low)
+
+            operand2 := cpu.LoadMemory(cpu.PC + 2)
+            address := (uint16(operand2)) << 8 | uint16(operand1)
+            cpu.PC = address
+            cpu.Cycle += 6
+            return nil
+
+            /*
             address, err := instruction.OperandWord()
             if err != nil {
                 return err
@@ -3103,6 +3099,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             cpu.PC = address
             cpu.Cycle += 6
             return nil
+            */
         case Instruction_AND_absolute_x:
             address, err := instruction.OperandWord()
             if err != nil {
@@ -3780,7 +3777,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
              Instruction_NOP_5,
              Instruction_NOP_6,
              Instruction_NOP_7,
-             Instruction_NOP_8:
+             Instruction_NOP_8,
+             Instruction_NOP_9,
+             Instruction_NOP_10:
             cpu.PC += instruction.Length()
             cpu.Cycle += 2
             return nil
