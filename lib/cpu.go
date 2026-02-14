@@ -846,7 +846,7 @@ type CPUState struct {
     Status byte `json:"status"`
 
     // the last value read from memory sitting in the databus
-    databus byte `json:"databus"`
+    Databus byte `json:"databus"`
 
     Cycle uint64 `json:"cycle"`
 
@@ -982,8 +982,8 @@ func (cpu *CPUState) PopStack() byte {
 }
 
 func (cpu *CPUState) LoadMemory(address uint16) byte {
-    cpu.databus = cpu.loadMemory(address)
-    return cpu.databus
+    cpu.Databus = cpu.loadMemory(address)
+    return cpu.Databus
 }
 
 func (cpu *CPUState) loadMemory(address uint16) byte {
@@ -996,12 +996,12 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
 
     switch address {
         case JOYPAD1:
-            value := (cpu.databus & 0b11100000) | (cpu.Input.Read() & 0b11111)
+            value := (cpu.Databus & 0b11100000) | (cpu.Input.Read() & 0b11111)
             return value
         case JOYPAD2:
             /* FIXME: handle player 2 input */
             input := byte(0)
-            value := (cpu.databus & 0b11100000) | (input & 0b11111)
+            value := (cpu.Databus & 0b11100000) | (input & 0b11111)
             return value
         case APUStatus:
             return cpu.APU.ReadStatus()
@@ -1017,7 +1017,7 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
 
     if cpu.Maps[page] == nil {
         log.Printf("Warning: loading unmapped memory at 0x%x\n", address)
-        return cpu.databus
+        return cpu.Databus
     }
 
     return cpu.Maps[page][address & 0xff]
@@ -1138,7 +1138,7 @@ func (cpu *CPUState) GetMemoryPage(address uint16) []byte {
 func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     // large := uint64(address)
 
-    cpu.databus = value
+    cpu.Databus = value
 
     page := address >> 8
     if page >= 0x20 && page < 0x40 {

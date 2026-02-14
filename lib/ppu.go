@@ -47,7 +47,7 @@ type PPUState struct {
     VideoAddress uint16 `json:"videoaddress"` /* the v register */
     WriteState byte `json:"writestate"` /* for writing to the video address or the t register */
 
-    databus byte `json:"databus"`
+    Databus byte `json:"databus"`
 
     NametableMirror NametableMirrorConfiguration `json:"nametablemirror"`
 
@@ -209,7 +209,7 @@ func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
     const ignore_ppu_write_cycle = 29658
 
     /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
-    ppu.databus = value
+    ppu.Databus = value
     use := address & 0x7
     switch 0x2000 | use {
         case PPUCTRL:
@@ -269,7 +269,7 @@ func (ppu *PPUState) ReadMemory(address uint16) byte {
     }
 
     log.Printf("Unhandled PPU read to 0x%x\n", address)
-    return ppu.databus
+    return ppu.Databus
 }
 
 func (ppu *PPUState) WriteScroll(value byte){
