@@ -2571,6 +2571,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
             // log.Printf("Store Y:0x%x into 0x%x\n", cpu.Y, value)
+            cpu.LoadMemory(value) // dummy read before storing
             cpu.StoreMemory(value, cpu.Y)
             cpu.Cycle += 4
             cpu.PC += instruction.Length()
@@ -2581,6 +2582,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
             address := uint16(zero + cpu.Y)
+            cpu.LoadMemory(address) // dummy read before storing
             cpu.StoreMemory(address, cpu.X)
             cpu.Cycle += 4
             cpu.PC += instruction.Length()
@@ -2590,6 +2592,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
+            cpu.LoadMemory(uint16(address)) // dummy read before storing
             cpu.StoreMemory(uint16(address), cpu.X)
             cpu.PC += instruction.Length()
             cpu.Cycle += 3
@@ -2600,6 +2603,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
             // log.Printf("Store X:0x%x into 0x%x\n", cpu.X, value)
+            cpu.LoadMemory(value) // dummy read before storing
             cpu.StoreMemory(value, cpu.X)
             cpu.PC += instruction.Length()
             cpu.Cycle += 4
@@ -2611,6 +2615,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
 
             full := address + uint16(cpu.X)
+            cpu.LoadMemory(full) // dummy read before storing
             cpu.StoreMemory(full, cpu.A)
             cpu.PC += instruction.Length()
             cpu.Cycle += 5
@@ -2622,6 +2627,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
 
             full := address + uint16(cpu.Y)
+            cpu.LoadMemory(full) // dummy read before storing
             cpu.StoreMemory(full, cpu.A)
             cpu.PC += instruction.Length()
             cpu.Cycle += 5
@@ -2633,6 +2639,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
 
             address := cpu.ComputeIndirectX(relative)
+            cpu.LoadMemory(address) // dummy read before storing
             cpu.StoreMemory(address, cpu.A)
             cpu.PC += instruction.Length()
             cpu.Cycle += 6
@@ -2644,6 +2651,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
             address, page_cross := cpu.ComputeIndirectY(relative)
             _ = page_cross
+            cpu.LoadMemory(address) // dummy read before storing
             cpu.StoreMemory(address, cpu.A)
             cpu.PC += instruction.Length()
             cpu.Cycle += 6
@@ -2654,6 +2662,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
             address := uint16(value + cpu.X)
+            cpu.LoadMemory(address) // dummy read before storing
             cpu.StoreMemory(address, cpu.A)
             cpu.Cycle += 4
             cpu.PC += instruction.Length()
