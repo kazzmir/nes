@@ -1724,6 +1724,27 @@ func (cpu *CPUState) doCmp(value byte){
     cpu.SetZeroFlag(result == 0)
 }
 
+// returns the number of cycles taken
+func (cpu *CPUState) doLdaAbsolute(address uint16, offset byte) uint64 {
+    full := address + uint16(offset)
+    page_cross := (full>>8) != (address>>8)
+
+    if page_cross {
+        high := address & 0xff00
+        low := uint8(address & 0xff) + offset
+
+        // dummy read where high byte has not yet incremented
+        cpu.LoadMemory(high | uint16(low))
+    }
+
+    cpu.loadA(cpu.LoadMemory(full))
+
+    if page_cross {
+        return 5
+    }
+    return 4
+}
+
 func (cpu *CPUState) Execute(instruction Instruction) error {
     switch instruction.Kind {
         case Instruction_LDA_zero:
@@ -1750,34 +1771,17 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
 
-            full := address + uint16(cpu.X)
-            page_cross := (full>>8) != (address>>8)
-
-            if page_cross {
-                // do a dummy read of just the high byte
-                cpu.LoadMemory(address & 0xff00)
-            }
-
-            cpu.loadA(cpu.LoadMemory(full))
+            cpu.Cycle += cpu.doLdaAbsolute(address, cpu.X)
             cpu.PC += instruction.Length()
-            cpu.Cycle += 4
-            if page_cross {
-                cpu.Cycle += 1
-            }
             return nil
         case Instruction_LDA_absolute_y:
             address, err := instruction.OperandWord()
             if err != nil {
                 return err
             }
-            full := address + uint16(cpu.Y)
-            page_cross := (address >> 8) != (full >> 8)
-            cpu.loadA(cpu.LoadMemory(full))
+
+            cpu.Cycle += cpu.doLdaAbsolute(address, cpu.Y)
             cpu.PC += instruction.Length()
-            cpu.Cycle += 4
-            if page_cross {
-                cpu.Cycle += 1
-            }
             return nil
         case Instruction_LDA_immediate:
             value, err := instruction.OperandByte()
