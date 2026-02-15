@@ -46,12 +46,7 @@ O = stop the emulator after each frame, press O repeatedly
 
 Build instructions:
 
-Needs go 1.18 or higher
-
-Install libSDL2, libSDL2-ttf, and libSDL2-mixer
-```
-$ sudo apt install libsdl2-dev libsdl2-ttf-dev libsdl2-mixer-dev
-```
+Needs go 1.24 or higher
 
 Using make
 ```
