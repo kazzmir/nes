@@ -1472,7 +1472,7 @@ func (cpu *CPUState) loadX(value byte){
 }
 
 /* returns a new address and whether a page boundary was crossed */
-func (cpu *CPUState) ComputeIndirectY(relative byte) (uint16, bool) {
+func (cpu *CPUState) ComputeIndirectY(relative byte) (uint16, uint16, bool) {
     /* Load two values from the zero page at (relative, relative+1)
      * Then construct a new address where low=(relative) and high=(relative+1)
      * Then add cpu.Y to the new address, and load the resulting address
@@ -1492,7 +1492,7 @@ func (cpu *CPUState) ComputeIndirectY(relative byte) (uint16, bool) {
      */
     page_cross := (out>>8) != (address>>8)
 
-    return out, page_cross
+    return out, address, page_cross
 }
 
 /*
@@ -1847,7 +1847,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             _ = page_cross
             cpu.doRra(address)
             cpu.PC += instruction.Length()
@@ -1917,7 +1917,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             _ = page_cross
             cpu.doSre(address)
             cpu.Cycle += 8
@@ -1997,7 +1997,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             _ = page_cross
             cpu.Cycle += 8
             cpu.doRla(address)
@@ -2028,7 +2028,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             _ = page_cross
             cpu.doSlo(address)
             cpu.Cycle += 8
@@ -2114,7 +2114,15 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, original, page_cross := cpu.ComputeIndirectY(relative)
+
+            high := original & 0xff00
+            low := uint8(original & 0xff) + cpu.Y
+            dummy := high | uint16(low)
+            if dummy != address {
+                cpu.LoadMemory(dummy)
+            }
+
             value := cpu.LoadMemory(address)
             cpu.loadA(value)
             cpu.Cycle += 5
@@ -2248,7 +2256,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             value := cpu.LoadMemory(address)
             cpu.doAdc(value)
             cpu.PC += instruction.Length()
@@ -2345,7 +2353,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
 
-            address, page_cross := cpu.ComputeIndirectY(value)
+            address, _, page_cross := cpu.ComputeIndirectY(value)
             _ = page_cross
 
             /* FIXME: probably not exactly right
@@ -2459,7 +2467,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             value := cpu.LoadMemory(address)
             cpu.doSbc(value)
             cpu.PC += instruction.Length()
@@ -2615,7 +2623,14 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
 
             full := address + uint16(cpu.X)
-            cpu.LoadMemory(full) // dummy read before storing
+
+            high := address & 0xff00
+            low := uint8(address & 0xff) + cpu.X
+            dummy := high | uint16(low)
+            if dummy != full {
+                cpu.LoadMemory(dummy)
+            }
+
             cpu.StoreMemory(full, cpu.A)
             cpu.PC += instruction.Length()
             cpu.Cycle += 5
@@ -2639,7 +2654,8 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
 
             address := cpu.ComputeIndirectX(relative)
-            cpu.LoadMemory(address) // dummy read before storing
+            // no dummy read here
+            // cpu.LoadMemory(address) // dummy read before storing
             cpu.StoreMemory(address, cpu.A)
             cpu.PC += instruction.Length()
             cpu.Cycle += 6
@@ -2649,8 +2665,16 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, original, page_cross := cpu.ComputeIndirectY(relative)
             _ = page_cross
+
+            high := original & 0xff00
+            low := uint8(original & 0xff) + cpu.Y
+            dummy := high | uint16(low)
+            if dummy != address {
+                cpu.LoadMemory(dummy)
+            }
+
             cpu.LoadMemory(address) // dummy read before storing
             cpu.StoreMemory(address, cpu.A)
             cpu.PC += instruction.Length()
@@ -3146,7 +3170,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             value := cpu.LoadMemory(address)
             cpu.Cycle += 5
             if page_cross {
@@ -3351,7 +3375,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             value := cpu.LoadMemory(address)
             cpu.doEorA(value)
             cpu.PC += instruction.Length()
@@ -3452,7 +3476,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             value := cpu.LoadMemory(address)
             cpu.doOrA(value)
             cpu.PC += instruction.Length()
@@ -3839,6 +3863,16 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                  return err
              }
              address := uint16(zero + cpu.Y)
+
+             /*
+             high := address & 0xff00
+             low := uint8(address & 0xff) + cpu.Y
+             dummy := high | uint16(low)
+             if dummy != address {
+                 cpu.LoadMemory(dummy)
+             }
+             */
+
              value := cpu.LoadMemory(address)
              cpu.loadA(value)
              cpu.X = value
@@ -3850,7 +3884,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
              if err != nil {
                  return err
              }
-             address, page_cross := cpu.ComputeIndirectY(relative)
+             address, _, page_cross := cpu.ComputeIndirectY(relative)
              value := cpu.LoadMemory(address)
              cpu.loadA(value)
              cpu.X = value
@@ -3952,7 +3986,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             value := cpu.LoadMemory(address)
             cpu.doCmp(value)
             cpu.PC += instruction.Length()
@@ -4077,7 +4111,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             _ = page_cross
             cpu.doIsc(address)
             cpu.PC += instruction.Length()
@@ -4172,7 +4206,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
 
-            address, page_cross := cpu.ComputeIndirectY(relative)
+            address, _, page_cross := cpu.ComputeIndirectY(relative)
             _ = page_cross
             value := cpu.LoadMemory(address) - 1
             cpu.doCmp(value)
