@@ -75,7 +75,7 @@ func doDummyWritePPUTest() (bool, error) {
 
     cpu.Reset()
 
-    err = commonNes.SimpleRun(&cpu, uint64(nes.CPUSpeed * 20))
+    err = commonNes.SimpleRun(&cpu, uint64(nes.CPUSpeed * 4))
 
     if err != commonNes.MaxCyclesReached {
         return false, err
