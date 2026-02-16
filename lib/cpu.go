@@ -1009,7 +1009,7 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
             value := (cpu.Databus & 0b11100000) | (input & 0b11111)
             return value
         case APUStatus:
-            return cpu.APU.ReadStatus()
+            return (cpu.Databus & 0b11100000) | (cpu.APU.ReadStatus() & 0b11111)
     }
 
     if page >= 0x60 {
