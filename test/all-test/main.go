@@ -7,6 +7,7 @@ import (
     "github.com/kazzmir/nes/test/all-test/nestest"
     aputest "github.com/kazzmir/nes/test/all-test/apu-test"
     branch "github.com/kazzmir/nes/test/all-test/branch"
+    cputest "github.com/kazzmir/nes/test/all-test/cpu-test"
     screenshot "github.com/kazzmir/nes/test/all-test/screenshot"
     test_utils "github.com/kazzmir/nes/test/all-test/utils"
 )
@@ -16,6 +17,7 @@ func main(){
 
     doNesTest := flag.Bool("nes", false, "Run nestest")
     doApuTest := flag.Bool("apu", false, "Run aputest")
+    doCpuTest := flag.Bool("cpu", false, "Run cpu test")
     doBranchTest := flag.Bool("branch", false, "Run branch test")
     doScreenshotTest := flag.Bool("screenshot", false, "Run screenshot test")
     all := flag.Bool("all", false, "Run all tests")
@@ -35,12 +37,16 @@ func main(){
     if *doScreenshotTest {
         testsToRun += 1
     }
+    if *doCpuTest {
+        testsToRun += 1
+    }
 
     if *all || testsToRun == 0 {
         *doNesTest = true
         *doApuTest = true
         *doBranchTest = true
         *doScreenshotTest = true
+        *doCpuTest = true
     }
 
     if *doNesTest {
@@ -71,6 +77,16 @@ func main(){
         }
         if !ok {
             log.Printf("branch tests failed")
+        }
+    }
+
+    if *doCpuTest {
+        ok, err := cputest.Run(false)
+        if err != nil {
+            log.Printf("cpu test failed with an error: %v", err)
+        }
+        if !ok {
+            log.Printf("cpu tests failed")
         }
     }
 
