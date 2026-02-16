@@ -1632,7 +1632,10 @@ func (cpu *CPUState) doAdc(value byte){
 
 /* illegal opcode that combines inc with sbc */
 func (cpu *CPUState) doIsc(address uint16){
-    value := cpu.LoadMemory(address) + 1
+    value := cpu.LoadMemory(address)
+    cpu.StoreMemory(address, value) // dummy write
+
+    value += 1
 
     cpu.StoreMemory(address, value)
     /* FIXME: not totally sure sbc is the right thing to do here */
@@ -4173,7 +4176,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             full := address + uint16(cpu.X)
 
-            value := cpu.LoadMemory(full) - 1
+            value := cpu.LoadMemory(full)
+            cpu.StoreMemory(full, value) // dummy write
+            value -= 1
             cpu.doCmp(value)
             cpu.StoreMemory(full, value)
             cpu.Cycle += 7
@@ -4188,7 +4193,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             full := address + uint16(cpu.Y)
 
-            value := cpu.LoadMemory(full) - 1
+            value := cpu.LoadMemory(full)
+            cpu.StoreMemory(full, value) // dummy write
+            value -= 1
             cpu.doCmp(value)
             cpu.StoreMemory(full, value)
             cpu.Cycle += 7
@@ -4201,7 +4208,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
 
-            value := cpu.LoadMemory(address) - 1
+            value := cpu.LoadMemory(address)
+            cpu.StoreMemory(address, value) // dummy write
+            value -= 1
             cpu.doCmp(value)
             cpu.StoreMemory(address, value)
             cpu.Cycle += 6
@@ -4215,7 +4224,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
 
             address := uint16(zero + cpu.X)
-            value := cpu.LoadMemory(address) - 1
+            value := cpu.LoadMemory(address)
+            cpu.StoreMemory(address, value) // dummy write
+            value -= 1
             cpu.doCmp(value)
             cpu.StoreMemory(address, value)
             cpu.Cycle += 6
@@ -4229,7 +4240,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
 
             address := uint16(zero)
-            value := cpu.LoadMemory(address) - 1
+            value := cpu.LoadMemory(address)
+            cpu.StoreMemory(address, value) // dummy write
+            value -= 1
             cpu.doCmp(value)
             cpu.StoreMemory(address, value)
             cpu.Cycle += 5
@@ -4244,7 +4257,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
 
             address, _, page_cross := cpu.ComputeIndirectY(relative)
             _ = page_cross
-            value := cpu.LoadMemory(address) - 1
+            value := cpu.LoadMemory(address)
+            cpu.StoreMemory(address, value) // dummy write
+            value -= 1
             cpu.doCmp(value)
             cpu.StoreMemory(address, value)
             cpu.Cycle += 8
@@ -4259,7 +4274,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
 
             address := cpu.ComputeIndirectX(relative)
-            value := cpu.LoadMemory(address) - 1
+            value := cpu.LoadMemory(address)
+            cpu.StoreMemory(address, value) // dummy write
+            value -= 1
             cpu.doCmp(value)
             cpu.StoreMemory(address, value)
             cpu.Cycle += 8
