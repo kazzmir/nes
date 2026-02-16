@@ -220,6 +220,7 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
 }
 
 type Mapper0 struct {
+    SaveRam []byte `json:"saveram"`
     BankMemory []byte `json:"bank"`
 }
 
@@ -273,6 +274,12 @@ func (mapper *Mapper0) Copy() Mapper {
 }
 
 func (mapper *Mapper0) Write(cpu *CPUState, address uint16, value byte) error {
+    if address >= 0x6000 && address < 0x8000 {
+        use := address - 0x6000
+        mapper.SaveRam[use] = value
+        return nil
+    }
+
     return fmt.Errorf("mapper0 does not support bank switching at address 0x%x: 0x%x", address, value)
 }
 
@@ -281,6 +288,11 @@ func (mapper *Mapper0) IsIRQAsserted() bool {
 }
 
 func (mapper *Mapper0) Read(address uint16) byte {
+    if address >= 0x6000 && address < 0x8000 {
+        use := address - 0x6000
+        return mapper.SaveRam[use]
+    }
+
     use := address - uint16(0x8000)
     if len(mapper.BankMemory) == 16*1024 {
         use = use % 0x4000
@@ -301,6 +313,7 @@ func (mapper *Mapper0) Kind() int {
 
 func MakeMapper0(bankMemory []byte) Mapper {
     return &Mapper0{
+        SaveRam: make([]byte, 0x8000 - 0x6000),
         BankMemory: bankMemory,
     }
 }

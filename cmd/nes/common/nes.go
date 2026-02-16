@@ -524,7 +524,11 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
 
         // log.Printf("Cycle counter %v\n", cycleCounter)
 
-        for cycleCounter > 0 && cpu.Cycle < maxCycles {
+        for cycleCounter > 0 {
+            if maxCycles > 0 && cpu.Cycle >= maxCycles {
+                break
+            }
+
             err := cpu.Run(instructionTable)
             if err != nil {
                 return err
