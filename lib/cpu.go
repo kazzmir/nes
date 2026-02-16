@@ -982,6 +982,11 @@ func (cpu *CPUState) PopStack() byte {
 }
 
 func (cpu *CPUState) LoadMemory(address uint16) byte {
+    // for this one address we do not update the databus
+    if address == APUStatus {
+        return cpu.loadMemory(address)
+    }
+
     cpu.Databus = cpu.loadMemory(address)
     return cpu.Databus
 }
