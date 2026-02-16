@@ -1038,14 +1038,6 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
 
 /* Special PPU memory-mapped locations */
 const (
-    PPUCTRL uint16 = 0x2000
-    PPUMASK uint16 = 0x2001
-    PPUSTATUS uint16 = 0x2002
-    OAMADDR uint16 = 0x2003
-    OAMDATA uint16 = 0x2004
-    PPUSCROLL uint16 = 0x2005
-    PPUADDR uint16 = 0x2006
-    PPUDATA uint16 = 0x2007
     OAMDMA uint16 = 0x4014
 )
 

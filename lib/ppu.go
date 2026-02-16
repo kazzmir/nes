@@ -14,6 +14,18 @@ const VideoHeight = 240
  */
 const OverscanPixels = 8
 
+/* Special PPU memory-mapped locations */
+const (
+    PPUCTRL uint16 = 0x2000
+    PPUMASK uint16 = 0x2001
+    PPUSTATUS uint16 = 0x2002
+    OAMADDR uint16 = 0x2003
+    OAMDATA uint16 = 0x2004
+    PPUSCROLL uint16 = 0x2005
+    PPUADDR uint16 = 0x2006
+    PPUDATA uint16 = 0x2007
+)
+
 type NametableMirrorConfiguration int
 const (
     NametableMirrorVertical = iota
@@ -261,9 +273,13 @@ func (ppu *PPUState) ReadMemory(address uint16) byte {
         case PPUMASK:
             log.Printf("Warning: reading from PPUMASK location is not allowed\n")
         case PPUDATA:
-            return ppu.ReadVideoMemory()
+            value := ppu.ReadVideoMemory()
+            ppu.Databus = value
+            return value
         case PPUSTATUS:
-            return ppu.ReadStatus()
+            value := ppu.ReadStatus()
+            ppu.Databus = value
+            return value
         case OAMDATA:
             return ppu.ReadOAM(byte(address))
     }
