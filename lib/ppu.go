@@ -457,9 +457,11 @@ func (ppu *PPUState) ControlString() string {
     return fmt.Sprintf("Nametable=0x%x Vram-increment=%v Sprite-table=0x%x Background-table=0x%x Sprite-size=%v Master/slave=%v NMI=%v", base_nametable_address, vram_increment, sprite_table, background_table, sprite_size, master_slave, nmi)
 }
 
-func (ppu *PPUState) CopyCharacterRom(base uint16, data []byte) {
-    ppu.CharacterRomLow = base
-    ppu.CharacterRomHigh = base + uint16(len(data))
+func (ppu *PPUState) CopyCharacterRom(base uint16, data []byte, isRom bool) {
+    if isRom {
+        ppu.CharacterRomLow = base
+        ppu.CharacterRomHigh = base + uint16(len(data))
+    }
     for i := range uint16(len(data)) {
         ppu.VideoMemory[base + i] = data[i]
     }
@@ -560,6 +562,7 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
         case actualAddress >= 0x2000 && actualAddress < 0x3000:
             ppu.StoreNametableMemory(actualAddress, value)
         case actualAddress >= ppu.CharacterRomLow && actualAddress < ppu.CharacterRomHigh:
+            // log.Printf("Ignore write at %04x. low=%04x high=%04x", actualAddress, ppu.CharacterRomLow, ppu.CharacterRomHigh)
             // nothing
         default:
             ppu.VideoMemory[actualAddress] = value

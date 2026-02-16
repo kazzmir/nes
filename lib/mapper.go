@@ -502,19 +502,19 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                      */
                     if len(mapper.CharacterMemory) != 0 {
                         if int(base) < len(mapper.CharacterMemory) && int(base + 0x1000) < len(mapper.CharacterMemory) && base < base + 0x1000 {
-                            cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x1000])
+                            cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x1000], false)
                         } else {
                             log.Printf("[mapper1] Warning: could not copy character data from range %v to %v", base, base + 0x1000)
                         }
                     } else {
-                        cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x1000])
+                        cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x1000], false)
                     }
                 } else {
                     base := uint16(mapper.Register >> 1) * 0x2000
                     if len(mapper.CharacterMemory) != 0 {
-                        cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x2000])
+                        cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x2000], false)
                     } else {
-                        cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x2000])
+                        cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x2000], false)
                     }
                 }
             } else if address >= 0xc000 && address <= 0xdfff {
@@ -525,10 +525,10 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                     base := uint32(mapper.Register) * 0x1000
                     if len(mapper.CharacterMemory) != 0 {
                         if int(base + 0x1000) < len(mapper.CharacterMemory) {
-                            cpu.PPU.CopyCharacterRom(0x1000, mapper.CharacterMemory[base:base + 0x1000])
+                            cpu.PPU.CopyCharacterRom(0x1000, mapper.CharacterMemory[base:base + 0x1000], false)
                         }
                     } else {
-                        cpu.PPU.CopyCharacterRom(0x1000, mapper.BankMemory[base:base + 0x1000])
+                        cpu.PPU.CopyCharacterRom(0x1000, mapper.BankMemory[base:base + 0x1000], false)
                     }
                 } else {
                     /* ignore in 8k mode */
@@ -701,7 +701,7 @@ func (mapper *Mapper3) Read(address uint16) byte {
 func (mapper *Mapper3) Write(cpu *CPUState, address uint16, value byte) error {
     use := value & 0x3
     base := uint16(use) * 0x2000
-    cpu.PPU.CopyCharacterRom(0x000, mapper.BankMemory[base:base+0x2000])
+    cpu.PPU.CopyCharacterRom(0x000, mapper.BankMemory[base:base+0x2000], false)
     return nil
 }
 
@@ -851,20 +851,20 @@ func (mapper *Mapper4) CharacterBlock(length uint32, page byte) []byte {
 func (mapper *Mapper4) SetChrBank(ppu *PPUState) error {
     switch mapper.ChrMode {
         case 0:
-            ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x800, mapper.ChrRegister[0]))
-            ppu.CopyCharacterRom(0x0800, mapper.CharacterBlock(0x800, mapper.ChrRegister[1]))
-            ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x400, mapper.ChrRegister[2]))
-            ppu.CopyCharacterRom(0x1400, mapper.CharacterBlock(0x400, mapper.ChrRegister[3]))
-            ppu.CopyCharacterRom(0x1800, mapper.CharacterBlock(0x400, mapper.ChrRegister[4]))
-            ppu.CopyCharacterRom(0x1c00, mapper.CharacterBlock(0x400, mapper.ChrRegister[5]))
+            ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x800, mapper.ChrRegister[0]), false)
+            ppu.CopyCharacterRom(0x0800, mapper.CharacterBlock(0x800, mapper.ChrRegister[1]), false)
+            ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x400, mapper.ChrRegister[2]), false)
+            ppu.CopyCharacterRom(0x1400, mapper.CharacterBlock(0x400, mapper.ChrRegister[3]), false)
+            ppu.CopyCharacterRom(0x1800, mapper.CharacterBlock(0x400, mapper.ChrRegister[4]), false)
+            ppu.CopyCharacterRom(0x1c00, mapper.CharacterBlock(0x400, mapper.ChrRegister[5]), false)
             return nil
         case 1:
-            ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x400, mapper.ChrRegister[2]))
-            ppu.CopyCharacterRom(0x0400, mapper.CharacterBlock(0x400, mapper.ChrRegister[3]))
-            ppu.CopyCharacterRom(0x0800, mapper.CharacterBlock(0x400, mapper.ChrRegister[4]))
-            ppu.CopyCharacterRom(0x0c00, mapper.CharacterBlock(0x400, mapper.ChrRegister[5]))
-            ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x800, mapper.ChrRegister[0]))
-            ppu.CopyCharacterRom(0x1800, mapper.CharacterBlock(0x800, mapper.ChrRegister[1]))
+            ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x400, mapper.ChrRegister[2]), false)
+            ppu.CopyCharacterRom(0x0400, mapper.CharacterBlock(0x400, mapper.ChrRegister[3]), false)
+            ppu.CopyCharacterRom(0x0800, mapper.CharacterBlock(0x400, mapper.ChrRegister[4]), false)
+            ppu.CopyCharacterRom(0x0c00, mapper.CharacterBlock(0x400, mapper.ChrRegister[5]), false)
+            ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x800, mapper.ChrRegister[0]), false)
+            ppu.CopyCharacterRom(0x1800, mapper.CharacterBlock(0x800, mapper.ChrRegister[1]), false)
             return nil
     }
 
@@ -1100,9 +1100,9 @@ func (mapper *Mapper9) CharacterBlock(pageSize uint16, register byte) []byte {
 
 func (mapper *Mapper9) SetChrBank(ppu *PPUState) {
     /* FIXME: Use chrRegister 0 or 2 depending on the ppu latch set at $fd or $fe */
-    ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x1000, mapper.ChrRegister[1]))
+    ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x1000, mapper.ChrRegister[1]), false)
     /* FIXME: Use chrRegister 1 or 3 depending on the ppu latch set at $fd or $fe */
-    ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x1000, mapper.ChrRegister[2]))
+    ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x1000, mapper.ChrRegister[2]), false)
 }
 
 func (mapper *Mapper9) Write(cpu *CPUState, address uint16, value byte) error {
