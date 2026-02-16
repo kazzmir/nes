@@ -558,6 +558,8 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
     switch {
         case actualAddress >= 0x2000 && actualAddress < 0x3000:
             ppu.StoreNametableMemory(actualAddress, value)
+        case actualAddress >= 0x3000 && actualAddress < 0x3eff:
+            ppu.StoreNametableMemory(actualAddress - 0x1000, value)
         case actualAddress >= ppu.CharacterRomLow && actualAddress < ppu.CharacterRomHigh:
             // log.Printf("Ignore write at %04x. low=%04x high=%04x", actualAddress, ppu.CharacterRomLow, ppu.CharacterRomHigh)
             // nothing
@@ -577,6 +579,8 @@ func (ppu *PPUState) ReadVideoMemory() byte {
 
     if ppu.VideoAddress >= 0x2000 && ppu.VideoAddress < 0x3000 {
         value = ppu.LoadNametableMemory(ppu.VideoAddress)
+    } else if ppu.VideoAddress >= 0x3000 && ppu.VideoAddress < 0x3eff {
+        value = ppu.LoadNametableMemory(ppu.VideoAddress - 0x1000)
     } else {
         value = ppu.VideoMemory[ppu.VideoAddress]
     }
@@ -589,7 +593,8 @@ func (ppu *PPUState) ReadVideoMemory() byte {
      * Reading palette data from $3F00-$3FFF works differently. The palette data is placed immediately on the data bus, and hence no dummy read is required. Reading the palettes still updates the internal buffer though, but the data placed in it is the mirrored nametable data that would appear "underneath" the palette. (Checking the PPU memory map should make this clearer.)
      */
     if ppu.VideoAddress >= 0x3f00 && ppu.VideoAddress <= 0x3fff {
-        ppu.InternalVideoBuffer = value
+        // a true read is done to nametable memory, where 0x3000-0x4000 is mirrored to 0x2000-0x3000
+        ppu.InternalVideoBuffer = ppu.LoadNametableMemory(ppu.VideoAddress - 0x1000)
         ppu.VideoAddress += ppu.GetVRamIncrement()
         return value
     }
