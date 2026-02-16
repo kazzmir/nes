@@ -60,6 +60,8 @@ type PPUState struct {
     WriteState byte `json:"writestate"` /* for writing to the video address or the t register */
 
     Databus byte `json:"databus"`
+    databusCycle uint64
+    lastCycle uint64
 
     NametableMirror NametableMirrorConfiguration `json:"nametablemirror"`
 
@@ -221,7 +223,7 @@ func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
     const ignore_ppu_write_cycle = 29658
 
     /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
-    ppu.Databus = value
+    ppu.UpdateDatabus(value)
     use := address & 0x7
     switch 0x2000 | use {
         case PPUCTRL:
@@ -264,6 +266,11 @@ func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
     }
 }
 
+func (ppu *PPUState) UpdateDatabus(value byte) {
+    ppu.Databus = value
+    ppu.databusCycle = ppu.lastCycle
+}
+
 func (ppu *PPUState) ReadMemory(address uint16) byte {
     /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
     use := address & 0x7
@@ -273,14 +280,15 @@ func (ppu *PPUState) ReadMemory(address uint16) byte {
             return ppu.Databus
         case PPUDATA:
             value := ppu.ReadVideoMemory()
-            ppu.Databus = value
+            ppu.UpdateDatabus(value)
             return value
         case PPUADDR:
             // no meaning, just open bus
             return ppu.Databus
         case PPUSTATUS:
-            value := ppu.ReadStatus()
-            ppu.Databus = value
+            // bottom 5 bits are open bus
+            value := ppu.ReadStatus() | (ppu.Databus & 0b11111)
+            ppu.UpdateDatabus(value)
             return value
         case OAMDATA:
             return ppu.ReadOAM(ppu.OAMAddress)
@@ -1391,6 +1399,12 @@ func (ppu *PPUState) UpdateMapper4Scanline(mapper Mapper){
 }
 
 func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bool, bool) {
+    ppu.lastCycle += cycles
+
+    if ppu.lastCycle > ppu.databusCycle + uint64(CPUSpeed) {
+        ppu.Databus = 0
+    }
+
     /* http://wiki.nesdev.org/w/index.php/PPU_rendering */
     oldNMI := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
     didDraw := false
