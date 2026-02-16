@@ -534,9 +534,6 @@ func (ppu *PPUState) GetVRamIncrement() uint16 {
 }
 
 func (ppu *PPUState) WriteVideoMemory(value byte){
-    // ppu.databus = value
-    ppu.InternalVideoBuffer = value
-
     actualAddress := ppu.VideoAddress
 
     /* Mirror writes to the universal background color */
