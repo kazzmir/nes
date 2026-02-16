@@ -560,6 +560,11 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
             ppu.StoreNametableMemory(actualAddress, value)
         case actualAddress >= 0x3000 && actualAddress < 0x3eff:
             ppu.StoreNametableMemory(actualAddress - 0x1000, value)
+        case actualAddress >= 0x3f00 && actualAddress <= 0x3fff:
+            // palette memory is mirrored every 32 bytes, so only consider the last 5 bits of the address
+            high := actualAddress & 0xff00
+            low := actualAddress & 0x001f
+            ppu.VideoMemory[high | low] = value
         case actualAddress >= ppu.CharacterRomLow && actualAddress < ppu.CharacterRomHigh:
             // log.Printf("Ignore write at %04x. low=%04x high=%04x", actualAddress, ppu.CharacterRomLow, ppu.CharacterRomHigh)
             // nothing
@@ -581,6 +586,11 @@ func (ppu *PPUState) ReadVideoMemory() byte {
         value = ppu.LoadNametableMemory(ppu.VideoAddress)
     } else if ppu.VideoAddress >= 0x3000 && ppu.VideoAddress < 0x3eff {
         value = ppu.LoadNametableMemory(ppu.VideoAddress - 0x1000)
+    } else if ppu.VideoAddress >= 0x3f00 && ppu.VideoAddress <= 0x3fff {
+        // palette memory is mirrored every 32 bytes, so only consider the last 5 bits of the address
+        high := ppu.VideoAddress & 0xff00
+        low := ppu.VideoAddress & 0x001f
+        value = ppu.VideoMemory[high | low]
     } else {
         value = ppu.VideoMemory[ppu.VideoAddress]
     }
