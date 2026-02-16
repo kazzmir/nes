@@ -3808,8 +3808,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            /* FIXME: should we read memory here? */
-            cpu.LoadMemory(address)
+            cpu.LoadMemory(address) // dummy read
             cpu.PC += instruction.Length()
             cpu.Cycle += 4
             return nil
@@ -4356,6 +4355,7 @@ func (cpu *CPUState) BRK() {
 func (cpu *CPUState) Interrupt() {
     cpu.PushStack(byte(cpu.PC >> 8))
     cpu.PushStack(byte(cpu.PC) & 0xff)
+    cpu.SetBreakFlag(false)
     cpu.PushStack(cpu.Status)
 
     /* FIXME: im reasonably sure we should disable the
