@@ -268,14 +268,16 @@ func (ppu *PPUState) ReadMemory(address uint16) byte {
     /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
     use := address & 0x7
     switch 0x2000 | use {
-        case PPUCTRL:
-            log.Printf("Warning: reading from PPUCTRL location is not allowed\n")
-        case PPUMASK:
-            log.Printf("Warning: reading from PPUMASK location is not allowed\n")
+        case PPUCTRL, PPUMASK, PPUSCROLL, OAMADDR:
+            // log.Printf("Warning: reading from PPUCTRL location is not allowed\n")
+            return ppu.Databus
         case PPUDATA:
             value := ppu.ReadVideoMemory()
             ppu.Databus = value
             return value
+        case PPUADDR:
+            // no meaning, just open bus
+            return ppu.Databus
         case PPUSTATUS:
             value := ppu.ReadStatus()
             ppu.Databus = value

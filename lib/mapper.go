@@ -280,7 +280,9 @@ func (mapper *Mapper0) Write(cpu *CPUState, address uint16, value byte) error {
         return nil
     }
 
-    return fmt.Errorf("mapper0 does not support bank switching at address 0x%x: 0x%x", address, value)
+    // logs are noisy, just ignore the write
+    return nil
+    // return fmt.Errorf("mapper0 does not support bank switching at address 0x%x: 0x%x", address, value)
 }
 
 func (mapper *Mapper0) IsIRQAsserted() bool {
