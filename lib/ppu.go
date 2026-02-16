@@ -14,6 +14,18 @@ const VideoHeight = 240
  */
 const OverscanPixels = 8
 
+/* Special PPU memory-mapped locations */
+const (
+    PPUCTRL uint16 = 0x2000
+    PPUMASK uint16 = 0x2001
+    PPUSTATUS uint16 = 0x2002
+    OAMADDR uint16 = 0x2003
+    OAMDATA uint16 = 0x2004
+    PPUSCROLL uint16 = 0x2005
+    PPUADDR uint16 = 0x2006
+    PPUDATA uint16 = 0x2007
+)
+
 type NametableMirrorConfiguration int
 const (
     NametableMirrorVertical = iota
@@ -47,6 +59,8 @@ type PPUState struct {
     VideoAddress uint16 `json:"videoaddress"` /* the v register */
     WriteState byte `json:"writestate"` /* for writing to the video address or the t register */
 
+    Databus byte `json:"databus"`
+
     NametableMirror NametableMirrorConfiguration `json:"nametablemirror"`
 
     /* for scrolling */
@@ -73,7 +87,7 @@ type PPUState struct {
 
     /* sprite memory */
     OAM []byte `json:"oam"`
-    OAMAddress int `json:"oamaddress"`
+    OAMAddress byte `json:"oamaddress"`
 
     oamSprites []Sprite
 
@@ -174,11 +188,11 @@ func (ppu *PPUState) SetScreenBMirror(){
 }
 
 func (ppu *PPUState) SetOAMAddress(value byte){
-    ppu.OAMAddress = int(value)
+    ppu.OAMAddress = value
 }
 
 func (ppu *PPUState) WriteOAM(value byte){
-    if ppu.OAMAddress < len(ppu.OAM) {
+    if int(ppu.OAMAddress) < len(ppu.OAM) {
         ppu.OAM[ppu.OAMAddress] = value
         ppu.OAMAddress += 1
     }
@@ -192,12 +206,88 @@ func (ppu *PPUState) CopyOAM(data []byte){
 
     maxOAM := len(ppu.OAM)
     for i := 0; i < len(data); i++ {
-        address := byte(i + ppu.OAMAddress)
+        address := byte(i) + ppu.OAMAddress
         if int(address) >= maxOAM {
             break
         }
         ppu.OAM[address] = data[i]
     }
+}
+
+func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
+    /* writes to certain ppu register are ignored before this cycle
+     * http://wiki.nesdev.org/w/index.php/PPU_power_up_state
+     */
+    const ignore_ppu_write_cycle = 29658
+
+    /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
+    ppu.Databus = value
+    use := address & 0x7
+    switch 0x2000 | use {
+        case PPUCTRL:
+            if cycle > ignore_ppu_write_cycle {
+                ppu.SetControllerFlags(value)
+                if ppu.Debug > 0 {
+                    log.Printf("Set PPUCTRL to 0x%x: %v", value, ppu.ControlString())
+                }
+            }
+        case PPUSTATUS:
+        case PPUMASK:
+            if cycle > ignore_ppu_write_cycle {
+                ppu.SetMask(value)
+                if ppu.Debug > 0 {
+                    log.Printf("Set PPUMASK to 0x%x: %v", value, ppu.MaskString())
+                }
+            }
+        case PPUSCROLL:
+            if cycle > ignore_ppu_write_cycle {
+                if ppu.Debug > 0 {
+                    log.Printf("Write 0x%x to PPUSCROLL", value)
+                }
+                ppu.WriteScroll(value)
+            }
+        case PPUADDR:
+            if cycle > ignore_ppu_write_cycle {
+                if ppu.Debug > 0 {
+                    log.Printf("Write 0x%x to PPUADDR", value)
+                }
+                ppu.WriteAddress(value)
+            }
+        case PPUDATA:
+            ppu.WriteVideoMemory(value)
+        case OAMADDR:
+            ppu.SetOAMAddress(value)
+        case OAMDATA:
+            ppu.WriteOAM(value)
+        default:
+            log.Printf("Unhandled PPU write to 0x%x\n", address)
+    }
+}
+
+func (ppu *PPUState) ReadMemory(address uint16) byte {
+    /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
+    use := address & 0x7
+    switch 0x2000 | use {
+        case PPUCTRL, PPUMASK, PPUSCROLL, OAMADDR:
+            // log.Printf("Warning: reading from PPUCTRL location is not allowed\n")
+            return ppu.Databus
+        case PPUDATA:
+            value := ppu.ReadVideoMemory()
+            ppu.Databus = value
+            return value
+        case PPUADDR:
+            // no meaning, just open bus
+            return ppu.Databus
+        case PPUSTATUS:
+            value := ppu.ReadStatus()
+            ppu.Databus = value
+            return value
+        case OAMDATA:
+            return ppu.ReadOAM(ppu.OAMAddress)
+    }
+
+    log.Printf("Unhandled PPU read to 0x%x\n", address)
+    return ppu.Databus
 }
 
 func (ppu *PPUState) WriteScroll(value byte){
@@ -423,6 +513,9 @@ func (ppu *PPUState) GetVRamIncrement() uint16 {
 }
 
 func (ppu *PPUState) WriteVideoMemory(value byte){
+    // ppu.databus = value
+    ppu.InternalVideoBuffer = value
+
     actualAddress := ppu.VideoAddress
 
     /* Mirror writes to the universal background color */
@@ -1301,7 +1394,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
     /* http://wiki.nesdev.org/w/index.php/PPU_rendering */
     oldNMI := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
     didDraw := false
-    for cycle := uint64(0); cycle < cycles; cycle++ {
+    for range cycles {
         if ppu.IsBackgroundEnabled() || ppu.IsSpriteEnabled() {
             if ppu.Scanline < 240 && ppu.ScanlineCycle <= 256 {
                 sprite0 := ppu.RenderPixel(ppu.Scanline, ppu.ScanlineCycle, ppu.CurrentSprites, &screen)

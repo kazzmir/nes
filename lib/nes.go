@@ -108,6 +108,7 @@ type NESFile struct {
     ProgramRom []byte
     CharacterRom []byte
     Mapper uint32
+    Nes2 bool
     HorizontalMirror bool
     VerticalMirror bool
     Path string
@@ -192,6 +193,7 @@ func ParseNes(reader io.Reader, debug bool, name string) (NESFile, error) {
         ProgramRom: programRom,
         CharacterRom: characterRom,
         Mapper: uint32(mapper),
+        Nes2: nes2,
         HorizontalMirror: horizontalMirror,
         VerticalMirror: verticalMirror,
         Path: name,

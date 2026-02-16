@@ -1,8 +1,11 @@
 package branch
 
 import (
-    nes "github.com/kazzmir/nes/lib"
     "log"
+
+    nes "github.com/kazzmir/nes/lib"
+    commonNes "github.com/kazzmir/nes/cmd/nes/common"
+
     test_utils "github.com/kazzmir/nes/test/all-test/utils"
 )
 
@@ -15,6 +18,9 @@ import (
  */
 
 const ResultAddress = 0xf8
+
+type DummyOverlay struct {}
+func (d *DummyOverlay) Add(s string) {}
 
 /* For each test, run the rom for 150k cycles and check whats written to 0xf8 */
 func doTest(rom string) (bool, error) {
@@ -33,32 +39,10 @@ func doTest(rom string) (bool, error) {
 
     cpu.Reset()
 
-    screen := nes.MakeVirtualScreen(256, 240)
-    instructionTable := nes.MakeInstructionDescriptiontable()
-    baseCyclesPerSample := 100.0
+    err = commonNes.SimpleRun(&cpu, uint64(nes.CPUSpeed * 1))
 
-    var lastCycle uint64 = 0
-    for totalCycles := uint32(0); totalCycles < 150000; totalCycles++ {
-        err := cpu.Run(instructionTable)
-        if err != nil {
-            return false, err
-        }
-        usedCycles := cpu.Cycle
-
-        cycleDiff := usedCycles - lastCycle
-
-        cpu.APU.Run(float64(cycleDiff) / 2.0, baseCyclesPerSample, &cpu)
-
-        nmi, _ := cpu.PPU.Run(cycleDiff * 3, screen, mapper)
-
-        if nmi {
-            if cpu.Debug > 0 {
-                log.Printf("Cycle %v Do NMI\n", cpu.Cycle)
-            }
-            cpu.NMI()
-        }
-
-        lastCycle = usedCycles
+    if err != commonNes.MaxCyclesReached {
+        return false, err
     }
 
     result := cpu.LoadMemory(ResultAddress)
