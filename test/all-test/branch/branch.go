@@ -38,7 +38,7 @@ func doTest(rom string) (bool, error) {
     baseCyclesPerSample := 100.0
 
     var lastCycle uint64 = 0
-    for totalCycles := uint32(0); totalCycles < 150000; totalCycles++ {
+    for range 150000 {
         err := cpu.Run(instructionTable)
         if err != nil {
             return false, err
