@@ -75,6 +75,11 @@ type PPUState struct {
 
     VideoMemory []byte `json:"videomemory"`
 
+    // if the cartridge has character rom then we keep track of the range
+    // of video memory that contains the rom data. Writes to this range are ignored
+    CharacterRomLow uint16 `json:"characterromlow"`
+    CharacterRomHigh uint16 `json:"characterromhigh"`
+
     /* the 2kb SRAM stored on the NES board.
      * use nametable mirroring to map addresses to these ranges
      * Nametable[0:0x400] should appear at 0x2000 and 0x2800 in vertical mirroring
@@ -127,6 +132,10 @@ func (ppu *PPUState) Copy() PPUState {
         VideoAddress: ppu.VideoAddress,
         WriteState: ppu.WriteState,
         NametableMirror: ppu.NametableMirror,
+        CharacterRomLow: ppu.CharacterRomLow,
+        CharacterRomHigh: ppu.CharacterRomHigh,
+        Databus: ppu.Databus,
+        Decay: ppu.Decay,
         FineX: ppu.FineX,
         Palette: copySlice(ppu.Palette),
         CurrentSprites: copySlice(ppu.CurrentSprites),
@@ -448,8 +457,10 @@ func (ppu *PPUState) ControlString() string {
     return fmt.Sprintf("Nametable=0x%x Vram-increment=%v Sprite-table=0x%x Background-table=0x%x Sprite-size=%v Master/slave=%v NMI=%v", base_nametable_address, vram_increment, sprite_table, background_table, sprite_size, master_slave, nmi)
 }
 
-func (ppu *PPUState) CopyCharacterRom(base uint32, data []byte) {
-    for i := uint32(0); i < uint32(len(data)); i++ {
+func (ppu *PPUState) CopyCharacterRom(base uint16, data []byte) {
+    ppu.CharacterRomLow = base
+    ppu.CharacterRomHigh = base + uint16(len(data))
+    for i := range uint16(len(data)) {
         ppu.VideoMemory[base + i] = data[i]
     }
 }
@@ -545,10 +556,13 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
         log.Printf("PPU: Writing 0x%x to video memory at 0x%x actual 0x%x at scanline %v and cycle %v\n", value, ppu.VideoAddress, actualAddress, ppu.Scanline, ppu.ScanlineCycle)
     }
 
-    if actualAddress >= 0x2000 && actualAddress < 0x3000 {
-        ppu.StoreNametableMemory(actualAddress, value)
-    } else {
-        ppu.VideoMemory[actualAddress] = value
+    switch {
+        case actualAddress >= 0x2000 && actualAddress < 0x3000:
+            ppu.StoreNametableMemory(actualAddress, value)
+        case actualAddress >= ppu.CharacterRomLow && actualAddress < ppu.CharacterRomHigh:
+            // nothing
+        default:
+            ppu.VideoMemory[actualAddress] = value
     }
     ppu.VideoAddress += ppu.GetVRamIncrement()
 }
