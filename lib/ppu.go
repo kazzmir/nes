@@ -1376,7 +1376,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
     /* http://wiki.nesdev.org/w/index.php/PPU_rendering */
     oldNMI := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
     didDraw := false
-    for cycle := uint64(0); cycle < cycles; cycle++ {
+    for range cycles {
         if ppu.IsBackgroundEnabled() || ppu.IsSpriteEnabled() {
             if ppu.Scanline < 240 && ppu.ScanlineCycle <= 256 {
                 sprite0 := ppu.RenderPixel(ppu.Scanline, ppu.ScanlineCycle, ppu.CurrentSprites, &screen)

@@ -2579,7 +2579,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
             // log.Printf("Store Y:0x%x into 0x%x\n", cpu.Y, value)
-            cpu.LoadMemory(value) // dummy read before storing
+            // cpu.LoadMemory(value) // dummy read before storing
             cpu.StoreMemory(value, cpu.Y)
             cpu.Cycle += 4
             cpu.PC += instruction.Length()
@@ -2611,7 +2611,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
                 return err
             }
             // log.Printf("Store X:0x%x into 0x%x\n", cpu.X, value)
-            cpu.LoadMemory(value) // dummy read before storing
+            // cpu.LoadMemory(value) // dummy read before storing
             cpu.StoreMemory(value, cpu.X)
             cpu.PC += instruction.Length()
             cpu.Cycle += 4
@@ -2642,7 +2642,14 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             }
 
             full := address + uint16(cpu.Y)
-            cpu.LoadMemory(full) // dummy read before storing
+
+            high := address & 0xff00
+            low := uint8(address & 0xff) + cpu.Y
+            dummy := high | uint16(low)
+            if dummy != full {
+                cpu.LoadMemory(dummy)
+            }
+
             cpu.StoreMemory(full, cpu.A)
             cpu.PC += instruction.Length()
             cpu.Cycle += 5
