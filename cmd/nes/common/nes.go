@@ -524,7 +524,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
 
         // log.Printf("Cycle counter %v\n", cycleCounter)
 
-        for cycleCounter > 0 {
+        for cycleCounter > 0 && cpu.Cycle < maxCycles {
             err := cpu.Run(instructionTable)
             if err != nil {
                 return err
@@ -567,6 +567,21 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
     // log.Printf("CPU cycles %v waited %v nanoseconds out of %v", cpu.Cycle, totalWait, time.Now().Sub(realStart).Nanoseconds())
 
     return nil
+}
+
+type DummyOverlay struct {
+}
+
+func (overlay *DummyOverlay) Add(string) {
+}
+
+// just run the system for some number of cycles, throwing away all audio/video output
+func SimpleRun(cpu *nes.CPUState, maxCycles uint64) error {
+    quit, cancel := context.WithCancel(context.Background())
+    defer cancel()
+    return RunNES("", cpu, maxCycles, quit, make(chan bool, 1), nes.MakeVirtualScreen(256, 240),
+                            make(chan EmulatorAction, 1), &ScreenListeners{}, &DummyOverlay{},
+                            44100, 0, nil, func () error { return nil })
 }
 
 func RunDummyNES(actions <-chan EmulatorAction){
