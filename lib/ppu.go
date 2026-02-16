@@ -60,8 +60,7 @@ type PPUState struct {
     WriteState byte `json:"writestate"` /* for writing to the video address or the t register */
 
     Databus byte `json:"databus"`
-    databusCycle uint64
-    lastCycle uint64
+    Decay uint64 `json:"decay"`
 
     NametableMirror NametableMirrorConfiguration `json:"nametablemirror"`
 
@@ -268,7 +267,8 @@ func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
 
 func (ppu *PPUState) UpdateDatabus(value byte) {
     ppu.Databus = value
-    ppu.databusCycle = ppu.lastCycle
+    // decay to 0 after 1 second of cpu time
+    ppu.Decay = uint64(CPUSpeed)
 }
 
 func (ppu *PPUState) ReadMemory(address uint16) byte {
@@ -1399,10 +1399,11 @@ func (ppu *PPUState) UpdateMapper4Scanline(mapper Mapper){
 }
 
 func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bool, bool) {
-    ppu.lastCycle += cycles
-
-    if ppu.lastCycle > ppu.databusCycle + uint64(CPUSpeed) {
-        ppu.Databus = 0
+    if ppu.Decay > 0 {
+        ppu.Decay -= min(ppu.Decay, cycles)
+        if ppu.Decay == 0 {
+            ppu.Databus = 0
+        }
     }
 
     /* http://wiki.nesdev.org/w/index.php/PPU_rendering */
