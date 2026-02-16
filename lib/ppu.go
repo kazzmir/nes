@@ -283,7 +283,7 @@ func (ppu *PPUState) ReadMemory(address uint16) byte {
             ppu.Databus = value
             return value
         case OAMDATA:
-            return ppu.ReadOAM(byte(address))
+            return ppu.ReadOAM(ppu.OAMAddress)
     }
 
     log.Printf("Unhandled PPU read to 0x%x\n", address)
