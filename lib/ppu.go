@@ -479,6 +479,14 @@ func (ppu *PPUState) IsSpriteEnabled() bool {
     return sprite
 }
 
+func (ppu *PPUState) IsBackgroundLeftmost8Enabled() bool {
+    return (ppu.Mask>>1)&0x1 == 0x1
+}
+
+func (ppu *PPUState) IsSpriteLeftmost8Enabled() bool {
+    return (ppu.Mask>>2)&0x1 == 0x1
+}
+
 func (ppu *PPUState) MaskString() string {
     greyscale := ppu.Mask & 0x1 == 0x1
     background_leftmost_8 := (ppu.Mask >> 1) & 0x1 == 0x1
@@ -1120,6 +1128,17 @@ func (ppu *PPUState) getSpritePixel(x int, y int, sprites []Sprite) ([]uint8, by
 func (ppu *PPUState) RenderPixel(scanLine int, cycle int, sprites []Sprite, screen *VirtualScreen) bool {
     background := ppu.getBackgroundPixel()
     sprite, spritePriority, sprite0 := ppu.getSpritePixel(cycle, scanLine, sprites)
+
+    /* PPUMASK bits 1 and 2 gate rendering (and sprite0 hit) in the leftmost 8 pixels. */
+    if cycle >= 0 && cycle < 8 {
+        if !ppu.IsBackgroundLeftmost8Enabled() {
+            background = nil
+        }
+        if !ppu.IsSpriteLeftmost8Enabled() {
+            sprite = nil
+            sprite0 = false
+        }
+    }
 
     if sprite != nil && background != nil {
         if spritePriority == 0 {
