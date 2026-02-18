@@ -982,6 +982,11 @@ func (cpu *CPUState) PopStack() byte {
 }
 
 func (cpu *CPUState) LoadMemory(address uint16) byte {
+    // for this one address we do not update the databus
+    if address == APUStatus {
+        return cpu.loadMemory(address)
+    }
+
     cpu.Databus = cpu.loadMemory(address)
     return cpu.Databus
 }
@@ -1004,7 +1009,7 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
             value := (cpu.Databus & 0b11100000) | (input & 0b11111)
             return value
         case APUStatus:
-            return cpu.APU.ReadStatus()
+            return (cpu.Databus & 0b11100000) | (cpu.APU.ReadStatus() & 0b11111)
     }
 
     if page >= 0x60 {
@@ -1016,7 +1021,10 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
     }
 
     if cpu.Maps[page] == nil {
-        log.Printf("Warning: loading unmapped memory at 0x%x\n", address)
+        // ignore noise for APU reads
+        if page != 0x40 {
+            log.Printf("Warning: loading unmapped memory at 0x%x\n", address)
+        }
         return cpu.Databus
     }
 
@@ -2087,6 +2095,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
+            cpu.LoadMemory(uint16(zero))
             cpu.StoreMemory(uint16(zero + cpu.X), cpu.Y)
             cpu.Cycle += 4
             cpu.PC += instruction.Length()
@@ -2544,6 +2553,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
+            cpu.LoadMemory(uint16(zero)) // dummy read before storing
             address := uint16(zero + cpu.Y)
             cpu.StoreMemory(address, cpu.A & cpu.X)
             cpu.PC += instruction.Length()
@@ -2627,9 +2637,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             high := address & 0xff00
             low := uint8(address & 0xff) + cpu.X
             dummy := high | uint16(low)
-            if dummy != full {
+            // if dummy != full {
                 cpu.LoadMemory(dummy)
-            }
+            // }
 
             cpu.StoreMemory(full, cpu.A)
             cpu.PC += instruction.Length()
@@ -2646,9 +2656,9 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             high := address & 0xff00
             low := uint8(address & 0xff) + cpu.Y
             dummy := high | uint16(low)
-            if dummy != full {
+            // if dummy != full {
                 cpu.LoadMemory(dummy)
-            }
+            // }
 
             cpu.StoreMemory(full, cpu.A)
             cpu.PC += instruction.Length()
@@ -3803,8 +3813,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             if err != nil {
                 return err
             }
-            /* FIXME: should we read memory here? */
-            cpu.LoadMemory(address)
+            cpu.LoadMemory(address) // dummy read
             cpu.PC += instruction.Length()
             cpu.Cycle += 4
             return nil
@@ -4351,6 +4360,7 @@ func (cpu *CPUState) BRK() {
 func (cpu *CPUState) Interrupt() {
     cpu.PushStack(byte(cpu.PC >> 8))
     cpu.PushStack(byte(cpu.PC) & 0xff)
+    cpu.SetBreakFlag(false)
     cpu.PushStack(cpu.Status)
 
     /* FIXME: im reasonably sure we should disable the

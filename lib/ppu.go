@@ -60,6 +60,7 @@ type PPUState struct {
     WriteState byte `json:"writestate"` /* for writing to the video address or the t register */
 
     Databus byte `json:"databus"`
+    Decay uint64 `json:"decay"`
 
     NametableMirror NametableMirrorConfiguration `json:"nametablemirror"`
 
@@ -73,6 +74,11 @@ type PPUState struct {
     CurrentSprites []Sprite `json:"sprites"`
 
     VideoMemory []byte `json:"videomemory"`
+
+    // if the cartridge has character rom then we keep track of the range
+    // of video memory that contains the rom data. Writes to this range are ignored
+    CharacterRomLow uint16 `json:"characterromlow"`
+    CharacterRomHigh uint16 `json:"characterromhigh"`
 
     /* the 2kb SRAM stored on the NES board.
      * use nametable mirroring to map addresses to these ranges
@@ -126,6 +132,10 @@ func (ppu *PPUState) Copy() PPUState {
         VideoAddress: ppu.VideoAddress,
         WriteState: ppu.WriteState,
         NametableMirror: ppu.NametableMirror,
+        CharacterRomLow: ppu.CharacterRomLow,
+        CharacterRomHigh: ppu.CharacterRomHigh,
+        Databus: ppu.Databus,
+        Decay: ppu.Decay,
         FineX: ppu.FineX,
         Palette: copySlice(ppu.Palette),
         CurrentSprites: copySlice(ppu.CurrentSprites),
@@ -221,7 +231,7 @@ func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
     const ignore_ppu_write_cycle = 29658
 
     /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
-    ppu.Databus = value
+    ppu.UpdateDatabus(value)
     use := address & 0x7
     switch 0x2000 | use {
         case PPUCTRL:
@@ -264,6 +274,12 @@ func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
     }
 }
 
+func (ppu *PPUState) UpdateDatabus(value byte) {
+    ppu.Databus = value
+    // decay to 0 after 1 second of cpu time
+    ppu.Decay = uint64(CPUSpeed)
+}
+
 func (ppu *PPUState) ReadMemory(address uint16) byte {
     /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
     use := address & 0x7
@@ -273,14 +289,15 @@ func (ppu *PPUState) ReadMemory(address uint16) byte {
             return ppu.Databus
         case PPUDATA:
             value := ppu.ReadVideoMemory()
-            ppu.Databus = value
+            ppu.UpdateDatabus(value)
             return value
         case PPUADDR:
             // no meaning, just open bus
             return ppu.Databus
         case PPUSTATUS:
-            value := ppu.ReadStatus()
-            ppu.Databus = value
+            // bottom 5 bits are open bus
+            value := ppu.ReadStatus() | (ppu.Databus & 0b11111)
+            ppu.UpdateDatabus(value)
             return value
         case OAMDATA:
             return ppu.ReadOAM(ppu.OAMAddress)
@@ -440,8 +457,12 @@ func (ppu *PPUState) ControlString() string {
     return fmt.Sprintf("Nametable=0x%x Vram-increment=%v Sprite-table=0x%x Background-table=0x%x Sprite-size=%v Master/slave=%v NMI=%v", base_nametable_address, vram_increment, sprite_table, background_table, sprite_size, master_slave, nmi)
 }
 
-func (ppu *PPUState) CopyCharacterRom(base uint32, data []byte) {
-    for i := uint32(0); i < uint32(len(data)); i++ {
+func (ppu *PPUState) CopyCharacterRom(base uint16, data []byte, isRom bool) {
+    if isRom {
+        ppu.CharacterRomLow = base
+        ppu.CharacterRomHigh = base + uint16(len(data))
+    }
+    for i := range uint16(len(data)) {
         ppu.VideoMemory[base + i] = data[i]
     }
 }
@@ -456,6 +477,14 @@ func (ppu *PPUState) IsSpriteEnabled() bool {
     /* FIXME: what about sprite_leftmost_8 */
     sprite := (ppu.Mask >> 4) & 0x1 == 0x1
     return sprite
+}
+
+func (ppu *PPUState) IsBackgroundLeftmost8Enabled() bool {
+    return (ppu.Mask>>1)&0x1 == 0x1
+}
+
+func (ppu *PPUState) IsSpriteLeftmost8Enabled() bool {
+    return (ppu.Mask>>2)&0x1 == 0x1
 }
 
 func (ppu *PPUState) MaskString() string {
@@ -513,9 +542,6 @@ func (ppu *PPUState) GetVRamIncrement() uint16 {
 }
 
 func (ppu *PPUState) WriteVideoMemory(value byte){
-    // ppu.databus = value
-    ppu.InternalVideoBuffer = value
-
     actualAddress := ppu.VideoAddress
 
     /* Mirror writes to the universal background color */
@@ -537,10 +563,21 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
         log.Printf("PPU: Writing 0x%x to video memory at 0x%x actual 0x%x at scanline %v and cycle %v\n", value, ppu.VideoAddress, actualAddress, ppu.Scanline, ppu.ScanlineCycle)
     }
 
-    if actualAddress >= 0x2000 && actualAddress < 0x3000 {
-        ppu.StoreNametableMemory(actualAddress, value)
-    } else {
-        ppu.VideoMemory[actualAddress] = value
+    switch {
+        case actualAddress >= 0x2000 && actualAddress < 0x3000:
+            ppu.StoreNametableMemory(actualAddress, value)
+        case actualAddress >= 0x3000 && actualAddress < 0x3eff:
+            ppu.StoreNametableMemory(actualAddress - 0x1000, value)
+        case actualAddress >= 0x3f00 && actualAddress <= 0x3fff:
+            // palette memory is mirrored every 32 bytes, so only consider the last 5 bits of the address
+            high := actualAddress & 0xff00
+            low := actualAddress & 0x001f
+            ppu.VideoMemory[high | low] = value
+        case actualAddress >= ppu.CharacterRomLow && actualAddress < ppu.CharacterRomHigh:
+            // log.Printf("Ignore write at %04x. low=%04x high=%04x", actualAddress, ppu.CharacterRomLow, ppu.CharacterRomHigh)
+            // nothing
+        default:
+            ppu.VideoMemory[actualAddress] = value
     }
     ppu.VideoAddress += ppu.GetVRamIncrement()
 }
@@ -555,6 +592,13 @@ func (ppu *PPUState) ReadVideoMemory() byte {
 
     if ppu.VideoAddress >= 0x2000 && ppu.VideoAddress < 0x3000 {
         value = ppu.LoadNametableMemory(ppu.VideoAddress)
+    } else if ppu.VideoAddress >= 0x3000 && ppu.VideoAddress < 0x3eff {
+        value = ppu.LoadNametableMemory(ppu.VideoAddress - 0x1000)
+    } else if ppu.VideoAddress >= 0x3f00 && ppu.VideoAddress <= 0x3fff {
+        // palette memory is mirrored every 32 bytes, so only consider the last 5 bits of the address
+        high := ppu.VideoAddress & 0xff00
+        low := ppu.VideoAddress & 0x001f
+        value = ppu.VideoMemory[high | low]
     } else {
         value = ppu.VideoMemory[ppu.VideoAddress]
     }
@@ -567,7 +611,8 @@ func (ppu *PPUState) ReadVideoMemory() byte {
      * Reading palette data from $3F00-$3FFF works differently. The palette data is placed immediately on the data bus, and hence no dummy read is required. Reading the palettes still updates the internal buffer though, but the data placed in it is the mirrored nametable data that would appear "underneath" the palette. (Checking the PPU memory map should make this clearer.)
      */
     if ppu.VideoAddress >= 0x3f00 && ppu.VideoAddress <= 0x3fff {
-        ppu.InternalVideoBuffer = value
+        // a true read is done to nametable memory, where 0x3000-0x4000 is mirrored to 0x2000-0x3000
+        ppu.InternalVideoBuffer = ppu.LoadNametableMemory(ppu.VideoAddress - 0x1000)
         ppu.VideoAddress += ppu.GetVRamIncrement()
         return value
     }
@@ -1084,6 +1129,17 @@ func (ppu *PPUState) RenderPixel(scanLine int, cycle int, sprites []Sprite, scre
     background := ppu.getBackgroundPixel()
     sprite, spritePriority, sprite0 := ppu.getSpritePixel(cycle, scanLine, sprites)
 
+    /* PPUMASK bits 1 and 2 gate rendering (and sprite0 hit) in the leftmost 8 pixels. */
+    if cycle >= 0 && cycle < 8 {
+        if !ppu.IsBackgroundLeftmost8Enabled() {
+            background = nil
+        }
+        if !ppu.IsSpriteLeftmost8Enabled() {
+            sprite = nil
+            sprite0 = false
+        }
+    }
+
     if sprite != nil && background != nil {
         if spritePriority == 0 {
             screen.DrawPoint(int32(cycle), int32(scanLine), sprite)
@@ -1391,6 +1447,13 @@ func (ppu *PPUState) UpdateMapper4Scanline(mapper Mapper){
 }
 
 func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bool, bool) {
+    if ppu.Decay > 0 {
+        ppu.Decay -= min(ppu.Decay, cycles)
+        if ppu.Decay == 0 {
+            ppu.Databus = 0
+        }
+    }
+
     /* http://wiki.nesdev.org/w/index.php/PPU_rendering */
     oldNMI := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
     didDraw := false
@@ -1452,6 +1515,12 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
         }
 
         ppu.ScanlineCycle += 1
+
+        // reset OAM address
+        if ppu.ScanlineCycle >= 257 && ppu.ScanlineCycle <= 320 {
+            ppu.OAMAddress = 0
+        }
+
         if ppu.ScanlineCycle > 340 {
             ppu.ScanlineCycle = 0
             ppu.Scanline += 1

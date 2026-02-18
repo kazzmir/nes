@@ -176,7 +176,7 @@ func SetupCPU(nesFile nes.NESFile, debugCpu bool, debugPpu bool) (nes.CPUState, 
     if maxCharacterRomLength > 0x2000 {
         maxCharacterRomLength = 0x2000
     }
-    cpu.PPU.CopyCharacterRom(0x0000, nesFile.CharacterRom[:maxCharacterRomLength])
+    cpu.PPU.CopyCharacterRom(0x0000, nesFile.CharacterRom[:maxCharacterRomLength], true)
 
     if debugCpu {
         cpu.Debug = 1
