@@ -1515,6 +1515,12 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
         }
 
         ppu.ScanlineCycle += 1
+
+        // reset OAM address
+        if ppu.ScanlineCycle >= 257 && ppu.ScanlineCycle <= 320 {
+            ppu.OAMAddress = 0
+        }
+
         if ppu.ScanlineCycle > 340 {
             ppu.ScanlineCycle = 0
             ppu.Scanline += 1
