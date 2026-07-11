@@ -1,8 +1,11 @@
 package patch
 
+// https://www.romhacking.net/documents/746/
+
 import (
     "bytes"
     "io"
+    "errors"
 )
 
 func littleEndian(b []byte) uint32 {
@@ -21,7 +24,7 @@ func readUint32(r *bytes.Reader) (uint32, error) {
 
 func readBPSVarInt(r *bytes.Reader) (uint64, error) {
     value := uint64(0)
-    shift := uint64(0)
+    shift := uint64(1)
 
     for {
         x, err := r.ReadByte()
@@ -29,8 +32,8 @@ func readBPSVarInt(r *bytes.Reader) (uint64, error) {
             return 0, err
         }
 
-        value |= uint64(x&0x7F) * shift
-        if x&0x80 == 0 {
+        value += uint64(x&0x7F) * shift
+        if x&0x80 > 0 {
             break
         }
 
@@ -45,7 +48,12 @@ func ApplyBPSPatch(nesData []byte, patchData []byte) ([]byte, error) {
 
     bps := []byte("BPS1")
 
-    reader := bytes.NewReader(patchData)
+    if len(patchData) < 12 {
+        return nil, ErrInvalidPatch
+    }
+
+    // skip CRC section
+    reader := bytes.NewReader(patchData[:len(patchData) - 12])
 
     data := make([]byte, 4)
     n, err := reader.Read(data)
@@ -99,6 +107,9 @@ func ApplyBPSPatch(nesData []byte, patchData []byte) ([]byte, error) {
     for {
         action, err := readBPSVarInt(reader)
         if err != nil {
+            if errors.Is(err, io.EOF) {
+                break
+            }
             return nil, err
         }
 
@@ -196,6 +207,8 @@ func ApplyBPSPatch(nesData []byte, patchData []byte) ([]byte, error) {
         }
     }
 
+    // FIXME: check crc
+    /*
     sourceCRC, err := readUint32(reader)
     if err != nil {
         return nil, err
@@ -214,6 +227,7 @@ func ApplyBPSPatch(nesData []byte, patchData []byte) ([]byte, error) {
     _ = sourceCRC
     _ = targetCRC
     _ = patchCRC
+    */
 
     return target, nil
 }
