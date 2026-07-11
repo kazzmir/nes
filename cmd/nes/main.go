@@ -427,7 +427,7 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
                 if err != nil {
                     return err
                 }
-                nesData, err = patchlib.ApplyIPSPatch(nesData, patchData)
+                nesData, err = patchlib.ApplyPatch(nesData, patchData)
                 if err != nil {
                     return err
                 }
