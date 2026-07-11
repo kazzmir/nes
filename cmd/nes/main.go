@@ -20,6 +20,7 @@ import (
     "image/png"
 
     nes "github.com/kazzmir/nes/lib"
+    patchlib "github.com/kazzmir/nes/lib/patch"
     "github.com/kazzmir/nes/lib/coroutine"
     "github.com/kazzmir/nes/util"
 
@@ -392,7 +393,7 @@ func saveScreenshot(romName string, buffer nes.VirtualScreen) {
     log.Printf("Saved screenshot to %v", screenshotPath)
 }
 
-func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
+func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
 
@@ -413,11 +414,38 @@ func RunNES(path string, debugCpu bool, debugPpu bool, maxCycles uint64, windowS
 
     if path != "" {
         log.Printf("Opening NES file '%v'", path)
-        nesFile, err := nes.ParseNesFile(path, true)
-        if err != nil {
-            return err
+
+        if len(patchFiles) > 0 {
+            nesData, err := os.ReadFile(path)
+            if err != nil {
+                return err
+            }
+
+            for _, patchFile := range patchFiles {
+                log.Printf("  applying patch '%v'", patchFile)
+                patchData, err := os.ReadFile(patchFile)
+                if err != nil {
+                    return err
+                }
+                nesData, err = patchlib.ApplyIPSPatch(nesData, patchData)
+                if err != nil {
+                    return err
+                }
+
+            }
+
+            nesFile, err := nes.ParseNes(bytes.NewReader(nesData), true, path)
+            if err != nil {
+                return err
+            }
+            nesChannel <- &NesActionLoad{File: nesFile}
+        } else {
+            nesFile, err := nes.ParseNesFile(path, true)
+            if err != nil {
+                return err
+            }
+            nesChannel <- &NesActionLoad{File: nesFile}
         }
-        nesChannel <- &NesActionLoad{File: nesFile}
     } else {
         /* if no nes file given then just load the main menu */
         doMenu <- true
@@ -1065,6 +1093,8 @@ type Arguments struct {
     DesiredFps int
     RecordKeys bool
     ReplayKeys string // set to a file to replay keys from, or empty if replay is not desired
+
+    PatchFiles []string
 }
 
 func parseArguments() (Arguments, error) {
@@ -1081,7 +1111,7 @@ func parseArguments() (Arguments, error) {
         switch arg {
             case "-h", "--help":
                 return arguments, fmt.Errorf(`NES emulator by Jon Rafkind
-$ nes [rom.nes]
+$ nes [options] [rom.nes] [patch1.ips patch2.ips ...]
 Options:
   -h, --help: this help
   -debug, --debug: enable all debug output
@@ -1094,6 +1124,7 @@ Options:
   -cycles, --cycles #: limit the emulator to only run for some number of cycles
   -record-input: record key presses
   -replay-input <input file>: replay key presses. A rom must also be specified
+  If patch files are specified then they will be applied to the rom before it is run.
 `)
             case "-debug", "--debug":
                 arguments.Debug = true
@@ -1152,7 +1183,11 @@ Options:
                     return arguments, fmt.Errorf("Error parsing cycles: %v", err)
                 }
             default:
-                arguments.NESPath = arg
+                if arguments.NESPath == "" {
+                    arguments.NESPath = arg
+                } else {
+                    arguments.PatchFiles = append(arguments.PatchFiles, arg)
+                }
         }
     }
 
@@ -1202,7 +1237,7 @@ func main(){
     }
 
     if nes.IsNESFile(arguments.NESPath) {
-        err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
+        err := RunNES(arguments.NESPath, arguments.PatchFiles, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
         if err != nil {
             log.Printf("Error: %v\n", err)
         }
@@ -1213,7 +1248,7 @@ func main(){
         }
     } else {
         /* Open up the loading menu immediately */
-        err := RunNES(arguments.NESPath, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
+        err := RunNES(arguments.NESPath, arguments.PatchFiles, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
         if err != nil {
             log.Printf("Error: %v\n", err)
         }
