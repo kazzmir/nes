@@ -140,11 +140,11 @@ func ApplyBPSPatch(nesData []byte, patchData []byte) ([]byte, error) {
         switch command {
             // source read
             case 0:
-                if targetPointer + length >= uint64(len(target)) {
+                if targetPointer + length > uint64(len(target)) {
                     return nil, ErrInvalidPatch
                 }
 
-                if sourcePointer + length >= uint64(len(nesData)) {
+                if sourcePointer + length > uint64(len(nesData)) {
                     return nil, ErrInvalidPatch
                 }
 
@@ -155,14 +155,14 @@ func ApplyBPSPatch(nesData []byte, patchData []byte) ([]byte, error) {
             // target read
             case 1:
 
+                if targetPointer + length > uint64(len(target)) {
+                    return nil, ErrInvalidPatch
+                }
+
                 for range length {
                     value, err := reader.ReadByte()
                     if err != nil {
                         return nil, err
-                    }
-
-                    if targetPointer >= uint64(len(target)) {
-                        return nil, ErrInvalidPatch
                     }
 
                     target[targetPointer] = value
@@ -184,11 +184,11 @@ func ApplyBPSPatch(nesData []byte, patchData []byte) ([]byte, error) {
 
                 sourceOffset += value
 
-                if sourceOffset < 0 || sourceOffset + int64(length) >= int64(len(nesData)) {
+                if sourceOffset < 0 || sourceOffset + int64(length) > int64(len(nesData)) {
                     return nil, ErrInvalidPatch
                 }
 
-                if targetPointer + length >= uint64(len(target)) {
+                if targetPointer + length > uint64(len(target)) {
                     return nil, ErrInvalidPatch
                 }
 
@@ -212,11 +212,11 @@ func ApplyBPSPatch(nesData []byte, patchData []byte) ([]byte, error) {
 
                 targetOffset += value
                 
-                if targetOffset < 0 || targetOffset + int64(length) >= int64(len(target)) {
+                if targetOffset < 0 || targetOffset + int64(length) > int64(len(target)) {
                     return nil, ErrInvalidPatch
                 }
 
-                if targetPointer + length >= uint64(len(target)) {
+                if targetPointer + length > uint64(len(target)) {
                     return nil, ErrInvalidPatch
                 }
 
