@@ -551,6 +551,8 @@ type StaticFixedButtonFunc func(*StaticFixedWidthButton)
 
 /* A button that renders its components in a fixed width */
 type StaticFixedWidthButton struct {
+    DefaultButton
+
     Width int
     Parts []string
     Func StaticFixedButtonFunc
@@ -561,6 +563,8 @@ type StaticFixedWidthButton struct {
     width float64
     height float64
 }
+
+var _ Button = (*StaticFixedWidthButton)(nil)
 
 func (button *StaticFixedWidthButton) Inside(x int, y int) bool {
     return float64(x) >= button.X && float64(x) <= button.X + button.width &&
@@ -1452,7 +1456,7 @@ func (menu *ChangeKeyMenu) MakeRenderer(font text.Face, smallFont text.Face, clo
             red := color.RGBA{R: 255, G: 0, B: 0, A: 255}
             white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 
-            line := fmt.Sprintf("Press a key to set %v", menu.ChoosingKey)
+            line := fmt.Sprintf("Press and hold a key to set %v", menu.ChoosingKey)
 
             midX := float64(maxWidth / 2)
             midY := float64(maxHeight / 2)
@@ -1514,10 +1518,18 @@ type ChooseButton struct {
     Height float64
 }
 
+var _ Button = (*ChooseButton)(nil)
+
 func (choose *ChooseButton) Text() string {
     choose.Lock.Lock()
     defer choose.Lock.Unlock()
     return choose.Items[choose.Choice]
+}
+
+func (choose *ChooseButton) Up() {
+}
+
+func (choose *ChooseButton) Down() {
 }
 
 func (choose *ChooseButton) Next() {
