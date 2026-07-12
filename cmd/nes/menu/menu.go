@@ -98,6 +98,8 @@ type ProgramActions interface {
     LoadRom(name string, file common.MakeFile)
     SetSoundEnabled(enabled bool)
     IsSoundEnabled() bool
+    SetSoundVolume(volume float64)
+    GetSoundVolume() float64
 }
 
 type AudioManager interface {
@@ -272,6 +274,104 @@ func (line *MenuNextLine) Render(font text.Face, out *ebiten.Image, x float64, y
     return 999999999, 0, nil
 }
 
+type Slider struct {
+    MinimumValue float64
+    MaximumValue float64
+    MaxWidth int
+    text func(value float64) string
+    Change func(value float64)
+    value float64
+
+    X float64
+    Y float64
+    Width float64
+    Height float64
+}
+
+func (slider *Slider) down() {
+    slider.value = max(0, slider.value - 1)
+
+    if slider.Change != nil {
+        slider.Change(slider.value)
+    }
+}
+
+func (slider *Slider) up() {
+    slider.value = min(slider.MaximumValue, slider.value + 1)
+
+    if slider.Change != nil {
+        slider.Change(slider.value)
+    }
+}
+
+func (slider *Slider) Down() {
+}
+
+func (slider *Slider) Up() {
+}
+
+func (slider *Slider) PressKey(key ebiten.Key) {
+    switch key {
+        case ebiten.KeyLeft:
+            slider.down()
+        case ebiten.KeyRight:
+            slider.up()
+    }
+}
+
+func (slider *Slider) Inside(x int, y int) bool {
+    return float64(x) >= slider.X && float64(x) <= slider.X + slider.Width &&
+        float64(y) >= slider.Y && float64(y) <= slider.Y + slider.Height
+}
+
+func (slider *Slider) Text() string {
+    return slider.text(slider.value)
+}
+
+func (slider *Slider) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
+    slider.X = x
+    slider.Y = y
+
+    slider.Width = float64(slider.MaxWidth)
+
+    sliderHeight := 10
+
+    yellow := color.RGBA{R: 255, G: 255, B: 0, A: 255}
+    red := color.RGBA{R: 255, G: 0, B: 0, A: 255}
+    white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+
+    var use color.Color = white
+    if selected {
+        use = gfx.Glow(red, yellow, 40, clock)
+    }
+
+    var options text.DrawOptions
+    options.GeoM.Translate(x, y)
+    options.ColorScale.ScaleWithColor(use)
+    text.Draw(out, slider.text(slider.value), font, &options)
+
+    _, height := text.Measure("A", font, 1)
+
+    sliderTop := y + height + 1
+
+    slider.Height = sliderTop + float64(sliderHeight) - y
+
+    // background
+    vector.FillRect(out, float32(slider.X), float32(sliderTop), float32(slider.Width), float32(sliderHeight), color.RGBA{R: 64, G: 64, B: 64, A: 255}, true)
+
+    sliderWidth := int((slider.value - slider.MinimumValue) / (slider.MaximumValue - slider.MinimumValue) * float64(slider.MaxWidth))
+    vector.FillRect(out, float32(slider.X), float32(sliderTop + 1), float32(sliderWidth), float32(sliderHeight - 2), color.RGBA{R: 255, G: 255, B: 0, A: 255}, true)
+
+
+    return slider.Width, slider.Height, nil
+}
+
+func (slider *Slider) Interact(menu SubMenu) SubMenu {
+    return menu
+}
+
+var _ Interactable = (*Slider)(nil)
+
 type MenuLabel struct {
     Label string
     Color color.Color
@@ -300,16 +400,38 @@ func (label *MenuLabel) Render(font text.Face, out *ebiten.Image, x float64, y f
     return width, height, nil
 }
 
-type Button interface {
+type Interactable interface {
     MenuItem
     /* invoked when the user presses enter while selecting this button */
     Interact(SubMenu) SubMenu
+
+    Down()
+    Up()
+    PressKey(ebiten.Key)
+}
+
+type Button interface {
+    Interactable
+}
+
+type DefaultButton struct {
+}
+
+func (button *DefaultButton) Down() {
+}
+
+func (button *DefaultButton) Up() {
+}
+
+func (button *DefaultButton) PressKey(key ebiten.Key) {
 }
 
 type StaticButtonFunc func(button *StaticButton)
 
 /* A button that does not change state */
 type StaticButton struct {
+    DefaultButton
+
     Name string
     Func StaticButtonFunc
     Lock sync.Mutex
@@ -357,6 +479,8 @@ func (button *StaticButton) Render(font text.Face, out *ebiten.Image, x float64,
 type ToggleButtonFunc func(bool)
 
 type ToggleButton struct {
+    DefaultButton
+
     State1 string
     State2 string
     state bool
@@ -399,6 +523,8 @@ func (button *ToggleButton) Render(font text.Face, out *ebiten.Image, x float64,
 type SubMenuFunc func() SubMenu
 
 type SubMenuButton struct {
+    DefaultButton
+
     Name string
     Func SubMenuFunc
 
@@ -425,6 +551,8 @@ type StaticFixedButtonFunc func(*StaticFixedWidthButton)
 
 /* A button that renders its components in a fixed width */
 type StaticFixedWidthButton struct {
+    DefaultButton
+
     Width int
     Parts []string
     Func StaticFixedButtonFunc
@@ -435,6 +563,8 @@ type StaticFixedWidthButton struct {
     width float64
     height float64
 }
+
+var _ Button = (*StaticFixedWidthButton)(nil)
 
 func (button *StaticFixedWidthButton) Inside(x int, y int) bool {
     return float64(x) >= button.X && float64(x) <= button.X + button.width &&
@@ -548,6 +678,8 @@ type MenuButtons struct {
     Items []MenuItem
     Selected int
     Lock sync.Mutex
+
+    Focused Interactable
 }
 
 func MakeMenuButtons() MenuButtons {
@@ -556,13 +688,41 @@ func MakeMenuButtons() MenuButtons {
     }
 }
 
+func (buttons *MenuButtons) GetSelected() MenuItem {
+    if buttons.Selected >= 0 && buttons.Selected < len(buttons.Items) {
+        return buttons.Items[buttons.Selected]
+    }
+
+    return nil
+}
+
+func (buttons *MenuButtons) Down() {
+    selected := buttons.GetSelected()
+    if selected != nil {
+        interact, ok := selected.(Interactable)
+        if ok {
+            interact.Down()
+        }
+    }
+}
+
+func (buttons *MenuButtons) Up() {
+    selected := buttons.GetSelected()
+    if selected != nil {
+        interact, ok := selected.(Interactable)
+        if ok {
+            interact.Up()
+        }
+    }
+}
+
 func (buttons *MenuButtons) Previous(){
-    for {
+    for range buttons.Items {
         buttons.Selected -= 1
         if buttons.Selected < 0 {
             buttons.Selected = len(buttons.Items) - 1
         }
-        _, ok := buttons.Items[buttons.Selected].(Button)
+        _, ok := buttons.Items[buttons.Selected].(Interactable)
         if ok {
             break
         }
@@ -570,9 +730,9 @@ func (buttons *MenuButtons) Previous(){
 }
 
 func (buttons *MenuButtons) Next(){
-    for {
+    for range buttons.Items {
         buttons.Selected = (buttons.Selected + 1) % len(buttons.Items)
-        _, ok := buttons.Items[buttons.Selected].(Button)
+        _, ok := buttons.Items[buttons.Selected].(Interactable)
         if ok {
             break
         }
@@ -580,7 +740,7 @@ func (buttons *MenuButtons) Next(){
 }
 
 func (buttons *MenuButtons) Select(item MenuItem){
-    for i := 0; i < len(buttons.Items); i++ {
+    for i := range buttons.Items {
         if buttons.Items[i] == item {
             buttons.Selected = i
             return
@@ -624,21 +784,39 @@ func (buttons *MenuButtons) MouseClick(x int, y int, menu SubMenu) SubMenu {
     return menu
 }
 
+func (buttons *MenuButtons) MouseWheel(dy int){
+    selected := buttons.GetSelected()
+    if selected != nil {
+        interact, ok := selected.(Interactable)
+        if ok {
+            if dy < 0 {
+                interact.Down()
+            } else if dy > 0 {
+                interact.Up()
+            }
+        }
+    }
+}
+
 func (buttons *MenuButtons) Interact(input MenuInput, menu SubMenu) SubMenu {
     buttons.Lock.Lock()
     defer buttons.Lock.Unlock()
 
     switch input {
-    case MenuPrevious, MenuUp:
+    case MenuPrevious:
+        buttons.Down()
+    case MenuUp:
         buttons.Previous()
         menu.PlayBeep()
-    case MenuNext, MenuDown:
+    case MenuNext:
+        buttons.Up()
+    case MenuDown:
         buttons.Next()
         menu.PlayBeep()
     case MenuSelect:
-        button, ok := buttons.Items[buttons.Selected].(Button)
+        interact, ok := buttons.Items[buttons.Selected].(Interactable)
         if ok {
-            return button.Interact(menu)
+            return interact.Interact(menu)
         }
     }
 
@@ -701,6 +879,8 @@ type StaticMenu struct {
     Quit MenuQuitFunc
     ExtraInfo string
     AudioManager AudioManager
+
+    clock uint64
 }
 
 func (menu *StaticMenu) PlayBeep() {
@@ -712,6 +892,20 @@ func (menu *StaticMenu) UpdateWindowSize(x int, y int){
 }
 
 func (menu *StaticMenu) Update(){
+    menu.clock += 1
+
+    if menu.clock % 3 == 0 {
+
+        selected := menu.Buttons.GetSelected()
+        if selected != nil {
+            interact, ok := selected.(Interactable)
+            if ok {
+                for _, key := range inpututil.AppendPressedKeys(nil) {
+                    interact.PressKey(key)
+                }
+            }
+        }
+    }
 }
 
 func (menu *StaticMenu) MouseMove(x int, y int){
@@ -719,6 +913,7 @@ func (menu *StaticMenu) MouseMove(x int, y int){
 }
 
 func (menu *StaticMenu) MouseWheel(dy int){
+    menu.Buttons.MouseWheel(dy)
 }
 
 func (menu *StaticMenu) MouseClick(x int, y int) SubMenu {
@@ -1261,7 +1456,7 @@ func (menu *ChangeKeyMenu) MakeRenderer(font text.Face, smallFont text.Face, clo
             red := color.RGBA{R: 255, G: 0, B: 0, A: 255}
             white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 
-            line := fmt.Sprintf("Press a key to set %v", menu.ChoosingKey)
+            line := fmt.Sprintf("Press and hold a key to set %v", menu.ChoosingKey)
 
             midX := float64(maxWidth / 2)
             midY := float64(maxHeight / 2)
@@ -1310,6 +1505,8 @@ func (menu *ChangeKeyMenu) MakeRenderer(font text.Face, smallFont text.Face, clo
 }
 
 type ChooseButton struct {
+    DefaultButton
+
     Enabled bool
     Lock sync.Mutex
     Items []string
@@ -1321,10 +1518,18 @@ type ChooseButton struct {
     Height float64
 }
 
+var _ Button = (*ChooseButton)(nil)
+
 func (choose *ChooseButton) Text() string {
     choose.Lock.Lock()
     defer choose.Lock.Unlock()
     return choose.Items[choose.Choice]
+}
+
+func (choose *ChooseButton) Up() {
+}
+
+func (choose *ChooseButton) Down() {
 }
 
 func (choose *ChooseButton) Next() {
@@ -1564,6 +1769,21 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions Prog
     }})
 
     main.Buttons.Add(&SubMenuButton{Name: "Joystick", Func: func() SubMenu { return joystickMenu } })
+
+    main.Buttons.Add(&MenuNextLine{})
+
+    main.Buttons.Add(&Slider{
+        MinimumValue: 0,
+        MaximumValue: 100,
+        MaxWidth: 200,
+        value: programActions.GetSoundVolume() * 100,
+        text: func(value float64) string {
+            return fmt.Sprintf("Volume: %v%%", int(value))
+        },
+        Change: func(value float64) {
+            programActions.SetSoundVolume(value / 100)
+        },
+    })
 
     main.ExtraInfo = keysInfo(keys)
 
