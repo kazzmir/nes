@@ -115,6 +115,7 @@ const (
     EmulatorLoadState
     EmulatorGetInfo
     EmulatorGetDebugger
+    EmulatorSetTurbo
 )
 
 type EmulatorAction interface {
@@ -141,6 +142,14 @@ type EmulatorActionGetDebugger struct {
 
 func (action EmulatorActionGetDebugger) Value() EmulatorActionValue {
     return EmulatorGetDebugger
+}
+
+type EmulatorActionSetTurbo struct {
+    Multiplier float64
+}
+
+func (action EmulatorActionSetTurbo) Value() EmulatorActionValue {
+    return EmulatorSetTurbo
 }
 
 type EmulatorInfo struct {
@@ -344,6 +353,8 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
         return sha256
     }
 
+    maxTurboMultiplier := float64(3)
+
     start := time.Now()
     cycleCheck := time.NewTicker(time.Second * 2)
     defer cycleCheck.Stop()
@@ -416,8 +427,11 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     close(info.Response)
                 case EmulatorNothing:
                     /* nothing */
+                case EmulatorSetTurbo:
+                    data := action.(EmulatorActionSetTurbo)
+                    maxTurboMultiplier = data.Multiplier
                 case EmulatorTurbo:
-                    turboMultiplier = 3
+                    turboMultiplier = maxTurboMultiplier
                     if verbose >= 0 {
                         log.Printf("Emulator speed set to %v", turboMultiplier)
                     }

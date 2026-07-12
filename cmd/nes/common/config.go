@@ -60,6 +60,7 @@ type ConfigData struct {
 
     GlobalVolume int `json:"global-volume,omitempty"`
     SoundEnabled bool `json:"sound-enabled,omitempty"`
+    TurboValue float64 `json:"turbo-value,omitempty"`
 }
 
 /* make the directory where the config file lives, which is ~/.config/jon-nes on linux */
@@ -82,6 +83,7 @@ func DefaultConfigData() ConfigData {
         Version: CurrentVersion,
         GlobalVolume: 100,
         SoundEnabled: true,
+        TurboValue: 3.0,
     }
 }
 
@@ -109,6 +111,7 @@ func LoadConfigData() (ConfigData, error) {
         data.GlobalVolume = 100
         data.Version = CurrentVersion
         data.SoundEnabled = true
+        data.TurboValue = 3.0
     }
 
     return data, nil

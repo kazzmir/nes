@@ -100,6 +100,8 @@ type ProgramActions interface {
     IsSoundEnabled() bool
     SetSoundVolume(volume float64)
     GetSoundVolume() float64
+    GetTurboValue() float64
+    SetTurboValue(value float64)
 }
 
 type AudioManager interface {
@@ -281,6 +283,7 @@ type Slider struct {
     text func(value float64) string
     Change func(value float64)
     value float64
+    Adjust float64
 
     X float64
     Y float64
@@ -289,7 +292,7 @@ type Slider struct {
 }
 
 func (slider *Slider) down() {
-    slider.value = max(0, slider.value - 1)
+    slider.value = max(slider.MinimumValue, slider.value - slider.Adjust)
 
     if slider.Change != nil {
         slider.Change(slider.value)
@@ -297,7 +300,7 @@ func (slider *Slider) down() {
 }
 
 func (slider *Slider) up() {
-    slider.value = min(slider.MaximumValue, slider.value + 1)
+    slider.value = min(slider.MaximumValue, slider.value + slider.Adjust)
 
     if slider.Change != nil {
         slider.Change(slider.value)
@@ -1776,12 +1779,29 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions Prog
         MinimumValue: 0,
         MaximumValue: 100,
         MaxWidth: 200,
+        Adjust: 1,
         value: programActions.GetSoundVolume() * 100,
         text: func(value float64) string {
             return fmt.Sprintf("Volume: %v%%", int(value))
         },
         Change: func(value float64) {
             programActions.SetSoundVolume(value / 100)
+        },
+    })
+
+    main.Buttons.Add(&MenuNextLine{})
+
+    main.Buttons.Add(&Slider{
+        MinimumValue: 1,
+        MaximumValue: 10,
+        MaxWidth: 200,
+        Adjust: 0.1,
+        value: programActions.GetTurboValue(),
+        text: func(value float64) string {
+            return fmt.Sprintf("Turbo Multiplier: %.2f", value)
+        },
+        Change: func(value float64) {
+            programActions.SetTurboValue(value)
         },
     })
 

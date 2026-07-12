@@ -297,6 +297,19 @@ type ProgramState struct {
     loadRom chan common.ProgramLoadRom
     audioEnabled bool
     volumeLevel float64
+    turboValue float64
+}
+
+func (state *ProgramState) SetTurboValue(value float64) {
+    state.turboValue = value
+
+    configData, _ := common.LoadConfigData()
+    configData.TurboValue = value
+    common.SaveConfigData(configData)
+}
+
+func (state *ProgramState) GetTurboValue() float64 {
+    return state.turboValue
 }
 
 func (state *ProgramState) IsSoundEnabled() bool {
@@ -434,6 +447,7 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
         loadRom: make(chan common.ProgramLoadRom, 1),
         audioEnabled: configData.SoundEnabled,
         volumeLevel: float64(configData.GlobalVolume) / 100,
+        turboValue: configData.TurboValue,
     }
 
     if path != "" {
@@ -732,6 +746,17 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
                 if ! programActions.IsSoundEnabled() {
                     musicPlayer.SetVolume(0)
                 }
+            }
+
+            configData, _ := common.LoadConfigData()
+
+            setTurbo := common.EmulatorActionSetTurbo{
+                Multiplier: configData.TurboValue,
+            }
+
+            select {
+                case emulatorActionsOutput <- setTurbo:
+                default:
             }
 
             runNes := func(nesYield coroutine.YieldFunc) error {
@@ -1044,6 +1069,15 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
 
                     select {
                         case audioActionsOutput <- &AudioVolume{Level: programActions.volumeLevel}:
+                        default:
+                    }
+
+                    setTurbo := common.EmulatorActionSetTurbo{
+                        Multiplier: programActions.turboValue,
+                    }
+
+                    select {
+                        case emulatorActionsOutput <- setTurbo:
                         default:
                     }
 
