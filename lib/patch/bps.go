@@ -101,8 +101,6 @@ func ApplyBPSPatch(nesData []byte, patchData []byte) ([]byte, error) {
     }
 
     target := make([]byte, targetSize)
-    sourcePointer := uint64(0)
-    targetPointer := uint64(0)
 
     metadataSize, err := readBPSVarInt(reader)
     if err != nil {
@@ -122,6 +120,7 @@ func ApplyBPSPatch(nesData []byte, patchData []byte) ([]byte, error) {
         // Process metadata if needed
     }
 
+    targetPointer := uint64(0)
     sourceOffset := int64(0)
     targetOffset := int64(0)
 
@@ -144,17 +143,15 @@ func ApplyBPSPatch(nesData []byte, patchData []byte) ([]byte, error) {
                     return nil, ErrInvalidPatch
                 }
 
-                if sourcePointer + length > uint64(len(nesData)) {
+                if targetPointer + length > uint64(len(nesData)) {
                     return nil, ErrInvalidPatch
                 }
 
-                copy(target[targetPointer:targetPointer+length], nesData[sourcePointer:sourcePointer+length])
+                copy(target[targetPointer:targetPointer+length], nesData[targetPointer:targetPointer+length])
 
                 targetPointer += length
-                sourcePointer += length
             // target read
             case 1:
-
                 if targetPointer + length > uint64(len(target)) {
                     return nil, ErrInvalidPatch
                 }
