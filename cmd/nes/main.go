@@ -143,6 +143,10 @@ type AudioState struct {
     Enabled bool
 }
 
+type AudioVolume struct {
+    Level float64
+}
+
 type AudioToggle struct {
 }
 
@@ -292,10 +296,15 @@ func loadFontSource() (*text.GoTextFaceSource, error) {
 type ProgramState struct {
     loadRom chan common.ProgramLoadRom
     audioEnabled bool
+    volumeLevel float64
 }
 
 func (state *ProgramState) IsSoundEnabled() bool {
     return state.audioEnabled
+}
+
+func (state *ProgramState) SetSoundVolume(level float64) {
+    state.volumeLevel = level
 }
 
 func (state *ProgramState) LoadRom(name string, file common.MakeFile) {
@@ -410,6 +419,7 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
     programActions := ProgramState{
         loadRom: make(chan common.ProgramLoadRom, 1),
         audioEnabled: true,
+        volumeLevel: 1.0,
     }
 
     if path != "" {
@@ -764,6 +774,9 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
                                 } else {
                                     musicPlayer.SetVolume(0)
                                 }
+                            case *AudioVolume:
+                                volume := action.(*AudioVolume)
+                                musicPlayer.SetVolume(volume.Level)
                         }
                     default:
                 }
@@ -1011,6 +1024,11 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
 
                     select {
                         case audioActionsOutput <- &AudioState{Enabled: programActions.IsSoundEnabled()}:
+                        default:
+                    }
+
+                    select {
+                        case audioActionsOutput <- &AudioVolume{Level: programActions.volumeLevel}:
                         default:
                     }
 

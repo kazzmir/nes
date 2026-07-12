@@ -98,6 +98,7 @@ type ProgramActions interface {
     LoadRom(name string, file common.MakeFile)
     SetSoundEnabled(enabled bool)
     IsSoundEnabled() bool
+    SetSoundVolume(volume float64)
 }
 
 type AudioManager interface {
@@ -270,6 +271,50 @@ func (line *MenuNextLine) Text() string {
 func (line *MenuNextLine) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
     /* Force the renderer to go to the next line */
     return 999999999, 0, nil
+}
+
+type Slider struct {
+    MinimumValue float64
+    MaximumValue float64
+    MaxWidth int
+    text func(value float64) string
+    Change func(value float64)
+    value float64
+
+    X float64
+    Y float64
+    Width float64
+    Height float64
+}
+
+func (slider *Slider) Inside(x int, y int) bool {
+    return float64(x) >= slider.X && float64(x) <= slider.X + slider.Width &&
+        float64(y) >= slider.Y && float64(y) <= slider.Y + slider.Height
+}
+
+func (slider *Slider) Text() string {
+    return slider.text(slider.value)
+}
+
+func (slider *Slider) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
+    slider.X = x
+    slider.Y = y
+
+    slider.Width = float64(slider.MaxWidth)
+    slider.Height = 10
+
+    var options text.DrawOptions
+    options.GeoM.Translate(x, y)
+    options.ColorScale.ScaleWithColor(color.RGBA{R: 255, G: 255, B: 255, A: 255})
+    text.Draw(out, slider.text(slider.value), font, &options)
+
+    _, height := text.Measure("A", font, 1)
+
+    sliderTop := y + height + 1
+
+    vector.FillRect(out, float32(slider.X), float32(sliderTop), float32(slider.Width), float32(slider.Height), color.RGBA{R: 64, G: 64, B: 64, A: 255}, true)
+
+    return slider.Width, height + slider.Height + 1, nil
 }
 
 type MenuLabel struct {
@@ -1564,6 +1609,21 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions Prog
     }})
 
     main.Buttons.Add(&SubMenuButton{Name: "Joystick", Func: func() SubMenu { return joystickMenu } })
+
+    main.Buttons.Add(&MenuNextLine{})
+
+    main.Buttons.Add(&Slider{
+        MinimumValue: 0,
+        MaximumValue: 100,
+        MaxWidth: 200,
+        value: 100,
+        text: func(value float64) string {
+            return fmt.Sprintf("Volume: %v%%", int(value))
+        },
+        Change: func(value float64) {
+            programActions.SetSoundVolume(value / 100)
+        },
+    })
 
     main.ExtraInfo = keysInfo(keys)
 
