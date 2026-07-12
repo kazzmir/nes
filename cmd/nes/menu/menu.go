@@ -99,6 +99,7 @@ type ProgramActions interface {
     SetSoundEnabled(enabled bool)
     IsSoundEnabled() bool
     SetSoundVolume(volume float64)
+    GetSoundVolume() float64
 }
 
 type AudioManager interface {
@@ -1694,7 +1695,7 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions Prog
         MinimumValue: 0,
         MaximumValue: 100,
         MaxWidth: 200,
-        value: 100,
+        value: programActions.GetSoundVolume() * 100,
         text: func(value float64) string {
             return fmt.Sprintf("Volume: %v%%", int(value))
         },

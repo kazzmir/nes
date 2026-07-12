@@ -303,8 +303,11 @@ func (state *ProgramState) IsSoundEnabled() bool {
     return state.audioEnabled
 }
 
+func (state *ProgramState) GetSoundVolume() float64 {
+    return state.volumeLevel
+}
+
 func (state *ProgramState) SetSoundVolume(level float64) {
-    log.Printf("Set sound volume to %v", level)
     state.volumeLevel = level
 }
 
