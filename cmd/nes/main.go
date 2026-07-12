@@ -309,6 +309,12 @@ func (state *ProgramState) GetSoundVolume() float64 {
 
 func (state *ProgramState) SetSoundVolume(level float64) {
     state.volumeLevel = level
+
+    configData, err := common.LoadConfigData()
+    if err == nil {
+        configData.GlobalVolume = int(level * 100)
+        common.SaveConfigData(configData)
+    }
 }
 
 func (state *ProgramState) LoadRom(name string, file common.MakeFile) {
@@ -420,10 +426,12 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
 
     var overlayMessages OverlayMessages
 
+    configData, _ := common.LoadConfigData()
+
     programActions := ProgramState{
         loadRom: make(chan common.ProgramLoadRom, 1),
         audioEnabled: true,
-        volumeLevel: 1.0,
+        volumeLevel: float64(configData.GlobalVolume) / 100,
     }
 
     if path != "" {
