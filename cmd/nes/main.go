@@ -304,6 +304,7 @@ func (state *ProgramState) IsSoundEnabled() bool {
 }
 
 func (state *ProgramState) SetSoundVolume(level float64) {
+    log.Printf("Set sound volume to %v", level)
     state.volumeLevel = level
 }
 
@@ -776,6 +777,7 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
                                 }
                             case *AudioVolume:
                                 volume := action.(*AudioVolume)
+                                log.Printf("Set game music level to %v", volume.Level)
                                 musicPlayer.SetVolume(volume.Level)
                         }
                     default:
