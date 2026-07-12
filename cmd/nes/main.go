@@ -734,6 +734,17 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
                 }
             }
 
+            configData, _ := common.LoadConfigData()
+
+            setTurbo := &common.EmulatorActionSetTurbo{
+                Multiplier: configData.TurboValue,
+            }
+
+            select {
+                case emulatorActionsOutput <- setTurbo:
+                default:
+            }
+
             runNes := func(nesYield coroutine.YieldFunc) error {
                 return common.RunNES(nesFile.Path, &cpu, maxCycles, quit, bufferReady, buffer, emulatorActionsInput, &screenListeners, &overlayMessages, AudioSampleRate, verbose, debugger, nesYield)
             }
