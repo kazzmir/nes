@@ -59,6 +59,7 @@ type ConfigData struct {
     Player1Keys ConfigKeys `json:"player1-keys,omitempty"`
 
     GlobalVolume int `json:"global-volume,omitempty"`
+    SoundEnabled bool `json:"sound-enabled,omitempty"`
 }
 
 /* make the directory where the config file lives, which is ~/.config/jon-nes on linux */
@@ -80,6 +81,7 @@ func DefaultConfigData() ConfigData {
     return ConfigData{
         Version: CurrentVersion,
         GlobalVolume: 100,
+        SoundEnabled: true,
     }
 }
 
@@ -106,6 +108,7 @@ func LoadConfigData() (ConfigData, error) {
     if data.Version == 2 {
         data.GlobalVolume = 100
         data.Version = CurrentVersion
+        data.SoundEnabled = true
     }
 
     return data, nil

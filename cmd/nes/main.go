@@ -310,11 +310,9 @@ func (state *ProgramState) GetSoundVolume() float64 {
 func (state *ProgramState) SetSoundVolume(level float64) {
     state.volumeLevel = level
 
-    configData, err := common.LoadConfigData()
-    if err == nil {
-        configData.GlobalVolume = int(level * 100)
-        common.SaveConfigData(configData)
-    }
+    configData, _ := common.LoadConfigData()
+    configData.GlobalVolume = int(level * 100)
+    common.SaveConfigData(configData)
 }
 
 func (state *ProgramState) LoadRom(name string, file common.MakeFile) {
@@ -327,6 +325,10 @@ func (state *ProgramState) LoadRom(name string, file common.MakeFile) {
 
 func (state *ProgramState) SetSoundEnabled(enabled bool) {
     state.audioEnabled = enabled
+
+    configData, _ := common.LoadConfigData()
+    configData.SoundEnabled = enabled
+    common.SaveConfigData(configData)
 }
 
 type MessageTime struct {
@@ -430,7 +432,7 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
 
     programActions := ProgramState{
         loadRom: make(chan common.ProgramLoadRom, 1),
-        audioEnabled: true,
+        audioEnabled: configData.SoundEnabled,
         volumeLevel: float64(configData.GlobalVolume) / 100,
     }
 
