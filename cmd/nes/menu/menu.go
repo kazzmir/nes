@@ -304,6 +304,15 @@ func (slider *Slider) Up() {
     }
 }
 
+func (slider *Slider) PressKey(key ebiten.Key) {
+    switch key {
+        case ebiten.KeyLeft:
+            slider.Down()
+        case ebiten.KeyRight:
+            slider.Up()
+    }
+}
+
 func (slider *Slider) Interact(buttons *MenuButtons, sub SubMenu) SubMenu {
     if buttons.Focused == slider {
         buttons.Focused = nil
@@ -387,16 +396,31 @@ type Interactable interface {
 
     Down()
     Up()
+    PressKey(ebiten.Key)
 }
 
 type Button interface {
     Interactable
 }
 
+type DefaultButton struct {
+}
+
+func (button *DefaultButton) Down() {
+}
+
+func (button *DefaultButton) Up() {
+}
+
+func (button *DefaultButton) PressKey(key ebiten.Key) {
+}
+
 type StaticButtonFunc func(button *StaticButton)
 
 /* A button that does not change state */
 type StaticButton struct {
+    DefaultButton
+
     Name string
     Func StaticButtonFunc
     Lock sync.Mutex
@@ -417,12 +441,6 @@ func (button *StaticButton) Update(text string){
     button.Lock.Lock()
     defer button.Lock.Unlock()
     button.Name = text
-}
-
-func (button *StaticButton) Down() {
-}
-
-func (button *StaticButton) Up() {
 }
 
 func (button *StaticButton) Interact(buttons *MenuButtons, menu SubMenu) SubMenu {
@@ -450,6 +468,8 @@ func (button *StaticButton) Render(font text.Face, out *ebiten.Image, x float64,
 type ToggleButtonFunc func(bool)
 
 type ToggleButton struct {
+    DefaultButton
+
     State1 string
     State2 string
     state bool
@@ -467,12 +487,6 @@ func (toggle *ToggleButton) Text() string {
         case false: return toggle.State2
     }
     return ""
-}
-
-func (toggle *ToggleButton) Down() {
-}
-
-func (toggle *ToggleButton) Up() {
 }
 
 func (toggle *ToggleButton) Interact(buttons *MenuButtons, menu SubMenu) SubMenu {
@@ -498,6 +512,8 @@ func (button *ToggleButton) Render(font text.Face, out *ebiten.Image, x float64,
 type SubMenuFunc func() SubMenu
 
 type SubMenuButton struct {
+    DefaultButton
+
     Name string
     Func SubMenuFunc
 
@@ -505,12 +521,6 @@ type SubMenuButton struct {
     Y float64
     Width float64
     Height float64
-}
-
-func (button *SubMenuButton) Down() {
-}
-
-func (button *SubMenuButton) Up() {
 }
 
 func _doRenderButton(button Button, font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64) {
@@ -819,6 +829,8 @@ type StaticMenu struct {
     Quit MenuQuitFunc
     ExtraInfo string
     AudioManager AudioManager
+
+    clock uint64
 }
 
 func (menu *StaticMenu) PlayBeep() {
@@ -830,6 +842,13 @@ func (menu *StaticMenu) UpdateWindowSize(x int, y int){
 }
 
 func (menu *StaticMenu) Update(){
+    menu.clock += 1
+
+    if menu.clock % 3 == 0 && menu.Buttons.Focused != nil {
+        for _, key := range inpututil.AppendPressedKeys(nil) {
+            menu.Buttons.Focused.PressKey(key)
+        }
+    }
 }
 
 func (menu *StaticMenu) MouseMove(x int, y int){
@@ -1428,6 +1447,8 @@ func (menu *ChangeKeyMenu) MakeRenderer(font text.Face, smallFont text.Face, clo
 }
 
 type ChooseButton struct {
+    DefaultButton
+
     Enabled bool
     Lock sync.Mutex
     Items []string
@@ -1467,12 +1488,6 @@ func (choose *ChooseButton) Interact(buttons *MenuButtons, menu SubMenu) SubMenu
 func (choose *ChooseButton) Inside(x int, y int) bool {
     return float64(x) >= choose.X && float64(x) <= choose.X + choose.Width &&
         float64(y) >= choose.Y && float64(y) <= choose.Y + choose.Height
-}
-
-func (choose *ChooseButton) Down() {
-}
-
-func (choose *ChooseButton) Up() {
 }
 
 func (choose *ChooseButton) Render(font text.Face, out *ebiten.Image, x float64, y float64, selected bool, clock uint64) (float64, float64, error) {
