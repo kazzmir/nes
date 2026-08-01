@@ -743,6 +743,8 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
                 musicPlayer.Play()
                 defer musicPlayer.Pause()
 
+                musicPlayer.SetVolume(programActions.volumeLevel)
+
                 if ! programActions.IsSoundEnabled() {
                     musicPlayer.SetVolume(0)
                 }
