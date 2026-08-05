@@ -1429,9 +1429,20 @@ func (patchMenu *PatchRomMenu) MouseWheel(dy int) {
 func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
     return func(out *ebiten.Image) error {
         var textOptions text.DrawOptions
-        textOptions.GeoM.Translate(float64(100), float64(100))
+        textOptions.GeoM.Translate(float64(10), float64(10))
 
         text.Draw(out, "Apply patch", font, &textOptions)
+
+        textOptions.GeoM.Translate(0, 20)
+
+        patchMenu.lock.Lock()
+
+        for _, path := range patchMenu.patchFiles {
+            textOptions.GeoM.Translate(0, 20)
+            text.Draw(out, path, font, &textOptions)
+        }
+
+        patchMenu.lock.Unlock()
 
         return nil
     }
