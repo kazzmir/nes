@@ -1092,11 +1092,13 @@ type LoadRomInfoMenu struct {
     Info *RomLoaderInfo
 
     SelectRect image.Rectangle
+    PatchRect image.Rectangle
     BackRect image.Rectangle
 }
 
 const (
     LoadRomInfoSelect = iota
+    LoadRomInfoApplyPatch
     LoadRomInfoBack
 )
 
@@ -1120,7 +1122,7 @@ func (loader *LoadRomInfoMenu) MouseClick(x int, y int) SubMenu {
 }
 
 func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
-    inputs := 2
+    inputs := 3
     switch input {
         case MenuNext:
             loader.Selection = (loader.Selection + 1) % inputs
@@ -1145,6 +1147,8 @@ func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
                 case LoadRomInfoSelect:
                     loader.RomLoader.SelectRom()
                     return loader.RomLoader
+                case LoadRomInfoApplyPatch:
+                    return &PatchRomMenu{previousMenu: loader}
                 case LoadRomInfoBack:
                     return loader.RomLoader
                 default:
@@ -1273,6 +1277,13 @@ func (loader *LoadRomInfoMenu) MakeRenderer(font text.Face, smallFont text.Face,
 
         textOptions.GeoM.Translate(0, fontHeight + 2)
         textOptions.ColorScale.Reset()
+        textOptions.ColorScale.ScaleWithColor(loader.GetSelectionColor(LoadRomInfoApplyPatch))
+        text.Draw(out, "Apply Patch", font, &textOptions)
+
+        loader.PatchRect = makeRect("Apply Patch", &textOptions.GeoM)
+
+        textOptions.GeoM.Translate(0, fontHeight + 2)
+        textOptions.ColorScale.Reset()
         textOptions.ColorScale.ScaleWithColor(loader.GetSelectionColor(LoadRomInfoBack))
         text.Draw(out, "Back", font, &textOptions)
 
@@ -1326,6 +1337,51 @@ Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
         return ""
     }
     return data.String()
+}
+
+type PatchRomMenu struct {
+    previousMenu SubMenu
+}
+
+func (patchMenu *PatchRomMenu) Input(input MenuInput) SubMenu {
+    switch input {
+        case MenuQuit:
+            return patchMenu.previousMenu
+        case MenuSelect:
+            return patchMenu.previousMenu
+    }
+
+    return patchMenu
+}
+
+func (patchMenu *PatchRomMenu) MouseClick(x int, y int) SubMenu {
+    return patchMenu
+}
+
+func (patchMenu *PatchRomMenu) UpdateWindowSize(x int, y int) {
+}
+
+func (patchMenu *PatchRomMenu) Update() {
+}
+
+func (patchMenu *PatchRomMenu) PlayBeep() {
+}
+
+func (patchMenu *PatchRomMenu) MouseMove(x int, y int) {
+}
+
+func (patchMenu *PatchRomMenu) MouseWheel(dy int) {
+}
+
+func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
+    return func(out *ebiten.Image) error {
+        var textOptions text.DrawOptions
+        textOptions.GeoM.Translate(float64(100), float64(100))
+
+        text.Draw(out, "Apply patch", font, &textOptions)
+
+        return nil
+    }
 }
 
 type ChangeKeyMenu struct {
