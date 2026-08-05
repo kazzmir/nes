@@ -22,3 +22,18 @@ func ApplyPatch(nesData []byte, patchData []byte) ([]byte, error) {
 
     return nil, ErrUnsupportedPatchFormat
 }
+
+func IsPatch(patchData []byte) bool {
+    ips := []byte("PATCH")
+    bps := []byte("BPS1")
+
+    if len(patchData) >= len(ips) && bytes.Equal(patchData[:len(ips)], ips) {
+        return true
+    }
+
+    if len(patchData) >= len(bps) && bytes.Equal(patchData[:len(bps)], bps) {
+        return true
+    }
+
+    return false
+}

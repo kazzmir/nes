@@ -3,8 +3,8 @@ package menu
 import (
     "context"
 
-    // "io"
-    // "io/fs"
+    "io"
+    "io/fs"
     // "runtime"
     "time"
     "os"
@@ -26,6 +26,7 @@ import (
     "github.com/kazzmir/nes/cmd/nes/gfx"
     // "github.com/kazzmir/nes/data"
     nes "github.com/kazzmir/nes/lib"
+    patchlib "github.com/kazzmir/nes/lib/patch"
     "github.com/kazzmir/nes/lib/coroutine"
 
     "github.com/hajimehoshi/ebiten/v2"
@@ -1341,6 +1342,13 @@ Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
 
 type PatchRomMenu struct {
     previousMenu SubMenu
+
+    lock sync.Mutex
+    patchFiles []string
+
+    initialize sync.Once
+    quit context.Context
+    cancel context.CancelFunc
 }
 
 func (patchMenu *PatchRomMenu) Input(input MenuInput) SubMenu {
@@ -1361,7 +1369,52 @@ func (patchMenu *PatchRomMenu) MouseClick(x int, y int) SubMenu {
 func (patchMenu *PatchRomMenu) UpdateWindowSize(x int, y int) {
 }
 
+// read first few bytes of file, check if the magic bytes match a patch
+func isPatchFile(path string) bool {
+    f, err := os.Open(path)
+    if err != nil {
+        return false
+    }
+    defer f.Close()
+
+    buf := make([]byte, 5)
+    _, err = io.ReadFull(f, buf)
+    if err != nil && err != io.EOF {
+        return false
+    }
+
+    return patchlib.IsPatch(buf)
+}
+
+func (patchMenu *PatchRomMenu) AddPatchFile(path string) {
+    patchMenu.lock.Lock()
+    defer patchMenu.lock.Unlock()
+
+    patchMenu.patchFiles = append(patchMenu.patchFiles, path)
+}
+
 func (patchMenu *PatchRomMenu) Update() {
+    patchMenu.initialize.Do(func() {
+        patchMenu.quit, patchMenu.cancel = context.WithCancel(context.Background())
+
+        go func() {
+            err := filepath.WalkDir(".", func(path string, dir fs.DirEntry, err error) error {
+                if dir.IsDir() {
+                    return nil
+                }
+
+                if isPatchFile(path) {
+                    patchMenu.AddPatchFile(path)
+                    log.Printf("Found patch file: %v", path)
+                }
+
+                return nil
+            })
+            if err != nil {
+                log.Printf("Unable to find patches: %v", err)
+            }
+        }()
+    })
 }
 
 func (patchMenu *PatchRomMenu) PlayBeep() {
