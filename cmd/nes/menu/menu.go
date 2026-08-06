@@ -1149,7 +1149,7 @@ func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
                     loader.RomLoader.SelectRom()
                     return loader.RomLoader
                 case LoadRomInfoApplyPatch:
-                    return &PatchRomMenu{previousMenu: loader}
+                    return MakePatchRomMenu(loader)
                 case LoadRomInfoBack:
                     return loader.RomLoader
                 default:
@@ -1343,16 +1343,53 @@ Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
 type PatchRomMenu struct {
     previousMenu SubMenu
 
+    currentEntry int
     lock sync.Mutex
     patchFiles []string
 
-    initialize sync.Once
     quit context.Context
     cancel context.CancelFunc
 }
 
+func MakePatchRomMenu(previousMenu SubMenu) *PatchRomMenu {
+    menu := PatchRomMenu{
+        previousMenu: previousMenu,
+    }
+
+    menu.quit, menu.cancel = context.WithCancel(context.Background())
+
+    go func() {
+        err := filepath.WalkDir(".", func(path string, dir fs.DirEntry, err error) error {
+            if dir.IsDir() {
+                return nil
+            }
+
+            if isPatchFile(path) {
+                menu.AddPatchFile(path)
+                log.Printf("Found patch file: %v", path)
+            }
+
+            return nil
+        })
+        if err != nil {
+            log.Printf("Unable to find patches: %v", err)
+        }
+    }()
+
+    return &menu
+}
+
 func (patchMenu *PatchRomMenu) Input(input MenuInput) SubMenu {
     switch input {
+        case MenuNext:
+            patchMenu.lock.Lock()
+            patchMenu.currentEntry = min(patchMenu.currentEntry + 1, len(patchMenu.patchFiles) - 1)
+            patchMenu.lock.Unlock()
+        case MenuPrevious:
+            patchMenu.lock.Lock()
+            patchMenu.currentEntry = max(patchMenu.currentEntry - 1, 0)
+            patchMenu.lock.Unlock()
+
         case MenuQuit:
             return patchMenu.previousMenu
         case MenuSelect:
@@ -1394,27 +1431,6 @@ func (patchMenu *PatchRomMenu) AddPatchFile(path string) {
 }
 
 func (patchMenu *PatchRomMenu) Update() {
-    patchMenu.initialize.Do(func() {
-        patchMenu.quit, patchMenu.cancel = context.WithCancel(context.Background())
-
-        go func() {
-            err := filepath.WalkDir(".", func(path string, dir fs.DirEntry, err error) error {
-                if dir.IsDir() {
-                    return nil
-                }
-
-                if isPatchFile(path) {
-                    patchMenu.AddPatchFile(path)
-                    log.Printf("Found patch file: %v", path)
-                }
-
-                return nil
-            })
-            if err != nil {
-                log.Printf("Unable to find patches: %v", err)
-            }
-        }()
-    })
 }
 
 func (patchMenu *PatchRomMenu) PlayBeep() {
@@ -1437,9 +1453,20 @@ func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face,
 
         patchMenu.lock.Lock()
 
-        for _, path := range patchMenu.patchFiles {
+        for i, path := range patchMenu.patchFiles {
             textOptions.GeoM.Translate(0, 20)
+
+            changeColor := i == patchMenu.currentEntry
+
+            if changeColor {
+                textOptions.ColorScale.ScaleWithColor(color.RGBA{R: 255, G: 255, B: 0, A: 255})
+            }
+
             text.Draw(out, path, font, &textOptions)
+
+            if changeColor {
+                textOptions.ColorScale.Reset()
+            }
         }
 
         patchMenu.lock.Unlock()
