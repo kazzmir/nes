@@ -1346,6 +1346,7 @@ type PatchRomMenu struct {
     currentEntry int
     lock sync.Mutex
     patchFiles []string
+    selectedPatches map[string]bool
 
     quit context.Context
     cancel context.CancelFunc
@@ -1354,6 +1355,7 @@ type PatchRomMenu struct {
 func MakePatchRomMenu(previousMenu SubMenu) *PatchRomMenu {
     menu := PatchRomMenu{
         previousMenu: previousMenu,
+        selectedPatches: make(map[string]bool),
     }
 
     menu.quit, menu.cancel = context.WithCancel(context.Background())
@@ -1381,11 +1383,11 @@ func MakePatchRomMenu(previousMenu SubMenu) *PatchRomMenu {
 
 func (patchMenu *PatchRomMenu) Input(input MenuInput) SubMenu {
     switch input {
-        case MenuNext:
+        case MenuDown, MenuNext:
             patchMenu.lock.Lock()
             patchMenu.currentEntry = min(patchMenu.currentEntry + 1, len(patchMenu.patchFiles) - 1)
             patchMenu.lock.Unlock()
-        case MenuPrevious:
+        case MenuUp, MenuPrevious:
             patchMenu.lock.Lock()
             patchMenu.currentEntry = max(patchMenu.currentEntry - 1, 0)
             patchMenu.lock.Unlock()
@@ -1393,7 +1395,12 @@ func (patchMenu *PatchRomMenu) Input(input MenuInput) SubMenu {
         case MenuQuit:
             return patchMenu.previousMenu
         case MenuSelect:
-            return patchMenu.previousMenu
+            patchMenu.lock.Lock()
+            if patchMenu.currentEntry >= 0 && patchMenu.currentEntry < len(patchMenu.patchFiles) {
+                path := patchMenu.patchFiles[patchMenu.currentEntry]
+                patchMenu.selectedPatches[path] = !patchMenu.selectedPatches[path]
+            }
+            patchMenu.lock.Unlock()
     }
 
     return patchMenu
@@ -1449,7 +1456,7 @@ func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face,
 
         text.Draw(out, "Apply patch", font, &textOptions)
 
-        textOptions.GeoM.Translate(0, 20)
+        textOptions.GeoM.Translate(10, 20)
 
         patchMenu.lock.Lock()
 
@@ -1460,6 +1467,12 @@ func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face,
 
             if changeColor {
                 textOptions.ColorScale.ScaleWithColor(color.RGBA{R: 255, G: 255, B: 0, A: 255})
+            }
+
+            selected, ok := patchMenu.selectedPatches[path]
+            if ok && selected {
+                x, y := textOptions.GeoM.Apply(-13, 10)
+                vector.FillRect(out, float32(x), float32(y), 10, 10, color.NRGBA{R: 0, G: 255, B: 0, A: 255}, false)
             }
 
             text.Draw(out, path, font, &textOptions)
@@ -2109,6 +2122,9 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
     var clock uint64 = 0
 
     currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, emulatorKeys)
+
+    // hack to test
+    currentMenu = MakePatchRomMenu(currentMenu)
 
     draw := func(screen *ebiten.Image){
         /* Draw a reddish overlay on the screen */
