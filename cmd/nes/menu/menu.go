@@ -758,7 +758,7 @@ func (buttons *MenuButtons) Add(item MenuItem){
 
 type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
-    Input(input MenuInput) SubMenu
+    Input(input MenuInput, repeated bool) SubMenu
     MouseClick(x int, y int) SubMenu
     MouseMove(x int, y int)
     MouseWheel(dy int)
@@ -924,7 +924,11 @@ func (menu *StaticMenu) MouseClick(x int, y int) SubMenu {
     return menu.Buttons.MouseClick(x, y, menu)
 }
 
-func (menu *StaticMenu) Input(input MenuInput) SubMenu {
+func (menu *StaticMenu) Input(input MenuInput, repeat bool) SubMenu {
+    if repeat {
+        return menu
+    }
+
     switch input {
         case MenuQuit:
             return menu.Quit(menu)
@@ -1017,14 +1021,18 @@ func (loadRomMenu *LoadRomMenu) MouseMove(x int, y int){
 }
 
 func (loadRomMenu *LoadRomMenu) MouseClick(x int, y int) SubMenu {
-    return loadRomMenu.Input(MenuSelect)
+    return loadRomMenu.Input(MenuSelect, false)
 }
 
 func (loadRomMenu *LoadRomMenu) MouseWheel(dy int){
     loadRomMenu.LoaderState.MouseWheel(dy)
 }
 
-func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
+func (loadRomMenu *LoadRomMenu) Input(input MenuInput, repeat bool) SubMenu {
+    if repeat {
+        return loadRomMenu
+    }
+
     switch input {
         case MenuNext:
             loadRomMenu.LoaderState.NextSelection()
@@ -1119,10 +1127,14 @@ func (loader *LoadRomInfoMenu) MouseMove(x int, y int){
 }
 
 func (loader *LoadRomInfoMenu) MouseClick(x int, y int) SubMenu {
-    return loader.Input(MenuSelect)
+    return loader.Input(MenuSelect, false)
 }
 
-func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
+func (loader *LoadRomInfoMenu) Input(input MenuInput, repeat bool) SubMenu {
+    if repeat {
+        return loader
+    }
+
     inputs := 3
     switch input {
         case MenuNext:
@@ -1381,7 +1393,7 @@ func MakePatchRomMenu(previousMenu SubMenu) *PatchRomMenu {
     return &menu
 }
 
-func (patchMenu *PatchRomMenu) Input(input MenuInput) SubMenu {
+func (patchMenu *PatchRomMenu) Input(input MenuInput, repeat bool) SubMenu {
     switch input {
         case MenuDown, MenuNext:
             patchMenu.lock.Lock()
@@ -1394,7 +1406,12 @@ func (patchMenu *PatchRomMenu) Input(input MenuInput) SubMenu {
 
         case MenuQuit:
             return patchMenu.previousMenu
+
         case MenuSelect:
+            if repeat {
+                return patchMenu
+            }
+
             patchMenu.lock.Lock()
             if patchMenu.currentEntry >= 0 && patchMenu.currentEntry < len(patchMenu.patchFiles) {
                 path := patchMenu.patchFiles[patchMenu.currentEntry]
@@ -1576,7 +1593,7 @@ func (menu *ChangeKeyMenu) MouseClick(x int, y int) SubMenu {
     return menu.Buttons.MouseClick(x, y, menu)
 }
 
-func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
+func (menu *ChangeKeyMenu) Input(input MenuInput, repeat bool) SubMenu {
     switch input {
         case MenuQuit:
             if menu.IsChoosing() {
@@ -1989,6 +2006,50 @@ type DrawManager interface {
     GetWindowSize() common.WindowSize
 }
 
+type KeyRepeater struct {
+    keymap map[ebiten.Key]int
+    InitialDelay int
+    RepeatDelay int
+}
+
+type RepeatedKey struct {
+    Key ebiten.Key
+    Repeated bool
+}
+
+func (repeater *KeyRepeater) Update() {
+    if repeater.keymap == nil {
+        repeater.keymap = make(map[ebiten.Key]int)
+    }
+
+    for _, key := range inpututil.AppendJustPressedKeys(nil) {
+        repeater.keymap[key] = -1
+    }
+
+    for _, key := range inpututil.AppendPressedKeys(nil) {
+        repeater.keymap[key] += 1
+    }
+
+    for _, key := range inpututil.AppendJustReleasedKeys(nil) {
+        delete(repeater.keymap, key)
+    }
+}
+
+func (repeater *KeyRepeater) GetPressedKeys() []RepeatedKey {
+    var out []RepeatedKey
+
+    for key, count := range repeater.keymap {
+        if count == 0 {
+            out = append(out, RepeatedKey{Key: key, Repeated: false})
+        } else if count > repeater.InitialDelay && (count - repeater.InitialDelay) % repeater.RepeatDelay == 0 {
+            out = append(out, RepeatedKey{Key: key, Repeated: true})
+            repeater.keymap[key] = repeater.InitialDelay
+        }
+    }
+
+    return out
+}
+
 func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions ProgramActions, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys, yield coroutine.YieldFunc, drawManager DrawManager){
     userInput := make(chan MenuInput, 3)
     defer close(userInput)
@@ -2141,26 +2202,30 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
 
     lastMouseX, lastMouseY := ebiten.CursorPosition()
 
+    repeater := KeyRepeater{InitialDelay: 15, RepeatDelay: 4}
+
     /* Reset the default renderer */
     for menu.quit.Err() == nil {
         joystickManager.ScanForJoysticks()
         clock += 1
 
-        keys := inpututil.AppendJustPressedKeys(nil)
+        repeater.Update()
+
+        keys := repeater.GetPressedKeys()
         for _, key := range keys {
-            switch key {
+            switch key.Key {
                 case ebiten.KeyEscape, ebiten.KeyCapsLock:
-                    currentMenu = currentMenu.Input(MenuQuit)
+                    currentMenu = currentMenu.Input(MenuQuit, key.Repeated)
                 case ebiten.KeyLeft, ebiten.KeyH:
-                    currentMenu = currentMenu.Input(MenuPrevious)
+                    currentMenu = currentMenu.Input(MenuPrevious, key.Repeated)
                 case ebiten.KeyRight, ebiten.KeyL:
-                    currentMenu = currentMenu.Input(MenuNext)
+                    currentMenu = currentMenu.Input(MenuNext, key.Repeated)
                 case ebiten.KeyUp, ebiten.KeyK:
-                    currentMenu = currentMenu.Input(MenuUp)
+                    currentMenu = currentMenu.Input(MenuUp, key.Repeated)
                 case ebiten.KeyDown, ebiten.KeyJ:
-                    currentMenu = currentMenu.Input(MenuDown)
+                    currentMenu = currentMenu.Input(MenuDown, key.Repeated)
                 case ebiten.KeyEnter:
-                    currentMenu = currentMenu.Input(MenuSelect)
+                    currentMenu = currentMenu.Input(MenuSelect, key.Repeated)
             }
         }
 
