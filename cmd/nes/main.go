@@ -328,9 +328,9 @@ func (state *ProgramState) SetSoundVolume(level float64) {
     common.SaveConfigData(configData)
 }
 
-func (state *ProgramState) LoadRom(name string, file common.MakeFile) {
+func (state *ProgramState) LoadRom(name string, file common.MakeFile, patches []string) {
     select {
-        case state.loadRom <- common.ProgramLoadRom{Name: name, File: file}:
+        case state.loadRom <- common.ProgramLoadRom{Name: name, File: file, Patches: patches}:
         default:
             log.Printf("Warning: could not send load rom request")
     }
@@ -1092,8 +1092,39 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
                                 break
                             }
 
-                            nesFile, err := nes.ParseNes(file, true, loadRom.Name)
+                            var nesFile nes.NESFile
+
+                            patchFiles := loadRom.Patches
+
+                            if len(patchFiles) > 0 {
+                                nesData, err := io.ReadAll(file)
+                                if err != nil {
+                                    return err
+                                }
+
+                                for _, patchFile := range patchFiles {
+                                    log.Printf("  applying patch '%v'", patchFile)
+                                    patchData, err := os.ReadFile(patchFile)
+                                    if err != nil {
+                                        return err
+                                    }
+                                    nesData, err = patchlib.ApplyPatch(nesData, patchData)
+                                    if err != nil {
+                                        return err
+                                    }
+
+                                }
+
+                                nesFile, err = nes.ParseNes(bytes.NewReader(nesData), true, loadRom.Name)
+                                if err != nil {
+                                    return err
+                                }
+                            } else {
+                                nesFile, err = nes.ParseNes(file, true, loadRom.Name)
+                            }
+
                             file.Close()
+
                             if err != nil {
                                 log.Printf("Could not load rom '%v'", path)
                             } else {
@@ -1178,11 +1209,11 @@ func parseArguments() (Arguments, error) {
     for argIndex := 1; argIndex < len(os.Args); argIndex++ {
         arg := os.Args[argIndex]
         switch arg {
-            case "-h", "--help":
+            case "-h", "-help", "--help":
                 return arguments, fmt.Errorf(`NES emulator by Jon Rafkind
 $ nes [options] [rom.nes] [patch1.ips patch2.ips ...]
 Options:
-  -h, --help: this help
+  -h, -help, --help: this help
   -debug, --debug: enable all debug output
   -debug=cpu, --debug=cpu: enable cpu debug output
   -debug=ppu, --debug=ppu: enable ppu debug output

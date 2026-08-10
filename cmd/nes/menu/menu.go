@@ -3,9 +3,10 @@ package menu
 import (
     "context"
 
-    // "io"
-    // "io/fs"
+    "io"
+    "io/fs"
     // "runtime"
+    "slices"
     "time"
     "os"
     "fmt"
@@ -26,6 +27,7 @@ import (
     "github.com/kazzmir/nes/cmd/nes/gfx"
     // "github.com/kazzmir/nes/data"
     nes "github.com/kazzmir/nes/lib"
+    patchlib "github.com/kazzmir/nes/lib/patch"
     "github.com/kazzmir/nes/lib/coroutine"
 
     "github.com/hajimehoshi/ebiten/v2"
@@ -95,7 +97,7 @@ func MakeSnow(screenWidth int) Snow {
 }
 
 type ProgramActions interface {
-    LoadRom(name string, file common.MakeFile)
+    LoadRom(name string, file common.MakeFile, patches []string)
     SetSoundEnabled(enabled bool)
     IsSoundEnabled() bool
     SetSoundVolume(volume float64)
@@ -757,7 +759,7 @@ func (buttons *MenuButtons) Add(item MenuItem){
 
 type SubMenu interface {
     /* Returns the new menu based on what button was pressed */
-    Input(input MenuInput) SubMenu
+    Input(input MenuInput, repeated bool) SubMenu
     MouseClick(x int, y int) SubMenu
     MouseMove(x int, y int)
     MouseWheel(dy int)
@@ -923,7 +925,11 @@ func (menu *StaticMenu) MouseClick(x int, y int) SubMenu {
     return menu.Buttons.MouseClick(x, y, menu)
 }
 
-func (menu *StaticMenu) Input(input MenuInput) SubMenu {
+func (menu *StaticMenu) Input(input MenuInput, repeat bool) SubMenu {
+    if repeat {
+        return menu
+    }
+
     switch input {
         case MenuQuit:
             return menu.Quit(menu)
@@ -973,7 +979,7 @@ type LoadRomMenu struct {
     LoaderCancel context.CancelFunc
     MenuCancel context.CancelFunc
     Back MenuQuitFunc
-    SelectRom func()
+    SelectRom func(patches []string)
     LoaderState *RomLoaderState
     AudioManager AudioManager
 }
@@ -1016,14 +1022,18 @@ func (loadRomMenu *LoadRomMenu) MouseMove(x int, y int){
 }
 
 func (loadRomMenu *LoadRomMenu) MouseClick(x int, y int) SubMenu {
-    return loadRomMenu.Input(MenuSelect)
+    return loadRomMenu.Input(MenuSelect, false)
 }
 
 func (loadRomMenu *LoadRomMenu) MouseWheel(dy int){
     loadRomMenu.LoaderState.MouseWheel(dy)
 }
 
-func (loadRomMenu *LoadRomMenu) Input(input MenuInput) SubMenu {
+func (loadRomMenu *LoadRomMenu) Input(input MenuInput, repeat bool) SubMenu {
+    if repeat {
+        return loadRomMenu
+    }
+
     switch input {
         case MenuNext:
             loadRomMenu.LoaderState.NextSelection()
@@ -1092,13 +1102,19 @@ type LoadRomInfoMenu struct {
     Info *RomLoaderInfo
 
     SelectRect image.Rectangle
+    PatchRect image.Rectangle
     BackRect image.Rectangle
 }
 
 const (
     LoadRomInfoSelect = iota
+    LoadRomInfoApplyPatch
     LoadRomInfoBack
 )
+
+func (loader *LoadRomInfoMenu) SetPatches(patches []string){
+    loader.Info.Patches = patches
+}
 
 func (loader *LoadRomInfoMenu) Update(){
 }
@@ -1116,11 +1132,15 @@ func (loader *LoadRomInfoMenu) MouseMove(x int, y int){
 }
 
 func (loader *LoadRomInfoMenu) MouseClick(x int, y int) SubMenu {
-    return loader.Input(MenuSelect)
+    return loader.Input(MenuSelect, false)
 }
 
-func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
-    inputs := 2
+func (loader *LoadRomInfoMenu) Input(input MenuInput, repeat bool) SubMenu {
+    if repeat {
+        return loader
+    }
+
+    inputs := 3
     switch input {
         case MenuNext:
             loader.Selection = (loader.Selection + 1) % inputs
@@ -1143,8 +1163,10 @@ func (loader *LoadRomInfoMenu) Input(input MenuInput) SubMenu {
         case MenuSelect:
             switch loader.Selection {
                 case LoadRomInfoSelect:
-                    loader.RomLoader.SelectRom()
+                    loader.RomLoader.SelectRom(loader.Info.Patches)
                     return loader.RomLoader
+                case LoadRomInfoApplyPatch:
+                    return MakePatchRomMenu(loader)
                 case LoadRomInfoBack:
                     return loader.RomLoader
                 default:
@@ -1273,6 +1295,13 @@ func (loader *LoadRomInfoMenu) MakeRenderer(font text.Face, smallFont text.Face,
 
         textOptions.GeoM.Translate(0, fontHeight + 2)
         textOptions.ColorScale.Reset()
+        textOptions.ColorScale.ScaleWithColor(loader.GetSelectionColor(LoadRomInfoApplyPatch))
+        text.Draw(out, "Apply Patch", font, &textOptions)
+
+        loader.PatchRect = makeRect("Apply Patch", &textOptions.GeoM)
+
+        textOptions.GeoM.Translate(0, fontHeight + 2)
+        textOptions.ColorScale.Reset()
         textOptions.ColorScale.ScaleWithColor(loader.GetSelectionColor(LoadRomInfoBack))
         text.Draw(out, "Back", font, &textOptions)
 
@@ -1326,6 +1355,224 @@ Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
         return ""
     }
     return data.String()
+}
+
+type PatchRomMenu struct {
+    loaderMenu *LoadRomInfoMenu
+
+    currentEntry int
+    lock sync.Mutex
+    patchFiles []string
+    selectedPatches map[int]bool
+
+    patchOrder []int
+
+    startIndex int
+    lastVisible int
+
+    quit context.Context
+    cancel context.CancelFunc
+}
+
+func MakePatchRomMenu(loaderMenu *LoadRomInfoMenu) *PatchRomMenu {
+    menu := PatchRomMenu{
+        loaderMenu: loaderMenu,
+        selectedPatches: make(map[int]bool),
+        startIndex: 0,
+        lastVisible: 0,
+    }
+
+    menu.quit, menu.cancel = context.WithCancel(context.Background())
+
+    go func() {
+        err := filepath.WalkDir(".", func(path string, dir fs.DirEntry, err error) error {
+            if dir.IsDir() {
+                return nil
+            }
+
+            if isPatchFile(path) {
+                menu.AddPatchFile(path)
+                log.Printf("Found patch file: %v", path)
+            }
+
+            return nil
+        })
+        if err != nil {
+            log.Printf("Unable to find patches: %v", err)
+        }
+    }()
+
+    return &menu
+}
+
+func (patchMenu *PatchRomMenu) Input(input MenuInput, repeat bool) SubMenu {
+    switch input {
+        case MenuDown, MenuNext:
+            patchMenu.lock.Lock()
+            patchMenu.currentEntry = min(patchMenu.currentEntry + 1, len(patchMenu.patchFiles) - 1)
+
+            if patchMenu.currentEntry >= patchMenu.lastVisible {
+                if len(patchMenu.patchFiles) - 1 > patchMenu.lastVisible {
+                    patchMenu.startIndex += 1
+                }
+            }
+
+            patchMenu.lock.Unlock()
+        case MenuUp, MenuPrevious:
+            patchMenu.lock.Lock()
+            patchMenu.currentEntry = max(patchMenu.currentEntry - 1, 0)
+
+            if patchMenu.currentEntry < patchMenu.startIndex + 1 && patchMenu.startIndex > 0 {
+                patchMenu.startIndex -= 1
+            }
+
+            patchMenu.lock.Unlock()
+
+        case MenuQuit:
+
+            var patches []string
+            for _, index := range patchMenu.patchOrder {
+                patches = append(patches, patchMenu.patchFiles[index])
+            }
+
+            patchMenu.loaderMenu.SetPatches(patches)
+            return patchMenu.loaderMenu
+
+        case MenuSelect:
+            if repeat {
+                return patchMenu
+            }
+
+            patchMenu.lock.Lock()
+            if patchMenu.currentEntry >= 0 && patchMenu.currentEntry < len(patchMenu.patchFiles) {
+                patchMenu.selectedPatches[patchMenu.currentEntry] = !patchMenu.selectedPatches[patchMenu.currentEntry]
+
+                if patchMenu.selectedPatches[patchMenu.currentEntry] {
+                    patchMenu.patchOrder = append(patchMenu.patchOrder, patchMenu.currentEntry)
+                } else {
+                    patchMenu.patchOrder = slices.DeleteFunc(patchMenu.patchOrder, func(i int) bool {
+                        return i == patchMenu.currentEntry
+                    })
+                }
+            }
+            patchMenu.lock.Unlock()
+    }
+
+    return patchMenu
+}
+
+func (patchMenu *PatchRomMenu) MouseClick(x int, y int) SubMenu {
+    return patchMenu
+}
+
+func (patchMenu *PatchRomMenu) UpdateWindowSize(x int, y int) {
+}
+
+// read first few bytes of file, check if the magic bytes match a patch
+func isPatchFile(path string) bool {
+    f, err := os.Open(path)
+    if err != nil {
+        return false
+    }
+    defer f.Close()
+
+    buf := make([]byte, 5)
+    _, err = io.ReadFull(f, buf)
+    if err != nil && err != io.EOF {
+        return false
+    }
+
+    return patchlib.IsPatch(buf)
+}
+
+func (patchMenu *PatchRomMenu) AddPatchFile(path string) {
+    patchMenu.lock.Lock()
+    defer patchMenu.lock.Unlock()
+
+    patchMenu.patchFiles = append(patchMenu.patchFiles, path)
+}
+
+func (patchMenu *PatchRomMenu) Update() {
+}
+
+func (patchMenu *PatchRomMenu) PlayBeep() {
+}
+
+func (patchMenu *PatchRomMenu) MouseMove(x int, y int) {
+}
+
+func (patchMenu *PatchRomMenu) MouseWheel(dy int) {
+}
+
+func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
+
+    _, fontHeight := text.Measure("A", font, 1)
+
+    _, smallFontHeight := text.Measure("A", smallFont, 1)
+
+    return func(out *ebiten.Image) error {
+        var textOptions text.DrawOptions
+        textOptions.GeoM.Translate(float64(10), float64(10))
+
+        patchMenu.lock.Lock()
+
+        text.Draw(out, fmt.Sprintf("Apply patch. Patches found %d", len(patchMenu.patchFiles)), font, &textOptions)
+
+        textOptions.GeoM.Translate(10, 20)
+
+        patchMenu.lastVisible = len(patchMenu.patchFiles) - 1
+
+        bottomY := float64(out.Bounds().Dy()) - (fontHeight + 1)
+
+        for i, path := range patchMenu.patchFiles[patchMenu.startIndex:] {
+            textOptions.GeoM.Translate(0, fontHeight)
+
+            _, y := textOptions.GeoM.Apply(0, 0)
+            if y > bottomY {
+                patchMenu.lastVisible = patchMenu.startIndex + i - 1
+                break
+            }
+
+            changeColor := patchMenu.startIndex + i == patchMenu.currentEntry
+
+            if changeColor {
+                textOptions.ColorScale.ScaleWithColor(color.RGBA{R: 255, G: 255, B: 0, A: 255})
+            }
+
+            selected, ok := patchMenu.selectedPatches[patchMenu.startIndex + i]
+            if ok && selected {
+                x, y := textOptions.GeoM.Apply(-13, 10)
+                vector.FillRect(out, float32(x), float32(y), 10, 10, color.NRGBA{R: 0, G: 255, B: 0, A: 255}, false)
+            }
+
+            text.Draw(out, path, font, &textOptions)
+
+            if changeColor {
+                textOptions.ColorScale.Reset()
+            }
+        }
+
+        selectedBoxWidth := 300
+        selectedBoxHeight := max(100, smallFontHeight * (float64(len(patchMenu.patchOrder) + 1)))
+        selectedBoxX := out.Bounds().Max.X - selectedBoxWidth - 2
+        selectedBoxY := 10
+        vector.FillRect(out, float32(selectedBoxX), float32(selectedBoxY), float32(selectedBoxWidth), float32(selectedBoxHeight), color.NRGBA{R: 0, G: 0, B: 0, A: 200}, false)
+
+        textOptions.GeoM.Reset()
+        textOptions.GeoM.Translate(float64(selectedBoxX + 1), float64(selectedBoxY + 1))
+        text.Draw(out, "Selected patches:", smallFont, &textOptions)
+        textOptions.GeoM.Translate(0, smallFontHeight)
+
+        for _, index := range patchMenu.patchOrder {
+            patch := patchMenu.patchFiles[index]
+            text.Draw(out, filepath.Base(patch), smallFont, &textOptions)
+            textOptions.GeoM.Translate(0, smallFontHeight)
+        }
+
+        patchMenu.lock.Unlock()
+
+        return nil
+    }
 }
 
 type ChangeKeyMenu struct {
@@ -1416,7 +1663,7 @@ func (menu *ChangeKeyMenu) MouseClick(x int, y int) SubMenu {
     return menu.Buttons.MouseClick(x, y, menu)
 }
 
-func (menu *ChangeKeyMenu) Input(input MenuInput) SubMenu {
+func (menu *ChangeKeyMenu) Input(input MenuInput, repeat bool) SubMenu {
     switch input {
         case MenuQuit:
             if menu.IsChoosing() {
@@ -1737,11 +1984,11 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions Prog
             Back: func(current SubMenu) SubMenu {
                 return main
             },
-            SelectRom: func(){
+            SelectRom: func(patches []string){
                 romName, romFile, ok := romLoaderState.GetSelectedRom()
                 if ok {
                     menu.cancel()
-                    programActions.LoadRom(romName, romFile)
+                    programActions.LoadRom(romName, romFile, patches)
                 }
             },
             Quit: loadRomQuit,
@@ -1827,6 +2074,50 @@ type DrawManager interface {
     PushDraw(func(*ebiten.Image), bool)
     PopDraw()
     GetWindowSize() common.WindowSize
+}
+
+type KeyRepeater struct {
+    keymap map[ebiten.Key]int
+    InitialDelay int
+    RepeatDelay int
+}
+
+type RepeatedKey struct {
+    Key ebiten.Key
+    Repeated bool
+}
+
+func (repeater *KeyRepeater) Update() {
+    if repeater.keymap == nil {
+        repeater.keymap = make(map[ebiten.Key]int)
+    }
+
+    for _, key := range inpututil.AppendJustPressedKeys(nil) {
+        repeater.keymap[key] = -1
+    }
+
+    for _, key := range inpututil.AppendPressedKeys(nil) {
+        repeater.keymap[key] += 1
+    }
+
+    for _, key := range inpututil.AppendJustReleasedKeys(nil) {
+        delete(repeater.keymap, key)
+    }
+}
+
+func (repeater *KeyRepeater) GetPressedKeys() []RepeatedKey {
+    var out []RepeatedKey
+
+    for key, count := range repeater.keymap {
+        if count == 0 {
+            out = append(out, RepeatedKey{Key: key, Repeated: false})
+        } else if count > repeater.InitialDelay && (count - repeater.InitialDelay) % repeater.RepeatDelay == 0 {
+            out = append(out, RepeatedKey{Key: key, Repeated: true})
+            repeater.keymap[key] = repeater.InitialDelay
+        }
+    }
+
+    return out
 }
 
 func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont text.Face, programActions ProgramActions, joystickManager *common.JoystickManager, emulatorKeys *common.EmulatorKeys, yield coroutine.YieldFunc, drawManager DrawManager){
@@ -1978,26 +2269,30 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
 
     lastMouseX, lastMouseY := ebiten.CursorPosition()
 
+    repeater := KeyRepeater{InitialDelay: 15, RepeatDelay: 4}
+
     /* Reset the default renderer */
     for menu.quit.Err() == nil {
         joystickManager.ScanForJoysticks()
         clock += 1
 
-        keys := inpututil.AppendJustPressedKeys(nil)
+        repeater.Update()
+
+        keys := repeater.GetPressedKeys()
         for _, key := range keys {
-            switch key {
+            switch key.Key {
                 case ebiten.KeyEscape, ebiten.KeyCapsLock:
-                    currentMenu = currentMenu.Input(MenuQuit)
+                    currentMenu = currentMenu.Input(MenuQuit, key.Repeated)
                 case ebiten.KeyLeft, ebiten.KeyH:
-                    currentMenu = currentMenu.Input(MenuPrevious)
+                    currentMenu = currentMenu.Input(MenuPrevious, key.Repeated)
                 case ebiten.KeyRight, ebiten.KeyL:
-                    currentMenu = currentMenu.Input(MenuNext)
+                    currentMenu = currentMenu.Input(MenuNext, key.Repeated)
                 case ebiten.KeyUp, ebiten.KeyK:
-                    currentMenu = currentMenu.Input(MenuUp)
+                    currentMenu = currentMenu.Input(MenuUp, key.Repeated)
                 case ebiten.KeyDown, ebiten.KeyJ:
-                    currentMenu = currentMenu.Input(MenuDown)
+                    currentMenu = currentMenu.Input(MenuDown, key.Repeated)
                 case ebiten.KeyEnter:
-                    currentMenu = currentMenu.Input(MenuSelect)
+                    currentMenu = currentMenu.Input(MenuSelect, key.Repeated)
             }
         }
 

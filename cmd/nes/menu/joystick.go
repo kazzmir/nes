@@ -670,7 +670,7 @@ func (menu *JoystickMenu) MouseClick(x int, y int) SubMenu {
     return menu.Buttons.MouseClick(x, y, menu)
 }
 
-func (menu *JoystickMenu) Input(input MenuInput) SubMenu {
+func (menu *JoystickMenu) Input(input MenuInput, repeat bool) SubMenu {
     switch input {
         case MenuQuit:
             menu.Lock.Lock()

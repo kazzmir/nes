@@ -46,6 +46,7 @@ type RomLoaderFrame struct {
 
 type RomLoaderInfo struct {
     Path string
+    Patches []string
     Frames []*ebiten.Image
     ShowFrame int
 }
