@@ -6,6 +6,7 @@ import (
     "io"
     "io/fs"
     // "runtime"
+    "slices"
     "time"
     "os"
     "fmt"
@@ -1358,7 +1359,9 @@ type PatchRomMenu struct {
     currentEntry int
     lock sync.Mutex
     patchFiles []string
-    selectedPatches map[string]bool
+    selectedPatches map[int]bool
+
+    patchOrder []int
 
     startIndex int
     lastVisible int
@@ -1370,7 +1373,7 @@ type PatchRomMenu struct {
 func MakePatchRomMenu(previousMenu SubMenu) *PatchRomMenu {
     menu := PatchRomMenu{
         previousMenu: previousMenu,
-        selectedPatches: make(map[string]bool),
+        selectedPatches: make(map[int]bool),
         startIndex: 0,
         lastVisible: 0,
     }
@@ -1431,8 +1434,15 @@ func (patchMenu *PatchRomMenu) Input(input MenuInput, repeat bool) SubMenu {
 
             patchMenu.lock.Lock()
             if patchMenu.currentEntry >= 0 && patchMenu.currentEntry < len(patchMenu.patchFiles) {
-                path := patchMenu.patchFiles[patchMenu.currentEntry]
-                patchMenu.selectedPatches[path] = !patchMenu.selectedPatches[path]
+                patchMenu.selectedPatches[patchMenu.currentEntry] = !patchMenu.selectedPatches[patchMenu.currentEntry]
+
+                if patchMenu.selectedPatches[patchMenu.currentEntry] {
+                    patchMenu.patchOrder = append(patchMenu.patchOrder, patchMenu.currentEntry)
+                } else {
+                    patchMenu.patchOrder = slices.DeleteFunc(patchMenu.patchOrder, func(i int) bool {
+                        return i == patchMenu.currentEntry
+                    })
+                }
             }
             patchMenu.lock.Unlock()
     }
@@ -1487,6 +1497,8 @@ func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face,
 
     _, fontHeight := text.Measure("A", font, 1)
 
+    _, smallFontHeight := text.Measure("A", smallFont, 1)
+
     return func(out *ebiten.Image) error {
         var textOptions text.DrawOptions
         textOptions.GeoM.Translate(float64(10), float64(10))
@@ -1516,7 +1528,7 @@ func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face,
                 textOptions.ColorScale.ScaleWithColor(color.RGBA{R: 255, G: 255, B: 0, A: 255})
             }
 
-            selected, ok := patchMenu.selectedPatches[path]
+            selected, ok := patchMenu.selectedPatches[patchMenu.startIndex + i]
             if ok && selected {
                 x, y := textOptions.GeoM.Apply(-13, 10)
                 vector.FillRect(out, float32(x), float32(y), 10, 10, color.NRGBA{R: 0, G: 255, B: 0, A: 255}, false)
@@ -1527,6 +1539,23 @@ func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face,
             if changeColor {
                 textOptions.ColorScale.Reset()
             }
+        }
+
+        selectedBoxWidth := 300
+        selectedBoxHeight := max(100, smallFontHeight * (float64(len(patchMenu.patchOrder) + 1)))
+        selectedBoxX := out.Bounds().Max.X - selectedBoxWidth - 2
+        selectedBoxY := 10
+        vector.FillRect(out, float32(selectedBoxX), float32(selectedBoxY), float32(selectedBoxWidth), float32(selectedBoxHeight), color.NRGBA{R: 0, G: 0, B: 0, A: 200}, false)
+
+        textOptions.GeoM.Reset()
+        textOptions.GeoM.Translate(float64(selectedBoxX + 1), float64(selectedBoxY + 1))
+        text.Draw(out, "Selected patches:", smallFont, &textOptions)
+        textOptions.GeoM.Translate(0, smallFontHeight)
+
+        for _, index := range patchMenu.patchOrder {
+            patch := patchMenu.patchFiles[index]
+            text.Draw(out, filepath.Base(patch), smallFont, &textOptions)
+            textOptions.GeoM.Translate(0, smallFontHeight)
         }
 
         patchMenu.lock.Unlock()
