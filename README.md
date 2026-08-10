@@ -130,3 +130,8 @@ Colors have been fixed, and rendering uses an in-memory `[]uint32` array, which 
 12/18/2024: Added support for [VRC6](https://www.nesdev.org/wiki/VRC6_audio) and bank switching in NSF files. Also the code can now be built for the windows platform.
 
 1/31/2026: Migrated the project from SDL to [ebiten](https://ebitengine.org).
+
+8/9/2026: Patch files can be applied. Both IPS and BPS formats are supported. The UI allows selecting patch files before loading a rom. On the CLI, patch files can be given after the ROM path.
+```
+$ nes somerom.nes patch1.ips patch2.ips ...
+```
