@@ -1484,6 +1484,9 @@ func (patchMenu *PatchRomMenu) MouseWheel(dy int) {
 }
 
 func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face, clock uint64) gfx.RenderFunction {
+
+    _, fontHeight := text.Measure("A", font, 1)
+
     return func(out *ebiten.Image) error {
         var textOptions text.DrawOptions
         textOptions.GeoM.Translate(float64(10), float64(10))
@@ -1496,11 +1499,13 @@ func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face,
 
         patchMenu.lastVisible = len(patchMenu.patchFiles) - 1
 
+        bottomY := float64(out.Bounds().Dy()) - (fontHeight + 1)
+
         for i, path := range patchMenu.patchFiles[patchMenu.startIndex:] {
-            textOptions.GeoM.Translate(0, 20)
+            textOptions.GeoM.Translate(0, fontHeight)
 
             _, y := textOptions.GeoM.Apply(0, 0)
-            if y + 20 > float64(out.Bounds().Dy()) {
+            if y > bottomY {
                 patchMenu.lastVisible = patchMenu.startIndex + i - 1
                 break
             }
