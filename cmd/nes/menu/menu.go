@@ -97,7 +97,7 @@ func MakeSnow(screenWidth int) Snow {
 }
 
 type ProgramActions interface {
-    LoadRom(name string, file common.MakeFile)
+    LoadRom(name string, file common.MakeFile, patches []string)
     SetSoundEnabled(enabled bool)
     IsSoundEnabled() bool
     SetSoundVolume(volume float64)
@@ -979,7 +979,7 @@ type LoadRomMenu struct {
     LoaderCancel context.CancelFunc
     MenuCancel context.CancelFunc
     Back MenuQuitFunc
-    SelectRom func()
+    SelectRom func(patches []string)
     LoaderState *RomLoaderState
     AudioManager AudioManager
 }
@@ -1112,6 +1112,10 @@ const (
     LoadRomInfoBack
 )
 
+func (loader *LoadRomInfoMenu) SetPatches(patches []string){
+    loader.Info.Patches = patches
+}
+
 func (loader *LoadRomInfoMenu) Update(){
 }
 
@@ -1159,7 +1163,7 @@ func (loader *LoadRomInfoMenu) Input(input MenuInput, repeat bool) SubMenu {
         case MenuSelect:
             switch loader.Selection {
                 case LoadRomInfoSelect:
-                    loader.RomLoader.SelectRom()
+                    loader.RomLoader.SelectRom(loader.Info.Patches)
                     return loader.RomLoader
                 case LoadRomInfoApplyPatch:
                     return MakePatchRomMenu(loader)
@@ -1354,7 +1358,7 @@ Right: {{n .ButtonRight}}{{"\t"}}Load state: {{n .LoadState}}
 }
 
 type PatchRomMenu struct {
-    previousMenu SubMenu
+    loaderMenu *LoadRomInfoMenu
 
     currentEntry int
     lock sync.Mutex
@@ -1370,9 +1374,9 @@ type PatchRomMenu struct {
     cancel context.CancelFunc
 }
 
-func MakePatchRomMenu(previousMenu SubMenu) *PatchRomMenu {
+func MakePatchRomMenu(loaderMenu *LoadRomInfoMenu) *PatchRomMenu {
     menu := PatchRomMenu{
-        previousMenu: previousMenu,
+        loaderMenu: loaderMenu,
         selectedPatches: make(map[int]bool),
         startIndex: 0,
         lastVisible: 0,
@@ -1425,7 +1429,14 @@ func (patchMenu *PatchRomMenu) Input(input MenuInput, repeat bool) SubMenu {
             patchMenu.lock.Unlock()
 
         case MenuQuit:
-            return patchMenu.previousMenu
+
+            var patches []string
+            for _, index := range patchMenu.patchOrder {
+                patches = append(patches, patchMenu.patchFiles[index])
+            }
+
+            patchMenu.loaderMenu.SetPatches(patches)
+            return patchMenu.loaderMenu
 
         case MenuSelect:
             if repeat {
@@ -1973,11 +1984,11 @@ func MakeMainMenu(menu *Menu, mainCancel context.CancelFunc, programActions Prog
             Back: func(current SubMenu) SubMenu {
                 return main
             },
-            SelectRom: func(){
+            SelectRom: func(patches []string){
                 romName, romFile, ok := romLoaderState.GetSelectedRom()
                 if ok {
                     menu.cancel()
-                    programActions.LoadRom(romName, romFile)
+                    programActions.LoadRom(romName, romFile, patches)
                 }
             },
             Quit: loadRomQuit,
@@ -2244,7 +2255,7 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
     currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, emulatorKeys)
 
     // hack to test
-    currentMenu = MakePatchRomMenu(currentMenu)
+    // currentMenu = MakePatchRomMenu(currentMenu)
 
     draw := func(screen *ebiten.Image){
         /* Draw a reddish overlay on the screen */

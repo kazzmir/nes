@@ -46,6 +46,7 @@ type MakeFile func() (fs.File, error)
 type ProgramLoadRom struct {
     File MakeFile
     Name string
+    Patches []string
 }
 
 type AudioResponse int
