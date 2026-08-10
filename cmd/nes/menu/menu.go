@@ -1360,6 +1360,9 @@ type PatchRomMenu struct {
     patchFiles []string
     selectedPatches map[string]bool
 
+    startIndex int
+    lastVisible int
+
     quit context.Context
     cancel context.CancelFunc
 }
@@ -1368,6 +1371,8 @@ func MakePatchRomMenu(previousMenu SubMenu) *PatchRomMenu {
     menu := PatchRomMenu{
         previousMenu: previousMenu,
         selectedPatches: make(map[string]bool),
+        startIndex: 0,
+        lastVisible: 0,
     }
 
     menu.quit, menu.cancel = context.WithCancel(context.Background())
@@ -1398,10 +1403,22 @@ func (patchMenu *PatchRomMenu) Input(input MenuInput, repeat bool) SubMenu {
         case MenuDown, MenuNext:
             patchMenu.lock.Lock()
             patchMenu.currentEntry = min(patchMenu.currentEntry + 1, len(patchMenu.patchFiles) - 1)
+
+            if patchMenu.currentEntry >= patchMenu.lastVisible {
+                if len(patchMenu.patchFiles) - 1 > patchMenu.lastVisible {
+                    patchMenu.startIndex += 1
+                }
+            }
+
             patchMenu.lock.Unlock()
         case MenuUp, MenuPrevious:
             patchMenu.lock.Lock()
             patchMenu.currentEntry = max(patchMenu.currentEntry - 1, 0)
+
+            if patchMenu.currentEntry < patchMenu.startIndex + 1 && patchMenu.startIndex > 0 {
+                patchMenu.startIndex -= 1
+            }
+
             patchMenu.lock.Unlock()
 
         case MenuQuit:
@@ -1477,10 +1494,18 @@ func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face,
 
         patchMenu.lock.Lock()
 
-        for i, path := range patchMenu.patchFiles {
+        patchMenu.lastVisible = len(patchMenu.patchFiles) - 1
+
+        for i, path := range patchMenu.patchFiles[patchMenu.startIndex:] {
             textOptions.GeoM.Translate(0, 20)
 
-            changeColor := i == patchMenu.currentEntry
+            _, y := textOptions.GeoM.Apply(0, 0)
+            if y + 20 > float64(out.Bounds().Dy()) {
+                patchMenu.lastVisible = patchMenu.startIndex + i - 1
+                break
+            }
+
+            changeColor := patchMenu.startIndex + i == patchMenu.currentEntry
 
             if changeColor {
                 textOptions.ColorScale.ScaleWithColor(color.RGBA{R: 255, G: 255, B: 0, A: 255})
