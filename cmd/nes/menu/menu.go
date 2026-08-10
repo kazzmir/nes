@@ -1514,11 +1514,11 @@ func (patchMenu *PatchRomMenu) MakeRenderer(font text.Face, smallFont text.Face,
         var textOptions text.DrawOptions
         textOptions.GeoM.Translate(float64(10), float64(10))
 
-        text.Draw(out, "Apply patch", font, &textOptions)
+        patchMenu.lock.Lock()
+
+        text.Draw(out, fmt.Sprintf("Apply patch. Patches found %d", len(patchMenu.patchFiles)), font, &textOptions)
 
         textOptions.GeoM.Translate(10, 20)
-
-        patchMenu.lock.Lock()
 
         patchMenu.lastVisible = len(patchMenu.patchFiles) - 1
 
@@ -2253,9 +2253,6 @@ func (menu *Menu) Run(mainCancel context.CancelFunc, font text.Face, smallFont t
     var clock uint64 = 0
 
     currentMenu := MakeMainMenu(menu, mainCancel, programActions, joystickStateChanges, joystickManager, emulatorKeys)
-
-    // hack to test
-    // currentMenu = MakePatchRomMenu(currentMenu)
 
     draw := func(screen *ebiten.Image){
         /* Draw a reddish overlay on the screen */
