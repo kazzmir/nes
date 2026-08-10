@@ -1209,11 +1209,11 @@ func parseArguments() (Arguments, error) {
     for argIndex := 1; argIndex < len(os.Args); argIndex++ {
         arg := os.Args[argIndex]
         switch arg {
-            case "-h", "--help":
+            case "-h", "-help", "--help":
                 return arguments, fmt.Errorf(`NES emulator by Jon Rafkind
 $ nes [options] [rom.nes] [patch1.ips patch2.ips ...]
 Options:
-  -h, --help: this help
+  -h, -help, --help: this help
   -debug, --debug: enable all debug output
   -debug=cpu, --debug=cpu: enable cpu debug output
   -debug=ppu, --debug=ppu: enable ppu debug output
