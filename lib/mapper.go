@@ -567,7 +567,7 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                      * for ninja gaiden
                      */
                     if len(mapper.CharacterMemory) != 0 {
-                        if int(base) < len(mapper.CharacterMemory) && int(base + 0x1000) < len(mapper.CharacterMemory) && base < base + 0x1000 {
+                        if int(base) < len(mapper.CharacterMemory) && int(base + 0x1000) <= len(mapper.CharacterMemory) && base < base + 0x1000 {
                             cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x1000], false)
                         } else {
                             log.Printf("[mapper1] Warning: could not copy character data from range %v to %v", base, base + 0x1000)
@@ -586,7 +586,7 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                 if mapper.ChrBankMode == 1 {
                     base := int(mapper.Register) * 0x1000
                     if len(mapper.CharacterMemory) != 0 {
-                        if int(base + 0x1000) < len(mapper.CharacterMemory) {
+                        if int(base + 0x1000) <= len(mapper.CharacterMemory) {
                             cpu.PPU.CopyCharacterRom(0x1000, mapper.CharacterMemory[base:base + 0x1000], false)
                         }
                     }

@@ -7,6 +7,12 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **MMC1: last valid 4 KiB CHR bank was rejected.** Allow the source slice
+  end to equal the CHR-ROM length in both CHR bank-register handlers.
+  - Code: `lib/mapper.go` (`Mapper1.Write`).
+  - Tests: `lib/mapper_test.go` checks all 32 banks in both registers and
+    the last bank of 8/16/32/64/128 KiB CHR-ROMs, including CPU-visible PPU
+    reads at each end and preservation of the other pattern table.
 - [x] **CNROM: 16 KiB PRG-ROM was not mirrored at $C000–FFFF.** Mask A14
   for 16 KiB PRG-ROMs while retaining the full mapping for 32 KiB ROMs.
   This also makes the reset, NMI, and IRQ vectors accessible.
@@ -73,7 +79,7 @@ regression tests before marking an item fixed.
     writable aliases, mode changes, SUROM outer PRG banking, copies/save states.
 - [x] **MMC1: CHR offset arithmetic overflow.** Compute CHR offsets in `int`
   before multiplication in both 4 KiB and 8 KiB modes, so offsets and slice ends
-  do not wrap at 64 KiB. The separate last-bank bounds-check bug remains open.
+  do not wrap at 64 KiB. The separate last-bank bounds-check fix is listed above.
   - Code: `lib/mapper.go` (`Mapper1.Write`).
   - Tests: `lib/mapper_test.go` covers both 4 KiB registers near/above 64 KiB
     and all 32 register values in 8 KiB mode, including odd values and banks
@@ -109,8 +115,6 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 
 ### MMC1 (mapper 1)
 
-- [ ] **Last valid 4 KiB CHR bank is rejected.** Bounds checks in
-  `Mapper1.Write` use `< len` for the slice end where `<= len` is required.
 - [ ] **Control changes leave stale CHR mappings.** Changing CHR mode in
   `Mapper1.Write` must remap using the already-stored CHR registers.
 - [ ] **PRG-RAM disable is ignored.** Implement the PRG register's RAM-disable
