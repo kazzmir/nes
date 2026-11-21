@@ -74,11 +74,18 @@ type CharacterMapper interface {
     ReadCharacter(ppu *PPUState, address uint16) byte
 }
 
+// WritableCharacterMapper is an optional capability for cartridge-managed CHR writes.
+type WritableCharacterMapper interface {
+    WriteCharacter(ppu *PPUState, address uint16, value byte)
+}
+
 // ScanlineMapper is an optional capability for cartridges with scanline clocks.
 type ScanlineMapper interface {
     Scanline()
 }
 
+var _ CharacterMapper = (*Mapper1)(nil)
+var _ WritableCharacterMapper = (*Mapper1)(nil)
 var _ CharacterMapper = (*Mapper9)(nil)
 var _ ScanlineMapper = (*Mapper4)(nil)
 
@@ -451,6 +458,35 @@ func (mapper *Mapper1) Read(address uint16) byte {
     return 0
 }
 
+// With 8 KiB CHR-RAM only the low CHR bank bit is connected in 4 KiB mode.
+// Higher bits can select outer PRG banks on boards such as SUROM; they must
+// not affect CHR-RAM addressing. In 8 KiB mode the RAM is mapped directly.
+func (mapper *Mapper1) chrRAMAddress(address uint16) uint16 {
+    if mapper.ChrBankMode == 0 {
+        return address & 0x1fff
+    }
+    bank := mapper.ChrRegister0
+    if address >= 0x1000 {
+        bank = mapper.ChrRegister1
+    }
+    return uint16(bank & 1) * 0x1000 + (address & 0xfff)
+}
+
+func (mapper *Mapper1) ReadCharacter(ppu *PPUState, address uint16) byte {
+    if len(mapper.CharacterMemory) == 0 {
+        // PPU pattern memory holds the physical RAM, not copies of mapped banks.
+        return ppu.VideoMemory[mapper.chrRAMAddress(address)]
+    }
+    // Keep the existing CHR-ROM bank-copy path unchanged.
+    return ppu.VideoMemory[address]
+}
+
+func (mapper *Mapper1) WriteCharacter(ppu *PPUState, address uint16, value byte) {
+    if len(mapper.CharacterMemory) == 0 {
+        ppu.VideoMemory[mapper.chrRAMAddress(address)] = value
+    }
+}
+
 func (mapper *Mapper1) IsIRQAsserted() bool {
     return false
 }
@@ -519,15 +555,11 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                         } else {
                             log.Printf("[mapper1] Warning: could not copy character data from range %v to %v", base, base + 0x1000)
                         }
-                    } else {
-                        cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x1000], false)
                     }
                 } else {
                     base := int(mapper.Register >> 1) * 0x2000
                     if len(mapper.CharacterMemory) != 0 {
                         cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x2000], false)
-                    } else {
-                        cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x2000], false)
                     }
                 }
             } else if address >= 0xc000 && address <= 0xdfff {
@@ -540,8 +572,6 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                         if int(base + 0x1000) < len(mapper.CharacterMemory) {
                             cpu.PPU.CopyCharacterRom(0x1000, mapper.CharacterMemory[base:base + 0x1000], false)
                         }
-                    } else {
-                        cpu.PPU.CopyCharacterRom(0x1000, mapper.BankMemory[base:base + 0x1000], false)
                     }
                 } else {
                     /* ignore in 8k mode */

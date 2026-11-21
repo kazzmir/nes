@@ -48,6 +48,7 @@ func (mirror NametableMirrorConfiguration) String() string {
 type PPUState struct {
     // Runtime cartridge binding; mapper state is serialized by CPUState.
     characterMapper CharacterMapper
+    writableCharacterMapper WritableCharacterMapper
     scanlineMapper ScanlineMapper
 
     Flags byte `json:"flags"`
@@ -568,6 +569,8 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
     }
 
     switch {
+        case actualAddress < 0x2000 && ppu.writableCharacterMapper != nil:
+            ppu.writableCharacterMapper.WriteCharacter(ppu, actualAddress, value)
         case actualAddress >= 0x2000 && actualAddress < 0x3000:
             ppu.StoreNametableMemory(actualAddress, value)
         case actualAddress >= 0x3000 && actualAddress < 0x3eff:
@@ -588,6 +591,7 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
 
 func (ppu *PPUState) setMapper(mapper Mapper) {
     ppu.characterMapper, _ = mapper.(CharacterMapper)
+    ppu.writableCharacterMapper, _ = mapper.(WritableCharacterMapper)
     ppu.scanlineMapper, _ = mapper.(ScanlineMapper)
 }
 

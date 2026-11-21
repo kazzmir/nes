@@ -7,6 +7,15 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **MMC1: CHR-RAM bank writes copied PRG-ROM into graphics memory.**
+  Keep the physical 8 KiB RAM in PPU pattern memory; map CPU/rendering reads
+  and CPU writes through MMC1's CHR registers. In 4 KiB mode only bank bit 0
+  selects RAM, allowing swaps and aliases; 8 KiB mode maps RAM directly.
+  Higher CHR bits remain available for SUROM PRG selection without touching RAM.
+  - Code: `lib/mapper.go` (`Mapper1.ReadCharacter`, `WriteCharacter`, `Write`),
+    `lib/ppu.go` (optional `WritableCharacterMapper` routing).
+  - Tests: `lib/mapper_test.go` covers all CHR register values in both modes,
+    writable aliases, mode changes, SUROM outer PRG banking, copies/save states.
 - [x] **MMC1: CHR offset arithmetic overflow.** Compute CHR offsets in `int`
   before multiplication in both 4 KiB and 8 KiB modes, so offsets and slice ends
   do not wrap at 64 KiB. The separate last-bank bounds-check bug remains open.
@@ -45,9 +54,6 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 
 ### MMC1 (mapper 1)
 
-- [ ] **CHR-RAM bank writes copy PRG-ROM into graphics memory.** The no-CHR-ROM
-  branches in `Mapper1.Write` copy `BankMemory` into the PPU. Map/preserve
-  CHR-RAM instead, including SUROM writes that select the upper PRG-ROM half.
 - [ ] **Serial reset does not restore PRG mode 3.** Bit-7 writes in
   `Mapper1.Write` must also apply the control-register `| 0x0C` behavior.
 - [ ] **Consecutive-cycle serial writes are accepted.** Ignore the appropriate

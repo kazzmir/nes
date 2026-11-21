@@ -66,6 +66,144 @@ func TestMMC1CHR8KiBOffsetArithmetic(t *testing.T) {
 	}
 }
 
+func mmc1RAMCPU(prgSize int) CPUState {
+	prg := make([]byte, prgSize)
+	for i := range prg {
+		prg[i] = byte(i / 0x4000)
+	}
+	cpu := StartupState()
+	cpu.Cycle = 30000
+	cpu.SetMapper(MakeMapper1(prg, nil))
+	return cpu
+}
+
+func setPatternAddress(cpu *CPUState, address uint16) {
+	cpu.LoadMemory(0x2002)
+	cpu.StoreMemory(0x2006, byte(address>>8))
+	cpu.StoreMemory(0x2006, byte(address))
+}
+
+func writePatternByte(cpu *CPUState, address uint16, value byte) {
+	setPatternAddress(cpu, address)
+	cpu.StoreMemory(0x2007, value)
+}
+
+func readPatternByte(cpu *CPUState, address uint16) byte {
+	setPatternAddress(cpu, address)
+	cpu.LoadMemory(0x2007) // Discard the previous buffered byte.
+	return cpu.LoadMemory(0x2007)
+}
+
+func TestMMC1CHRRAMRegisterWritesPreserveRAM(t *testing.T) {
+	for _, mode := range []byte{0x0c, 0x1c} {
+		t.Run(fmt.Sprintf("control_%02x", mode), func(t *testing.T) {
+			cpu := mmc1RAMCPU(0x8000)
+			writePatternByte(&cpu, 0x0123, 0x36)
+			writePatternByte(&cpu, 0x1123, 0x9c)
+			original := bytes.Clone(cpu.PPU.VideoMemory[:0x2000])
+			writeMMC1Register(t, &cpu, 0x8000, mode)
+			for bank := range byte(32) {
+				writeMMC1Register(t, &cpu, 0xa000, bank)
+				writeMMC1Register(t, &cpu, 0xc000, bank^1)
+				lower, upper := byte(0x36), byte(0x9c)
+				if mode == 0x1c && bank&1 != 0 {
+					lower, upper = upper, lower
+				}
+				if got := readPatternByte(&cpu, 0x0123); got != lower {
+					t.Fatalf("CHR0=$%02x: lower RAM got $%02x, want $%02x", bank, got, lower)
+				}
+				if got := readPatternByte(&cpu, 0x1123); got != upper {
+					t.Fatalf("CHR1=$%02x: upper RAM got $%02x, want $%02x", bank^1, got, upper)
+				}
+				if !bytes.Equal(cpu.PPU.VideoMemory[:0x2000], original) {
+					t.Fatalf("CHR register write $%02x changed physical CHR-RAM", bank)
+				}
+			}
+		})
+	}
+}
+
+func TestMMC1CHRRAMSwappingAndAliasing(t *testing.T) {
+	cpu := mmc1RAMCPU(0x8000)
+	writePatternByte(&cpu, 0x0123, 0x36)
+	writePatternByte(&cpu, 0x1123, 0x9c)
+	writeMMC1Register(t, &cpu, 0x8000, 0x1c)
+	writeMMC1Register(t, &cpu, 0xa000, 1)
+	writeMMC1Register(t, &cpu, 0xc000, 0)
+	writePatternByte(&cpu, 0x0123, 0x57) // Write physical RAM bank 1.
+	writeMMC1Register(t, &cpu, 0xc000, 1)
+	if got := readPatternByte(&cpu, 0x1123); got != 0x57 {
+		t.Fatalf("aliased upper table got $%02x, want $57", got)
+	}
+	writePatternByte(&cpu, 0x1123, 0x68)
+	if got := readPatternByte(&cpu, 0x0123); got != 0x68 {
+		t.Fatalf("aliased lower table got $%02x, want $68", got)
+	}
+	writeMMC1Register(t, &cpu, 0x8000, 0x0c) // Return to fixed 8 KiB mapping.
+	if readPatternByte(&cpu, 0x0123) != 0x36 || readPatternByte(&cpu, 0x1123) != 0x68 {
+		t.Fatal("switching CHR modes did not preserve both physical RAM banks")
+	}
+}
+
+func TestMMC1CHRRAMSUROM(t *testing.T) {
+	cpu := mmc1RAMCPU(0x80000)
+	writePatternByte(&cpu, 0x0123, 0x36)
+	for _, control := range []byte{0x0c, 0x1c} {
+		writeMMC1Register(t, &cpu, 0x8000, control)
+		for _, bank := range []byte{0x10, 0} {
+			writeMMC1Register(t, &cpu, 0xa000, bank)
+			if got := cpu.LoadMemory(0x8000); got != bank {
+				t.Fatalf("outer PRG bank: got %d, want %d", got, bank)
+			}
+			if got := readPatternByte(&cpu, 0x0123); got != 0x36 {
+				t.Fatal("SUROM outer-bank selection corrupted CHR-RAM")
+			}
+		}
+	}
+}
+
+func TestMMC1CHRROMWritesIgnored(t *testing.T) {
+	cpu, chr := mmc1CHRCPU()
+	cpu.Cycle = 30000
+	cpu.PPU.CopyCharacterRom(0, chr[:0x2000], true)
+	before := readPatternByte(&cpu, 0x0123)
+	writePatternByte(&cpu, 0x0123, before^0xff)
+	if got := readPatternByte(&cpu, 0x0123); got != before {
+		t.Fatal("CHR-RAM write routing made CHR-ROM writable")
+	}
+}
+
+func TestMMC1CHRRAMCopyAndRestore(t *testing.T) {
+	cpu := mmc1RAMCPU(0x8000)
+	writePatternByte(&cpu, 0x1123, 0x9c)
+	writeMMC1Register(t, &cpu, 0x8000, 0x1c)
+	writeMMC1Register(t, &cpu, 0xa000, 1)
+	copied := cpu.Copy()
+	if got := readPatternByte(&copied, 0x0123); got != 0x9c {
+		t.Fatal("copy lost CHR-RAM or its bank mapping")
+	}
+	writePatternByte(&copied, 0x0123, 0x57)
+	if got := readPatternByte(&cpu, 0x0123); got != 0x9c {
+		t.Fatal("copy shares CHR-RAM with the original")
+	}
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	restored.Restore()
+	if got := readPatternByte(&restored, 0x0123); got != 0x9c {
+		t.Fatal("save state lost CHR-RAM or its bank mapping")
+	}
+	writePatternByte(&restored, 0x0123, 0x68)
+	if got := readPatternByte(&restored, 0x0123); got != 0x68 {
+		t.Fatal("restored CHR-RAM is not writable")
+	}
+}
+
 // MMC2 latches and rendering fetches.
 
 func mmc2CPU(t *testing.T) CPUState {
@@ -213,7 +351,7 @@ func TestPPUScanlineMapper(t *testing.T) {
 		t.Fatalf("got %d scanline clocks, want 2", mapper.clocks)
 	}
 	ppu.setMapper(MakeMapper0(make([]byte, 0x8000)))
-	if ppu.characterMapper != nil || ppu.scanlineMapper != nil {
+	if ppu.characterMapper != nil || ppu.writableCharacterMapper != nil || ppu.scanlineMapper != nil {
 		t.Fatal("switching cartridges did not clear optional mapper bindings")
 	}
 	ppu.updateMapperScanline()
@@ -281,8 +419,15 @@ func TestPPUCharacterMapper(t *testing.T) {
 		t.Fatal("sprite pixels did not use the cached mapper reads")
 	}
 
-	// Switching to a cartridge without the capability clears the old binding.
+	// Switching to a cartridge without either capability clears both bindings.
+	ppu.setMapper(MakeMapper1(make([]byte, 0x8000), nil))
+	if ppu.writableCharacterMapper == nil {
+		t.Fatal("CHR-RAM cartridge did not bind its write capability")
+	}
 	ppu.setMapper(MakeMapper0(make([]byte, 0x8000)))
+	if ppu.writableCharacterMapper != nil {
+		t.Fatal("switching cartridges did not clear the CHR write binding")
+	}
 	ppu.VideoMemory[0x1234] = 0x78
 	if got := ppu.readPatternMemory(0x1234); got != 0x78 || len(mapper.reads) != 3 {
 		t.Fatal("ordinary mapper did not restore the pattern-memory fallback")
