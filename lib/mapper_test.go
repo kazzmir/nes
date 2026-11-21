@@ -12,6 +12,8 @@ import (
 func writeMMC1Register(t *testing.T, cpu *CPUState, address uint16, value byte) {
 	t.Helper()
 	for bit := range 5 {
+		// Ordinary serial writes are separated by at least one non-write cycle.
+		cpu.Cycle += 2
 		if err := cpu.Mapper.Mapper.Write(cpu, address, (value>>bit)&1); err != nil {
 			t.Fatal(err)
 		}
@@ -217,6 +219,7 @@ func TestMMC1SerialReset(t *testing.T) {
 					mirror := cpu.PPU.NametableMirror
 					// Leave an incomplete serial write that reset must discard.
 					for _, bit := range []byte{1, 0, 1} {
+						cpu.Cycle += 2
 						cpu.StoreMemory(0xe000, bit)
 					}
 					cpu.StoreMemory(address, value)
@@ -246,17 +249,20 @@ func TestMMC1SerialWriteAfterReset(t *testing.T) {
 	cpu := mmc1RAMCPU(0x40000)
 	writeMMC1Register(t, &cpu, 0xe000, 3)
 	for _, bit := range []byte{1, 0, 1} {
+		cpu.Cycle += 2
 		cpu.StoreMemory(0x8000, bit)
 	}
 	cpu.StoreMemory(0xbfff, 0xff)
 	mapper := cpu.Mapper.Mapper.(*Mapper1)
 	const nextBank byte = 6
 	for bit := range 4 {
+		cpu.Cycle += 2
 		cpu.StoreMemory(0xe000, (nextBank>>bit)&1)
 		if mapper.PrgBank != 3 {
 			t.Fatal("bank committed before five fresh bits after reset")
 		}
 	}
+	cpu.Cycle += 2
 	cpu.StoreMemory(0xe000, nextBank>>4)
 	if mapper.Shift != 0 || mapper.Register != 0 || mapper.PrgBank != nextBank {
 		t.Fatal("serial writes did not restart cleanly after reset")
@@ -265,6 +271,144 @@ func TestMMC1SerialWriteAfterReset(t *testing.T) {
 	writeMMC1Register(t, &cpu, 0x8000, 0x08)
 	if mapper.PrgBankMode != 2 {
 		t.Fatal("control write could not change PRG mode after reset")
+	}
+}
+
+func TestMMC1ConsecutiveSerialWrites(t *testing.T) {
+	cpu := mmc1RAMCPU(0x40000)
+	mapper := cpu.Mapper.Mapper.(*Mapper1)
+	for _, step := range []struct {
+		cycle   uint64
+		address uint16
+		value   byte
+		shift   int
+		bits    byte
+	}{
+		{0, 0x8000, 1, 1, 1},    // The first write at cycle zero must be accepted.
+		{0, 0xa000, 0, 1, 1},    // CPU RMW writes share an instruction timestamp.
+		{1, 0xc000, 0, 1, 1},    // Filtering is global, not per register address.
+		{2, 0xe000, 0, 1, 1},    // Ignored writes still extend the inhibit window.
+		{4, 0xe000, 1, 2, 3},    // A gap of two cycles permits the next bit.
+		{5, 0xbfff, 0x80, 0, 0}, // Reset writes are honored even consecutively.
+		{6, 0xe000, 1, 0, 0},    // The data write following reset is ignored.
+		{8, 0xe000, 1, 1, 1},
+	} {
+		cpu.Cycle = step.cycle
+		cpu.StoreMemory(step.address, step.value)
+		if mapper.Shift != step.shift || mapper.Register != step.bits {
+			t.Fatalf("cycle %d write $%02x to $%04x: shift/bits %d/$%02x, want %d/$%02x", step.cycle, step.value, step.address, mapper.Shift, mapper.Register, step.shift, step.bits)
+		}
+	}
+	// PRG-RAM writes must not start or extend the register inhibit window.
+	cpu.Cycle = 10
+	cpu.StoreMemory(0x6000, 0x80)
+	cpu.Cycle = 11
+	cpu.StoreMemory(0xe000, 0)
+	if mapper.Shift != 2 || mapper.Register != 1 || cpu.LoadMemory(0x6000) != 0x80 {
+		t.Fatal("PRG-RAM write interfered with serial register timing")
+	}
+}
+
+func TestMMC1RMWSerialWrites(t *testing.T) {
+	for _, opcode := range []byte{
+		0x0e, 0x4e, 0x2e, 0x6e, 0xce, 0xee, // ASL/LSR/ROL/ROR/DEC/INC absolute.
+		0x1e, 0x5e, 0x3e, 0x7e, 0xde, 0xfe, // Same operations, absolute,X.
+		0x0f, 0x4f, 0x2f, 0x6f, 0xcf, 0xef, // SLO/SRE/RLA/RRA/DCP/ISC absolute.
+		0x1f, 0x5f, 0x3f, 0x7f, 0xdf, 0xff, // Same operations, absolute,X.
+	} {
+		t.Run(fmt.Sprintf("opcode_%02x", opcode), func(t *testing.T) {
+			cpu := mmc1RAMCPU(0x40000)
+			mapper := cpu.Mapper.Mapper.(*Mapper1)
+			mapper.BankMemory[0x3e000] = 1 // ROM byte read at $E000.
+			cpu.PC = 0x0200
+			operands := []byte{0x00, 0xe0}
+			if opcode&0x10 != 0 {
+				cpu.X = 1
+				operands = []byte{0xff, 0xdf}
+			}
+			copy(cpu.Ram[0x0200:], append([]byte{opcode}, operands...))
+			before := cpu.Cycle
+			if err := cpu.Run(MakeInstructionDescriptiontable()); err != nil {
+				t.Fatal(err)
+			}
+			if mapper.Shift != 1 || mapper.Register != 1 {
+				t.Fatalf("RMW shifted more than its dummy write: shift=%d bits=$%02x", mapper.Shift, mapper.Register)
+			}
+			wantCycles := uint64(6)
+			if opcode&0x10 != 0 {
+				wantCycles = 7
+			}
+			if cpu.Cycle-before != wantCycles {
+				t.Fatal("mapper filtering changed CPU instruction cycle count")
+			}
+		})
+	}
+}
+
+func TestMMC1RMWResetWrites(t *testing.T) {
+	for _, value := range []byte{0x7f, 0xff} {
+		t.Run(fmt.Sprintf("INC_ROM_%02x", value), func(t *testing.T) {
+			cpu := mmc1RAMCPU(0x40000)
+			mapper := cpu.Mapper.Mapper.(*Mapper1)
+			mapper.BankMemory[0x3e000] = value
+			cpu.PC = 0x0200
+			copy(cpu.Ram[0x0200:], []byte{0xee, 0x00, 0xe0}) // INC $E000.
+			if err := cpu.Run(MakeInstructionDescriptiontable()); err != nil {
+				t.Fatal(err)
+			}
+			if mapper.Shift != 0 || mapper.Register != 0 || mapper.PrgBankMode != 3 {
+				t.Fatal("RMW reset was ignored or its following data write was accepted")
+			}
+		})
+	}
+}
+
+func TestMMC1NormalCPUSerialWrites(t *testing.T) {
+	cpu := mmc1RAMCPU(0x40000)
+	cpu.PC = 0x0200
+	var code []byte
+	for _, bit := range []byte{0, 1, 1, 0, 0} {
+		code = append(code, 0xa9, bit, 0x8d, 0x00, 0xe0) // LDA #bit; STA $E000.
+	}
+	copy(cpu.Ram[0x0200:], code)
+	table := MakeInstructionDescriptiontable()
+	for range 10 {
+		if err := cpu.Run(table); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mapper := cpu.Mapper.Mapper.(*Mapper1)
+	if mapper.Shift != 0 || mapper.PrgBank != 6 {
+		t.Fatal("ordinary CPU serial writes were incorrectly filtered")
+	}
+}
+
+func TestMMC1SerialWriteTimingCopyAndRestore(t *testing.T) {
+	cpu := mmc1RAMCPU(0x40000)
+	cpu.Cycle = 100
+	cpu.StoreMemory(0xe000, 1)
+	copied := cpu.Copy()
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	restored.Restore()
+	for _, state := range []*CPUState{&copied, &restored} {
+		state.Cycle = 101
+		state.StoreMemory(0xe000, 0)
+		mapper := state.Mapper.Mapper.(*Mapper1)
+		if mapper.Shift != 1 || mapper.Register != 1 {
+			t.Fatal("copy/save state lost the consecutive-write inhibit window")
+		}
+		state.Cycle = 103
+		state.StoreMemory(0xe000, 0)
+		if mapper.Shift != 2 || mapper.Register != 1 {
+			t.Fatal("copy/save state did not accept a write after the inhibit window")
+		}
 	}
 }
 
