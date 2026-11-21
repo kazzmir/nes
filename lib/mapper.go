@@ -457,7 +457,9 @@ func (mapper *Mapper1) ReadWithOpenBus(address uint16, openBus byte) byte {
     switch mapper.PrgBankMode {
         /* P=0, read in 32k mode */
         case 0, 1:
-            return mapper.ReadBank(pageSize32k, prgBank >> 1, baseAddress)
+            // Combine the SUROM outer bit in 16 KiB units before selecting
+            // the 32 KiB pair. PRG register bit 0 is ignored in this mode.
+            return mapper.ReadBank(pageSize32k, (prgBank | hijackedPrgBit) >> 1, baseAddress)
         /* P=1, S=0, read in 16k mode where 0x8000 is mapped to 0, and 0xc000 is mapped to the program bank */
         case 2:
             if address < 0xc000 {
