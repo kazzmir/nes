@@ -556,7 +556,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
 
             /* ppu runs 3 times faster than cpu */
-            nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen, cpu.Mapper.Mapper)
+            nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen)
 
             if drawn {
                 screenListeners.ObserveVideo(screen)

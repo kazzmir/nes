@@ -74,7 +74,13 @@ type CharacterMapper interface {
     ReadCharacter(ppu *PPUState, address uint16) byte
 }
 
+// ScanlineMapper is an optional capability for cartridges with scanline clocks.
+type ScanlineMapper interface {
+    Scanline()
+}
+
 var _ CharacterMapper = (*Mapper9)(nil)
+var _ ScanlineMapper = (*Mapper4)(nil)
 
 type MapperState struct {
     Kind int `json:"kind"`

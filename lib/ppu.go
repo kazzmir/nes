@@ -48,6 +48,7 @@ func (mirror NametableMirrorConfiguration) String() string {
 type PPUState struct {
     // Runtime cartridge binding; mapper state is serialized by CPUState.
     characterMapper CharacterMapper
+    scanlineMapper ScanlineMapper
 
     Flags byte `json:"flags"`
     Mask byte `json:"mask"`
@@ -587,6 +588,7 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
 
 func (ppu *PPUState) setMapper(mapper Mapper) {
     ppu.characterMapper, _ = mapper.(CharacterMapper)
+    ppu.scanlineMapper, _ = mapper.(ScanlineMapper)
 }
 
 // All pattern fetches share this path so cartridges see CPU and rendering reads.
@@ -1489,16 +1491,13 @@ func (ppu *PPUState) PreloadTiles() {
     ppu.LoadBackgroundTile()
 }
 
-/* A bit of a hack, maybe make this more elegant later */
-func (ppu *PPUState) UpdateMapper4Scanline(mapper Mapper){
-    mapper4, ok := mapper.(*Mapper4)
-    if ok {
-        mapper4.Scanline()
+func (ppu *PPUState) updateMapperScanline() {
+    if ppu.scanlineMapper != nil {
+        ppu.scanlineMapper.Scanline()
     }
 }
 
-func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bool, bool) {
-    ppu.setMapper(mapper)
+func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
     if ppu.Decay > 0 {
         ppu.Decay -= min(ppu.Decay, cycles)
         if ppu.Decay == 0 {
@@ -1578,7 +1577,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
             ppu.Scanline += 1
 
             if (ppu.IsSpriteEnabled() || ppu.IsBackgroundEnabled()) && ppu.Scanline < 240 {
-                ppu.UpdateMapper4Scanline(mapper)
+                ppu.updateMapperScanline()
             }
 
             /* Load the sprites for the next scanline */
@@ -1608,7 +1607,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
                 ppu.SetSpriteZeroHit(false)
 
                 if ppu.IsSpriteEnabled() || ppu.IsBackgroundEnabled() {
-                    ppu.UpdateMapper4Scanline(mapper)
+                    ppu.updateMapperScanline()
                 }
             }
 

@@ -46,7 +46,7 @@ func doTest(rom string, passAddress uint16, failAddress uint16) (bool, error) {
 
         cpu.APU.Run((float64(usedCycles) - float64(cycles)) / 2.0, baseCyclesPerSample, &cpu)
 
-        nmi, _ := cpu.PPU.Run((usedCycles - cycles) * 3, screen, mapper)
+        nmi, _ := cpu.PPU.Run((usedCycles - cycles) * 3, screen)
 
         if nmi {
             if cpu.Debug > 0 {
