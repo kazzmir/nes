@@ -516,6 +516,174 @@ func TestMMC1SerialWriteTimingCopyAndRestore(t *testing.T) {
 	}
 }
 
+func TestMMC1PRGRAMDisable(t *testing.T) {
+	cpu := mmc1RAMCPU(0x40000)
+	mapper := cpu.Mapper.Mapper.(*Mapper1)
+	addresses := []uint16{0x6000, 0x6001, 0x7ffe, 0x7fff}
+	for i, address := range addresses {
+		cpu.StoreMemory(address, byte(0x40+i)) // RAM is enabled at power-on.
+	}
+	original := bytes.Clone(mapper.PRGRam)
+	writeMMC1Register(t, &cpu, 0xe000, 0x13) // Disable RAM, select PRG bank 3.
+	for i, address := range addresses {
+		cpu.Databus = byte(0xa0 + i)
+		if got := cpu.LoadMemory(address); got != byte(0xa0+i) {
+			t.Fatalf("disabled RAM read $%04x: got $%02x, want open bus $%02x", address, got, byte(0xa0+i))
+		}
+		cpu.StoreMemory(address, byte(0xe0+i))
+		if got := cpu.LoadMemory(address); got != byte(0xe0+i) {
+			t.Fatal("ignored RAM write did not leave its value on the CPU bus")
+		}
+	}
+	if !bytes.Equal(mapper.PRGRam, original) {
+		t.Fatal("writes to disabled PRG-RAM modified its contents")
+	}
+	writeMMC1Register(t, &cpu, 0xe000, 3)
+	for i, address := range addresses {
+		if got := cpu.LoadMemory(address); got != byte(0x40+i) {
+			t.Fatal("reenabling PRG-RAM did not restore access to its contents")
+		}
+		cpu.StoreMemory(address, byte(0x50+i))
+		if cpu.LoadMemory(address) != byte(0x50+i) {
+			t.Fatal("reenabled PRG-RAM is not writable")
+		}
+	}
+}
+
+func TestMMC1PRGRAMDisableCommitsOnFifthWrite(t *testing.T) {
+	cpu := mmc1RAMCPU(0x40000)
+	for bit := range 4 {
+		cpu.Cycle += 2
+		cpu.StoreMemory(0xe000, 0) // First four bits of $10.
+		cpu.StoreMemory(0x6000, byte(0x20+bit))
+		if cpu.LoadMemory(0x6000) != byte(0x20+bit) {
+			t.Fatal("incomplete serial write disabled PRG-RAM")
+		}
+	}
+	cpu.Cycle += 2
+	cpu.StoreMemory(0xffff, 1) // The fifth bit commits the disable flag.
+	cpu.StoreMemory(0x6000, 0xff)
+	for range 4 {
+		cpu.Cycle += 2
+		cpu.StoreMemory(0xe000, 0)
+		cpu.Databus = 0xa5
+		if cpu.LoadMemory(0x6000) != 0xa5 {
+			t.Fatal("incomplete serial write reenabled PRG-RAM")
+		}
+	}
+	cpu.Cycle += 2
+	cpu.StoreMemory(0xe000, 0)
+	if cpu.LoadMemory(0x6000) != 0x23 {
+		t.Fatal("RAM disable did not take effect on the fifth bit or lost RAM data")
+	}
+}
+
+func TestMMC1PRGRAMDisableDoesNotSelectPRGBank(t *testing.T) {
+	for _, pages := range []int{2, 4, 8, 16, 32} {
+		for mode := range byte(4) {
+			t.Run(fmt.Sprintf("PRG_%d_KiB_mode_%d", pages*16, mode), func(t *testing.T) {
+				cpu := mmc1RAMCPU(pages * 0x4000)
+				mapper := cpu.Mapper.Mapper.(*Mapper1)
+				writeMMC1Register(t, &cpu, 0x8000, mode<<2)
+				for _, outer := range []byte{0, 0x10} {
+					writeMMC1Register(t, &cpu, 0xa000, outer)
+					for bank := range byte(16) {
+						writeMMC1Register(t, &cpu, 0xe000, bank)
+						var want [4]byte
+						addresses := [4]uint16{0x8000, 0xbfff, 0xc000, 0xffff}
+						for i, address := range addresses {
+							want[i] = cpu.LoadMemory(address)
+						}
+						writeMMC1Register(t, &cpu, 0xe000, bank|0x10)
+						if mapper.PrgBank != bank|0x10 {
+							t.Fatal("PRG register did not retain the RAM-disable bit")
+						}
+						for i, address := range addresses {
+							if got := cpu.LoadMemory(address); got != want[i] {
+								t.Fatalf("bank $%02x outer $%02x at $%04x: disable changed PRG byte from $%02x to $%02x", bank, outer, address, want[i], got)
+							}
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestMMC1PRGRAMDisableSurvivesResetAndControlWrites(t *testing.T) {
+	cpu := mmc1RAMCPU(0x40000)
+	cpu.StoreMemory(0x6000, 0x42)
+	writeMMC1Register(t, &cpu, 0xe000, 0x15)
+	cpu.StoreMemory(0x8000, 0x80)
+	writeMMC1Register(t, &cpu, 0x8000, 0x08)
+	writeMMC1Register(t, &cpu, 0xa000, 0)
+	cpu.Databus = 0xa5
+	if cpu.LoadMemory(0x6000) != 0xa5 {
+		t.Fatal("serial reset or an unrelated register write reenabled PRG-RAM")
+	}
+	writeMMC1Register(t, &cpu, 0xe000, 5)
+	if cpu.LoadMemory(0x6000) != 0x42 {
+		t.Fatal("RAM contents did not survive reset/control writes while disabled")
+	}
+}
+
+func TestMMC1PRGRAMDisableCopyAndRestore(t *testing.T) {
+	cpu := mmc1RAMCPU(0x40000)
+	cpu.StoreMemory(0x6000, 0x42)
+	writeMMC1Register(t, &cpu, 0xe000, 0x13)
+	copied := cpu.Copy()
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	restored.Restore()
+	for _, state := range []*CPUState{&copied, &restored} {
+		state.Databus = 0xa5
+		if state.LoadMemory(0x6000) != 0xa5 {
+			t.Fatal("copy/save state lost the PRG-RAM disable flag")
+		}
+		state.StoreMemory(0x6000, 0xff)
+		writeMMC1Register(t, state, 0xe000, 3)
+		if state.LoadMemory(0x6000) != 0x42 {
+			t.Fatal("copy/save state lost protected PRG-RAM contents")
+		}
+		state.StoreMemory(0x6000, 0x57)
+	}
+	if cpu.Mapper.Mapper.(*Mapper1).PRGRam[0] != 0x42 {
+		t.Fatal("copy/save state shares PRG-RAM with the original")
+	}
+}
+
+type openBusMapperStub struct {
+	Mapper
+}
+
+func (*openBusMapperStub) ReadWithOpenBus(address uint16, openBus byte) byte {
+	return openBus ^ byte(address)
+}
+
+func TestCPUOptionalOpenBusMapper(t *testing.T) {
+	cpu := StartupState()
+	cpu.SetMapper(&openBusMapperStub{Mapper: MakeMapper0(make([]byte, 0x8000))})
+	cpu.Databus = 0xa5
+	if got := cpu.LoadMemory(0x6001); got != 0xa4 || cpu.Databus != 0xa4 {
+		t.Fatal("CPU did not pass the current data bus/address to the optional mapper read")
+	}
+	if got := cpu.LoadMemory(0x6000); got != 0xa4 {
+		t.Fatal("optional mapper read did not receive the updated data bus")
+	}
+	cpu.SetMapper(MakeMapper0(make([]byte, 0x8000)))
+	cpu.StoreMemory(0x6001, 0x36)
+	cpu.Databus = 0xa5
+	if cpu.LoadMemory(0x6001) != 0x36 {
+		t.Fatal("mapper without open-bus capability did not use normal reads")
+	}
+}
+
 // MMC2 latches and rendering fetches.
 
 func mmc2CPU(t *testing.T) CPUState {

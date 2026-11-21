@@ -67,6 +67,12 @@ type Mapper interface {
     IsNSF() bool
 }
 
+// OpenBusMapper is an optional capability for cartridge reads that can leave
+// the CPU data bus undriven (for example, disabled PRG-RAM).
+type OpenBusMapper interface {
+    ReadWithOpenBus(address uint16, openBus byte) byte
+}
+
 // CharacterMapper is an optional mapper capability for cartridges that handle
 // PPU pattern reads. Other cartridges use the PPU's existing pattern memory.
 // Implementations may update bank mappings after fetching the returned byte.
@@ -84,6 +90,7 @@ type ScanlineMapper interface {
     Scanline()
 }
 
+var _ OpenBusMapper = (*Mapper1)(nil)
 var _ CharacterMapper = (*Mapper1)(nil)
 var _ WritableCharacterMapper = (*Mapper1)(nil)
 var _ CharacterMapper = (*Mapper9)(nil)
@@ -422,7 +429,15 @@ func (mapper *Mapper1) Copy() Mapper {
 }
 
 func (mapper *Mapper1) Read(address uint16) byte {
+    return mapper.ReadWithOpenBus(address, 0)
+}
+
+func (mapper *Mapper1) ReadWithOpenBus(address uint16, openBus byte) byte {
     if address >= 0x6000 && address < 0x8000 {
+        // Standard MMC1B/C: PRG register bit 4 disables both RAM reads/writes.
+        if mapper.PrgBank & 0x10 != 0 {
+            return openBus
+        }
         return mapper.PRGRam[address - uint16(0x6000)]
     }
 
@@ -436,11 +451,13 @@ func (mapper *Mapper1) Read(address uint16) byte {
      * supply a 5th bit to prg.
      */
     hijackedPrgBit := int(mapper.ChrRegister0 & 0x10)
+    // Bit 4 controls PRG-RAM, not PRG-ROM bank selection.
+    prgBank := int(mapper.PrgBank & 0x0f)
 
     switch mapper.PrgBankMode {
         /* P=0, read in 32k mode */
         case 0, 1:
-            return mapper.ReadBank(pageSize32k, int(mapper.PrgBank >> 1), baseAddress)
+            return mapper.ReadBank(pageSize32k, prgBank >> 1, baseAddress)
         /* P=1, S=0, read in 16k mode where 0x8000 is mapped to 0, and 0xc000 is mapped to the program bank */
         case 2:
             if address < 0xc000 {
@@ -448,11 +465,11 @@ func (mapper *Mapper1) Read(address uint16) byte {
                 return mapper.ReadBank(pageSize16k, 0 + hijackedPrgBit, baseAddress)
             }
 
-            return mapper.ReadBank(pageSize16k, int(mapper.PrgBank) + hijackedPrgBit, address - 0xc000)
+            return mapper.ReadBank(pageSize16k, prgBank + hijackedPrgBit, address - 0xc000)
         /* P=1, S=1, read in 16k mode where 0x8000 is mapped to the program bank, and 0xc000 is mapped to page 0xf */
         case 3:
             if address < 0xc000 {
-                return mapper.ReadBank(pageSize16k, int(mapper.PrgBank) + hijackedPrgBit, baseAddress)
+                return mapper.ReadBank(pageSize16k, prgBank + hijackedPrgBit, baseAddress)
             }
 
             /* hijacked prg bit applies to fixed pages as well */
@@ -523,7 +540,9 @@ func (mapper *Mapper1) IsIRQAsserted() bool {
 
 func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
     if address >= 0x6000 && address < 0x8000 {
-        mapper.PRGRam[address - uint16(0x6000)] = value
+        if mapper.PrgBank & 0x10 == 0 {
+            mapper.PRGRam[address - uint16(0x6000)] = value
+        }
         return nil
     }
 

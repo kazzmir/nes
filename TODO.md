@@ -7,6 +7,19 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **MMC1B/C: PRG-RAM disable was ignored.** PRG register bit 4 now
+  disables reads and writes at $6000–7FFF without changing RAM contents.
+  Disabled CPU reads return open bus through an optional `OpenBusMapper`
+  capability; clearing bit 4 restores access. Only bits 0–3 select PRG-ROM.
+  RAM starts enabled for compatibility, and serial reset leaves the disable
+  bit unchanged.
+  - Code: `lib/mapper.go` (`Mapper1.ReadWithOpenBus`, `Read`, `Write`),
+    `lib/cpu.go` (generic open-bus-aware cartridge reads).
+  - Tests: `lib/mapper_test.go` covers RAM boundaries, ignored writes, open
+    bus, fifth-write commit timing, reenable/reset, all PRG modes and bank
+    values through 512 KiB, copies/save states, and the optional read hook.
+  - Revision scope: standard MMC1B/C behavior. Early MMC1A lacks RAM disable;
+    identifying/selecting that revision is not implemented by the loader.
 - [x] **MMC1: control changes left stale CHR-ROM mappings.** A completed
   control write rebuilds both pattern tables using the stored CHR registers
   and the new 4/8 KiB mode. Shared copy logic keeps ROM offsets wide and
@@ -123,11 +136,9 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 
 ### MMC1 (mapper 1)
 
-- [ ] **PRG-RAM disable is ignored.** Implement the PRG register's RAM-disable
-  behavior for applicable MMC1 revisions/boards in `Mapper1.Read`/`Write`.
 - [ ] **512 KiB PRG banking is wrong in 32 KiB mode.** `Mapper1.Read` does not
-  apply the SUROM outer-bank bit in this mode. Keep outer-bank selection
-  separate from PRG bank bits and the RAM-disable bit; test both ROM halves.
+  apply the SUROM outer-bank bit in this mode. RAM-disable bit separation is
+  fixed above; outer-bank selection still needs tests and a fix for both halves.
 
 ### MMC3 (mapper 4)
 
