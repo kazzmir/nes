@@ -507,10 +507,8 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
 
                 /* chr bank 0 */
                 if mapper.ChrBankMode == 1 {
-                    /* FIXME: base could be 0xf000, so base + 0x1000 could be 0
-                     * making base an int prevents this wraparound, but im not 100% sure if its the right thing to do
-                     */
-                    base := int(uint16(mapper.Register) * 0x1000)
+                    // Widen before multiplying so offsets and slice ends do not wrap at 64 KiB.
+                    base := int(mapper.Register) * 0x1000
                     /* FIXME: this is needed for games that have chrrom in the nesfile
                      * such as bubble bobble and zelda2, but doesn't seem to work
                      * for ninja gaiden
@@ -525,7 +523,7 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                         cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base + 0x1000], false)
                     }
                 } else {
-                    base := uint16(mapper.Register >> 1) * 0x2000
+                    base := int(mapper.Register >> 1) * 0x2000
                     if len(mapper.CharacterMemory) != 0 {
                         cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x2000], false)
                     } else {
@@ -537,7 +535,7 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
 
                 /* chr bank 1 */
                 if mapper.ChrBankMode == 1 {
-                    base := uint32(mapper.Register) * 0x1000
+                    base := int(mapper.Register) * 0x1000
                     if len(mapper.CharacterMemory) != 0 {
                         if int(base + 0x1000) < len(mapper.CharacterMemory) {
                             cpu.PPU.CopyCharacterRom(0x1000, mapper.CharacterMemory[base:base + 0x1000], false)
