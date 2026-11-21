@@ -32,6 +32,7 @@ const (
     NametableMirrorHorizontal
     NametableMirrorScreenA
     NametableMirrorScreenB
+    NametableMirrorFourScreen
 )
 
 func (mirror NametableMirrorConfiguration) String() string {
@@ -40,6 +41,7 @@ func (mirror NametableMirrorConfiguration) String() string {
         case NametableMirrorHorizontal: return "horizontal"
         case NametableMirrorScreenA: return "screen A"
         case NametableMirrorScreenB: return "screen B"
+        case NametableMirrorFourScreen: return "four-screen"
     }
 
     return "unknown"
@@ -85,7 +87,7 @@ type PPUState struct {
     CharacterRomLow uint16 `json:"characterromlow"`
     CharacterRomHigh uint16 `json:"characterromhigh"`
 
-    /* the 2kb SRAM stored on the NES board.
+    /* Nametable RAM: 2 KiB normally, expanded to 4 KiB for four-screen boards.
      * use nametable mirroring to map addresses to these ranges
      * Nametable[0:0x400] should appear at 0x2000 and 0x2800 in vertical mirroring
      * and 0x2000 and 0x2400 in horizontal mirroring.
@@ -170,6 +172,15 @@ func MakePPU() PPUState {
 
 func (ppu *PPUState) ToggleDebug() {
     ppu.Debug = 1 - ppu.Debug
+}
+
+func (ppu *PPUState) SetFourScreenMirror() {
+    if len(ppu.NametableMemory) < 0x1000 {
+        memory := make([]byte, 0x1000)
+        copy(memory, ppu.NametableMemory)
+        ppu.NametableMemory = memory
+    }
+    ppu.NametableMirror = NametableMirrorFourScreen
 }
 
 func (ppu *PPUState) SetHorizontalMirror(){
@@ -573,7 +584,7 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
             ppu.writableCharacterMapper.WriteCharacter(ppu, actualAddress, value)
         case actualAddress >= 0x2000 && actualAddress < 0x3000:
             ppu.StoreNametableMemory(actualAddress, value)
-        case actualAddress >= 0x3000 && actualAddress < 0x3eff:
+        case actualAddress >= 0x3000 && actualAddress < 0x3f00:
             ppu.StoreNametableMemory(actualAddress - 0x1000, value)
         case actualAddress >= 0x3f00 && actualAddress <= 0x3fff:
             // palette memory is mirrored every 32 bytes, so only consider the last 5 bits of the address
@@ -613,7 +624,7 @@ func (ppu *PPUState) ReadVideoMemory() byte {
 
     if ppu.VideoAddress >= 0x2000 && ppu.VideoAddress < 0x3000 {
         value = ppu.LoadNametableMemory(ppu.VideoAddress)
-    } else if ppu.VideoAddress >= 0x3000 && ppu.VideoAddress < 0x3eff {
+    } else if ppu.VideoAddress >= 0x3000 && ppu.VideoAddress < 0x3f00 {
         value = ppu.LoadNametableMemory(ppu.VideoAddress - 0x1000)
     } else if ppu.VideoAddress >= 0x3f00 && ppu.VideoAddress <= 0x3fff {
         // palette memory is mirrored every 32 bytes, so only consider the last 5 bits of the address
@@ -1357,8 +1368,8 @@ func computeNametableAddress(address uint16) (uint16, byte) {
     return 0, 0
 }
 
-/* address should be in the range 0-0x400, and table should be 0 or 1.
- * this returns some address in the nametable memory either in the first half or the second half
+/* address is an offset within a 1 KiB table. Physical table is 0 or 1
+ * normally, and 0-3 on four-screen boards.
  */
 func getNametableAddress(address uint16, table uint16) uint16 {
     return address + table * 0x400
@@ -1402,6 +1413,8 @@ func (ppu *PPUState) nametableMirrorAddress(address uint16) uint16 {
             return getNametableAddress(relative, 0)
         case NametableMirrorScreenB:
             return getNametableAddress(relative, 1)
+        case NametableMirrorFourScreen:
+            return getNametableAddress(relative, uint16(mirror))
     }
 
     return 0x0

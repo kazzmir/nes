@@ -197,6 +197,9 @@ func writePatternByte(cpu *CPUState, address uint16, value byte) {
 func readPatternByte(cpu *CPUState, address uint16) byte {
 	setPatternAddress(cpu, address)
 	cpu.LoadMemory(0x2007) // Discard the previous buffered byte.
+	// Re-address before returning the buffer so a read at $3EFF does not
+	// advance into palette space, whose reads bypass the buffer.
+	setPatternAddress(cpu, address)
 	return cpu.LoadMemory(0x2007)
 }
 
@@ -1163,6 +1166,162 @@ func TestMMC3IRQReloadCopyAndRestore(t *testing.T) {
 	mapper.Scanline()
 	if mapper.IrqCounter != 3 {
 		t.Fatal("clocking copy/save state consumed the original's reload request")
+	}
+}
+
+// Four-screen cartridge headers and MMC3 nametable wiring.
+
+func mmc3HeaderROM(t *testing.T, flags byte) NESFile {
+	t.Helper()
+	data := make([]byte, 16+0x8000+0x2000)
+	copy(data, []byte{'N', 'E', 'S', 0x1a})
+	data[4], data[5], data[6] = 2, 1, 0x40|flags
+	data[16+0x7ffd] = 0x80 // Reset vector $8000.
+	rom, err := ParseNes(bytes.NewReader(data), false, "synthetic MMC3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rom
+}
+
+func mmc3FourScreenCPU(t *testing.T) CPUState {
+	t.Helper()
+	rom := mmc3HeaderROM(t, 8)
+	cpu := StartupState()
+	rom.ConfigureMirroring(&cpu.PPU)
+	mapper, err := MakeMapper(rom.Mapper, rom.ProgramRom, rom.CharacterRom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpu.SetMapper(mapper)
+	cpu.Cycle = 30000
+	return cpu
+}
+
+func fourScreenByte(offset int) byte {
+	return byte((offset/0x400+1)*0x33) ^ byte(offset) ^ byte(offset>>8)
+}
+
+func fillFourScreenNametables(cpu *CPUState) {
+	for offset := range 0x1000 {
+		writePatternByte(cpu, uint16(0x2000+offset), fourScreenByte(offset))
+	}
+}
+
+func TestCartridgeHeaderMirroring(t *testing.T) {
+	for _, flags := range []byte{0, 1, 8, 9} {
+		t.Run(fmt.Sprintf("flags_%02x", flags), func(t *testing.T) {
+			rom := mmc3HeaderROM(t, flags)
+			four := flags&8 != 0
+			if rom.FourScreenMirror != four || rom.HorizontalMirror != (!four && flags&1 == 0) || rom.VerticalMirror != (!four && flags&1 != 0) {
+				t.Fatal("header did not give four-screen mode priority over the H/V bit")
+			}
+			ppu := MakePPU()
+			ppu.NametableMemory[0] = 0x42
+			rom.ConfigureMirroring(&ppu)
+			wantMode := NametableMirrorConfiguration(NametableMirrorHorizontal)
+			wantSize := 0x800
+			if flags&1 != 0 {
+				wantMode = NametableMirrorVertical
+			}
+			if four {
+				wantMode, wantSize = NametableMirrorFourScreen, 0x1000
+			}
+			if ppu.NametableMirror != wantMode || len(ppu.NametableMemory) != wantSize || ppu.NametableMemory[0] != 0x42 {
+				t.Fatal("header mirroring was not applied with the correct RAM size/content")
+			}
+		})
+	}
+	ppu := MakePPU()
+	NESFile{HorizontalMirror: true, VerticalMirror: true, FourScreenMirror: true}.ConfigureMirroring(&ppu)
+	if ppu.NametableMirror != NametableMirrorFourScreen {
+		t.Fatal("four-screen configuration lost priority over conflicting H/V settings")
+	}
+}
+
+func TestMMC3FourIndependentNametables(t *testing.T) {
+	cpu := mmc3FourScreenCPU(t)
+	fillFourScreenNametables(&cpu)
+	for offset := range 0x1000 {
+		address := uint16(0x2000 + offset)
+		if got, want := readPatternByte(&cpu, address), fourScreenByte(offset); got != want {
+			t.Fatalf("nametable read $%04x: got $%02x, want $%02x", address, got, want)
+		}
+	}
+	// $3000-$3EFF shadows the first $F00 bytes of nametable space.
+	for offset := range 0xf00 {
+		address := uint16(0x3000 + offset)
+		if got := readPatternByte(&cpu, address); got != fourScreenByte(offset) {
+			t.Fatalf("nametable shadow read $%04x returned $%02x", address, got)
+		}
+	}
+	writePatternByte(&cpu, 0x3eff, 0x91)
+	if readPatternByte(&cpu, 0x2eff) != 0x91 {
+		t.Fatal("write at the end of the nametable shadow did not reach $2EFF")
+	}
+	writePatternByte(&cpu, 0x3f00, 0x2a)
+	setPatternAddress(&cpu, 0x3f00)
+	if cpu.LoadMemory(0x2007) != 0x2a {
+		t.Fatal("four-screen mapping interfered with palette RAM")
+	}
+	before := bytes.Clone(cpu.PPU.NametableMemory)
+	cpu.PPU.SetFourScreenMirror()
+	if !bytes.Equal(cpu.PPU.NametableMemory, before) {
+		t.Fatal("reapplying four-screen mode erased nametable RAM")
+	}
+}
+
+func TestMMC3FourScreenIgnoresMirroringAliases(t *testing.T) {
+	cpu := mmc3FourScreenCPU(t)
+	fillFourScreenNametables(&cpu)
+	before := bytes.Clone(cpu.PPU.NametableMemory)
+	for offset := uint16(0); offset < 0x2000; offset += 2 {
+		for _, value := range []byte{0, 1, 0xfe, 0xff} {
+			cpu.StoreMemory(0xa000+offset, value)
+			if cpu.PPU.NametableMirror != NametableMirrorFourScreen {
+				t.Fatalf("$%04x=$%02x overrode hardwired four-screen mode", 0xa000+offset, value)
+			}
+		}
+	}
+	if !bytes.Equal(cpu.PPU.NametableMemory, before) {
+		t.Fatal("MMC3 mirroring writes changed nametable contents")
+	}
+	// Odd addresses in the same range must still control PRG-RAM normally.
+	cpu.StoreMemory(0xbfff, 0x80)
+	cpu.StoreMemory(0x6000, 0x42)
+	cpu.StoreMemory(0xbfff, 0xc0)
+	cpu.StoreMemory(0x6000, 0xff)
+	if cpu.LoadMemory(0x6000) != 0x42 {
+		t.Fatal("four-screen mirroring guard blocked the PRG-RAM control register")
+	}
+}
+
+func TestMMC3FourScreenCopyAndRestore(t *testing.T) {
+	cpu := mmc3FourScreenCPU(t)
+	fillFourScreenNametables(&cpu)
+	copied := cpu.Copy()
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	restored.Restore()
+	for _, state := range []*CPUState{&copied, &restored} {
+		cpuValue := readPatternByte(state, 0x2fff)
+		if len(state.PPU.NametableMemory) != 0x1000 || cpuValue != fourScreenByte(0xfff) {
+			t.Fatal("copy/save state lost the extra nametable RAM")
+		}
+		state.StoreMemory(0xbffe, 1)
+		if state.PPU.NametableMirror != NametableMirrorFourScreen {
+			t.Fatal("copy/save state lost hardwired four-screen mode")
+		}
+		writePatternByte(state, 0x2fff, 0x57)
+	}
+	if readPatternByte(&cpu, 0x2fff) != fourScreenByte(0xfff) {
+		t.Fatal("copy/save state shares nametable RAM with the original")
 	}
 }
 
