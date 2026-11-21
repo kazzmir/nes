@@ -93,7 +93,7 @@ func isDiskDude(header []byte) bool {
     return bytes.Equal(header[7:16], []byte("DiskDude!"))
 }
 
-func readMapper(header []byte) byte {
+func readMapper(header []byte) uint32 {
     lowBits := header[6] >> 4
     var highBits byte
 
@@ -101,13 +101,18 @@ func readMapper(header []byte) byte {
     if !isDiskDude(header){
         highBits = header[7] >> 4
     }
-    return (highBits << 4) | lowBits
+    mapper := uint32((highBits << 4) | lowBits)
+    if isNes2(header) {
+        mapper |= uint32(header[8] & 0x0f) << 8
+    }
+    return mapper
 }
 
 type NESFile struct {
     ProgramRom []byte
     CharacterRom []byte
     Mapper uint32
+    Submapper byte
     Nes2 bool
     HorizontalMirror bool
     VerticalMirror bool
@@ -126,6 +131,36 @@ func (nesFile NESFile) ConfigureMirroring(ppu *PPUState) {
         case nesFile.HorizontalMirror:
             ppu.SetHorizontalMirror()
     }
+}
+
+// MakeMapper applies board variants described by NES 2.0 submappers. For
+// UxROM/CNROM/AxROM, submapper 1 has no bus conflicts and 2 has bus conflicts.
+// Legacy iNES and unspecified submapper 0 retain the existing no-conflict
+// behavior; the header does not identify which electrical board was used.
+func (nesFile NESFile) MakeMapper() (Mapper, error) {
+    submapper := byte(0)
+    if nesFile.Nes2 {
+        submapper = nesFile.Submapper
+    }
+    switch nesFile.Mapper {
+        case 2, 3, 7:
+            if submapper > 2 {
+                return nil, fmt.Errorf("unsupported mapper %d submapper %d", nesFile.Mapper, submapper)
+            }
+    }
+    mapper, err := MakeMapper(nesFile.Mapper, nesFile.ProgramRom, nesFile.CharacterRom)
+    if err != nil {
+        return nil, err
+    }
+    switch board := mapper.(type) {
+        case *Mapper2:
+            board.BusConflicts = submapper == 2
+        case *Mapper3:
+            board.BusConflicts = submapper == 2
+        case *Mapper7:
+            board.BusConflicts = submapper == 2
+    }
+    return mapper, nil
 }
 
 // reader - where the data for the nes file comes from
@@ -153,11 +188,15 @@ func ParseNes(reader io.Reader, debug bool, name string) (NESFile, error) {
     chrRomSize := readCHR(header)
 
     mapper := readMapper(header)
+    submapper := byte(0)
+    if nes2 {
+        submapper = header[8] >> 4
+    }
 
     if debug {
         log.Printf("PRG-ROM %vkb\n", prgRomSize >> 10)
         log.Printf("CHR-ROM %vkb\n", chrRomSize >> 10)
-        log.Printf("mapper %v\n", mapper)
+        log.Printf("mapper %v submapper %v\n", mapper, submapper)
     }
 
     fourScreenMirror := header[6] & 0x8 != 0
@@ -208,7 +247,8 @@ func ParseNes(reader io.Reader, debug bool, name string) (NESFile, error) {
     return NESFile{
         ProgramRom: programRom,
         CharacterRom: characterRom,
-        Mapper: uint32(mapper),
+        Mapper: mapper,
+        Submapper: submapper,
         Nes2: nes2,
         HorizontalMirror: horizontalMirror,
         VerticalMirror: verticalMirror,

@@ -43,7 +43,7 @@ func Run(rom string, maxCycles int64) (nes.VirtualScreen, error) {
     }
     cpu.PPU.CopyCharacterRom(0x0000, nesFile.CharacterRom[:maxCharacterRomLength], true)
 
-    mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom, nesFile.CharacterRom)
+    mapper, err := nesFile.MakeMapper()
     if err != nil {
         return nes.VirtualScreen{}, err
     }
