@@ -7,6 +7,18 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **MMC1: consecutive-cycle serial writes were accepted.** Ignore data
+  writes within one cycle of the preceding register write, including across
+  register addresses. Ignored writes extend the inhibit window; bit-7 reset
+  writes are always honored. PRG-RAM writes do not affect the window.
+  - Code: `lib/mapper.go` (`Mapper1.Write`, `Copy`). Save states preserve the
+    last-write timestamp and whether it is valid.
+  - CPU timing: RMW writes currently share an instruction-level timestamp;
+    same-timestamp data writes are also filtered. This is not a full
+    cycle-by-cycle CPU bus implementation.
+  - Tests: `lib/mapper_test.go` covers timing boundaries, ordinary CPU serial
+    writes, official/unofficial absolute and absolute-X RMW instructions,
+    RMW reset cases, and copies/save states.
 - [x] **MMC1: serial reset did not restore PRG mode 3.** Bit-7 writes clear
   the partial serial write and apply control `| 0x0C`, immediately selecting
   PRG mode 3 without changing mirroring, CHR mode, or bank registers.
@@ -61,9 +73,6 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 
 ### MMC1 (mapper 1)
 
-- [ ] **Consecutive-cycle serial writes are accepted.** Ignore the appropriate
-  second write from RMW instructions. Coordinate with CPU write timing and
-  test both ordinary serial writes and RMW-generated writes.
 - [ ] **Last valid 4 KiB CHR bank is rejected.** Bounds checks in
   `Mapper1.Write` use `< len` for the slice end where `<= len` is required.
 - [ ] **Control changes leave stale CHR mappings.** Changing CHR mode in
