@@ -351,6 +351,8 @@ type Mapper1 struct {
     Shift int `json:"shift"`
     /* the value to pass to the mmc */
     Register uint8 `json:"register"`
+    LastWriteCycle uint64 `json:"lastwritecycle"`
+    HasLastWriteCycle bool `json:"haslastwritecycle"`
 
     Mirror byte `json:"mirror"`
     PrgBankMode byte `json:"prgbankmode"`
@@ -407,6 +409,8 @@ func (mapper *Mapper1) Copy() Mapper {
         Last4kBank: mapper.Last4kBank,
         Shift: mapper.Shift,
         Register: mapper.Register,
+        LastWriteCycle: mapper.LastWriteCycle,
+        HasLastWriteCycle: mapper.HasLastWriteCycle,
         Mirror: mapper.Mirror,
         PrgBankMode: mapper.PrgBankMode,
         ChrBankMode: mapper.ChrBankMode,
@@ -494,6 +498,17 @@ func (mapper *Mapper1) IsIRQAsserted() bool {
 func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
     if address >= 0x6000 && address < 0x8000 {
         mapper.PRGRam[address - uint16(0x6000)] = value
+        return nil
+    }
+
+    // RMW instructions issue adjacent writes. Our instruction-level CPU gives
+    // both writes the same timestamp, so filter same-cycle writes as well.
+    // Every register write extends the window, including ignored/reset writes.
+    consecutive := mapper.HasLastWriteCycle && cpu.Cycle - mapper.LastWriteCycle <= 1
+    mapper.LastWriteCycle = cpu.Cycle
+    mapper.HasLastWriteCycle = true
+    // Bit-7 reset writes are always honored, even inside the inhibit window.
+    if consecutive && value & 0x80 == 0 {
         return nil
     }
 
