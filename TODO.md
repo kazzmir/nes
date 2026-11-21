@@ -7,6 +7,22 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **MMC3: four-screen mirroring was not preserved.** Parse iNES header
+  bit 3 with priority over the H/V bit, configure four independent 1 KiB
+  nametables backed by 4 KiB RAM, and ignore MMC3 $A000 mirroring writes
+  (including aliases) on four-screen boards. Normal H/V cartridges retain
+  their existing behavior and 2 KiB allocation.
+  - Code: `lib/nes.go` (`NESFile.ConfigureMirroring`, `ParseNes`),
+    `lib/ppu.go` (`SetFourScreenMirror`, nametable mapping), `lib/mapper.go`
+    (`Mapper4.Write`). Both the emulator and screenshot loader apply the
+    shared header configuration.
+  - Tests: `lib/mapper_test.go` covers header precedence, all 4 KiB of CPU-
+    visible nametable space, $3000–$3EFF shadows (including the corrected
+    end boundary), palette reads/buffering, all mirroring aliases, PRG-RAM
+    control, repeated configuration, copies, and save states.
+  - Local ROM: `roms/Gauntlet (U) .nes` declares four-screen mode. A headless
+    run through the screenshot loader reached its title screen after ten
+    million CPU cycles with four-screen configuration and no warnings.
 - [x] **MMC1/SUROM: 512 KiB PRG banking ignored the outer bit in 32 KiB mode.**
   Combine CHR0 bit 4 with the four PRG-ROM bank bits before selecting the
   32 KiB pair. PRG bit 0 remains ignored in this mode, and PRG bit 4 remains
@@ -148,9 +164,6 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   rising edges.** Replace the approximation in `lib/ppu.go` with appropriate
   bus-edge timing/filtering. Test pattern-table configurations and
   mid-scanline changes, not just one clock per rendered scanline.
-- [ ] **Four-screen mirroring is not preserved.** Parse and retain the header's
-  four-screen flag in `lib/nes.go`; prevent MMC3 $A000 writes from overriding
-  hardwired four-screen mirroring. Check PPU nametable storage/mapping too.
 
 ### Bank selection across mappers
 

@@ -169,12 +169,7 @@ func (action EmulatorActionGetInfo) Value() EmulatorActionValue {
 func SetupCPU(nesFile nes.NESFile, debugCpu bool, debugPpu bool) (nes.CPUState, error) {
     cpu := nes.StartupState()
 
-    if nesFile.HorizontalMirror {
-        cpu.PPU.SetHorizontalMirror()
-    }
-    if nesFile.VerticalMirror {
-        cpu.PPU.SetVerticalMirror()
-    }
+    nesFile.ConfigureMirroring(&cpu.PPU)
 
     mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom, nesFile.CharacterRom)
     if err != nil {

@@ -999,8 +999,12 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
                     mapper.PrgRegister[mapper.RegisterIndex-6] = value & 0x3f
             }
         case 0xa000:
+            // Four-screen boards hardwire all four nametables; $A000 and
+            // its aliases cannot switch them to horizontal/vertical mirroring.
+            if cpu.PPU.NametableMirror == NametableMirrorFourScreen {
+                return nil
+            }
             mirror := value & 0x1
-            /* FIXME: dont set mirroring for nes files that set 4-way mirroring */
             switch mirror {
                 case 0:
                     cpu.PPU.SetVerticalMirror()

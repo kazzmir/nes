@@ -111,7 +111,21 @@ type NESFile struct {
     Nes2 bool
     HorizontalMirror bool
     VerticalMirror bool
+    FourScreenMirror bool
     Path string
+}
+
+// ConfigureMirroring applies the cartridge's header configuration. Four-screen
+// boards have four independent nametables regardless of the header's H/V bit.
+func (nesFile NESFile) ConfigureMirroring(ppu *PPUState) {
+    switch {
+        case nesFile.FourScreenMirror:
+            ppu.SetFourScreenMirror()
+        case nesFile.VerticalMirror:
+            ppu.SetVerticalMirror()
+        case nesFile.HorizontalMirror:
+            ppu.SetHorizontalMirror()
+    }
 }
 
 // reader - where the data for the nes file comes from
@@ -146,8 +160,9 @@ func ParseNes(reader io.Reader, debug bool, name string) (NESFile, error) {
         log.Printf("mapper %v\n", mapper)
     }
 
-    horizontalMirror := (header[6] & 0x1) == 0x0
-    verticalMirror := (header[6] & 0x1) == 0x1
+    fourScreenMirror := header[6] & 0x8 != 0
+    horizontalMirror := !fourScreenMirror && (header[6] & 0x1) == 0x0
+    verticalMirror := !fourScreenMirror && (header[6] & 0x1) == 0x1
 
     batteryRam := (header[6] & 0x2) == 0x2
     _ = batteryRam
@@ -156,6 +171,7 @@ func ParseNes(reader io.Reader, debug bool, name string) (NESFile, error) {
         log.Printf("Has battery-backed SRAM: %v", batteryRam)
         log.Printf("Horizontal mirror: %v", horizontalMirror)
         log.Printf("Vertical mirror: %v", verticalMirror)
+        log.Printf("Four-screen mirror: %v", fourScreenMirror)
     }
 
     hasTrainer := (header[6] & 4) == 4
@@ -196,6 +212,7 @@ func ParseNes(reader io.Reader, debug bool, name string) (NESFile, error) {
         Nes2: nes2,
         HorizontalMirror: horizontalMirror,
         VerticalMirror: verticalMirror,
+        FourScreenMirror: fourScreenMirror,
         Path: name,
     }, nil
 }
