@@ -7,6 +7,13 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **MMC1: serial reset did not restore PRG mode 3.** Bit-7 writes clear
+  the partial serial write and apply control `| 0x0C`, immediately selecting
+  PRG mode 3 without changing mirroring, CHR mode, or bank registers.
+  - Code: `lib/mapper.go` (`Mapper1.Write`).
+  - Tests: `lib/mapper_test.go` covers all 32 control values, reset writes in
+    all four register ranges, values $80/$FF, immediate PRG mapping, and a
+    fresh five-bit serial write after reset.
 - [x] **MMC1: CHR-RAM bank writes copied PRG-ROM into graphics memory.**
   Keep the physical 8 KiB RAM in PPU pattern memory; map CPU/rendering reads
   and CPU writes through MMC1's CHR registers. In 4 KiB mode only bank bit 0
@@ -54,8 +61,6 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 
 ### MMC1 (mapper 1)
 
-- [ ] **Serial reset does not restore PRG mode 3.** Bit-7 writes in
-  `Mapper1.Write` must also apply the control-register `| 0x0C` behavior.
 - [ ] **Consecutive-cycle serial writes are accepted.** Ignore the appropriate
   second write from RMW instructions. Coordinate with CPU write timing and
   test both ordinary serial writes and RMW-generated writes.

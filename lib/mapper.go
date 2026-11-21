@@ -507,6 +507,8 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
     if clear {
         mapper.Shift = 0
         mapper.Register = 0
+        // Serial reset applies control |= 0x0c, preserving CHR mode/mirroring.
+        mapper.PrgBankMode = 3
     } else {
         /* shift a single bit into the internal register */
         mapper.Register = ((value & 0x1) << mapper.Shift) | mapper.Register
