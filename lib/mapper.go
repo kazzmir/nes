@@ -943,8 +943,9 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
         return nil
     }
 
-    // log.Printf("mapper4: write to 0x%x value 0x%x", address, value)
-    switch address {
+    // MMC3 decodes A15-A13 and A0; A12-A1 are register aliases.
+    // Decode only after handling PRG-RAM, whose full address is significant.
+    switch address & 0xe001 {
         case 0x8000:
             mapper.ChrMode = (value >> 7) & 0x1
             mapper.PrgMode = (value >> 6) & 0x1
