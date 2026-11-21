@@ -7,6 +7,16 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **MMC3: PRG bank selections outside the physical ROM returned zero.**
+  Alias selected 8 KiB banks to available PRG-ROM banks at read time, without
+  changing the latched register bits. This models disconnected address lines
+  on standard power-of-two MMC3 PRG-ROM sizes.
+  - Code: `lib/mapper.go` (`Mapper4.ReadBank`).
+  - Tests: `lib/mapper_test.go` covers all 256 register write values, both PRG
+    modes, ROM sizes from 32 to 512 KiB, all slot boundaries, and empty ROMs.
+    Batman-specific tests exercise $1C/$1D and $12/$13 on a 128 KiB ROM.
+  - Local ROM: `roms/Batman (U) .nes`. Previously selected nonexistent PRG
+    banks and stayed black; correct aliasing allows startup and gameplay.
 - [x] **MMC3B/C: IRQ reload semantics were incorrect.** $C001 ignores the
   written value and requests a one-shot reload from the $C000 latch on the
   next counter clock. Assert IRQ when the resulting counter is zero and IRQ
@@ -118,8 +128,9 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 ### Bank selection across mappers
 
 - [ ] **Respect disconnected bank address bits / available ROM size.** Review
-  `Mapper2.Write`/`Read`, `Mapper3.Write`, `Mapper4.ReadBank`/`CharacterBlock`,
-  and `Mapper7.ReadBank`/`Write`. Hardware-supported selections currently can
+  `Mapper2.Write`/`Read`, `Mapper3.Write`, `Mapper4.CharacterBlock`, and
+  `Mapper7.ReadBank`/`Write`. MMC3 PRG aliasing is fixed above; CHR aliasing and
+  other mappers remain open. Hardware-supported selections currently can
   return zero, leave stale graphics, or panic instead of aliasing an existing
   bank. Model the actual board's wiring; also account for bus conflicts where
   applicable rather than applying one unconditional rule to every board.

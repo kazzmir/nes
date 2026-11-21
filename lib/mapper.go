@@ -846,7 +846,13 @@ func (mapper *Mapper4) ProgramBlock(page byte) ([]byte, error) {
 }
 
 func (mapper *Mapper4) ReadBank(offset uint16, bank int) byte {
-    base := bank * 0x2000
+    pages := len(mapper.ProgramRom) / 0x2000
+    if pages == 0 || bank < 0 {
+        return 0
+    }
+    // Standard MMC3 PRG-ROM sizes are powers of two. Unconnected bank
+    // address lines alias existing banks; retain the full register value.
+    base := (bank % pages) * 0x2000
 
     address := uint32(base)+uint32(offset)
 
