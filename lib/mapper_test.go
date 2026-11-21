@@ -522,6 +522,164 @@ func TestMMC2CopyAndSaveState(t *testing.T) {
 	}
 }
 
+// MMC3 IRQ counter/reload behavior (standard MMC3B/C).
+
+func mmc3IRQCPU() CPUState {
+	cpu := StartupState()
+	cpu.SetMapper(MakeMapper4(make([]byte, 0x8000), make([]byte, 0x2000)))
+	return cpu
+}
+
+func TestMMC3IRQReloadRequest(t *testing.T) {
+	for _, address := range []uint16{0xc001, 0xdfff} {
+		for _, value := range []byte{0, 1, 0x7f, 0xff} {
+			t.Run(fmt.Sprintf("address_%04x_value_%02x", address, value), func(t *testing.T) {
+				cpu := mmc3IRQCPU()
+				mapper := cpu.Mapper.Mapper.(*Mapper4)
+				mapper.IrqCounter = 5
+				cpu.StoreMemory(0xc000, 3)
+				cpu.StoreMemory(0xe001, 0)
+				cpu.StoreMemory(address, value)
+				if mapper.IsIRQAsserted() {
+					t.Fatal("reload write asserted IRQ before a counter clock")
+				}
+				for i, want := range []byte{3, 2, 1, 0, 3} {
+					mapper.Scanline()
+					if mapper.IrqCounter != want {
+						t.Fatalf("clock %d: got counter %d, want %d", i+1, mapper.IrqCounter, want)
+					}
+					if mapper.IsIRQAsserted() != (i >= 3) {
+						t.Fatalf("clock %d: unexpected IRQ state", i+1)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestMMC3IRQLatchAndReloadWrites(t *testing.T) {
+	cpu := mmc3IRQCPU()
+	mapper := cpu.Mapper.Mapper.(*Mapper4)
+	mapper.IrqCounter = 5
+	cpu.StoreMemory(0xc000, 2)
+	mapper.Scanline()
+	if mapper.IrqCounter != 4 {
+		t.Fatal("latch write immediately reloaded the running counter")
+	}
+	cpu.StoreMemory(0xc001, 0xff)
+	cpu.StoreMemory(0xc001, 1) // Repeated requests do not queue extra reloads.
+	cpu.StoreMemory(0xc000, 7) // The next clock uses the latest latch value.
+	mapper.Scanline()
+	if mapper.IrqCounter != 7 {
+		t.Fatal("pending reload did not use the latest IRQ latch")
+	}
+	mapper.Scanline()
+	if mapper.IrqCounter != 6 {
+		t.Fatal("reload request was not cleared after one clock")
+	}
+}
+
+func TestMMC3IRQZeroReload(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		counter byte
+		latch   byte
+		request bool
+		enabled bool
+		want    byte
+		irq     bool
+	}{
+		{"automatic_zero", 0, 0, false, true, 0, true},
+		{"forced_zero", 5, 0, true, true, 0, true},
+		{"disabled_zero", 5, 0, true, false, 0, false},
+		{"decrement_to_zero", 1, 7, false, true, 0, true},
+		{"automatic_nonzero", 0, 7, false, true, 7, false},
+		{"forced_nonzero", 5, 7, true, true, 7, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cpu := mmc3IRQCPU()
+			mapper := cpu.Mapper.Mapper.(*Mapper4)
+			mapper.IrqCounter = test.counter
+			cpu.StoreMemory(0xc000, test.latch)
+			if test.request {
+				cpu.StoreMemory(0xc001, 0xff)
+			}
+			if test.enabled {
+				cpu.StoreMemory(0xe001, 0)
+			}
+			if mapper.IsIRQAsserted() {
+				t.Fatal("register write asserted IRQ without a clock")
+			}
+			mapper.Scanline()
+			if mapper.IrqCounter != test.want || mapper.IsIRQAsserted() != test.irq {
+				t.Fatalf("counter/IRQ = %d/%v, want %d/%v", mapper.IrqCounter, mapper.IsIRQAsserted(), test.want, test.irq)
+			}
+		})
+	}
+}
+
+func TestMMC3IRQAcknowledgePreservesReload(t *testing.T) {
+	cpu := mmc3IRQCPU()
+	mapper := cpu.Mapper.Mapper.(*Mapper4)
+	mapper.IrqCounter = 5
+	mapper.IrqPending = true
+	cpu.StoreMemory(0xc000, 3)
+	cpu.StoreMemory(0xc001, 0xff)
+	cpu.StoreMemory(0xe000, 0)
+	if mapper.IrqEnabled || mapper.IsIRQAsserted() {
+		t.Fatal("$E000 did not disable and acknowledge IRQ")
+	}
+	mapper.Scanline()
+	if mapper.IrqCounter != 3 || mapper.IsIRQAsserted() {
+		t.Fatal("disabled clock did not consume the pending reload without IRQ")
+	}
+	cpu.StoreMemory(0xe001, 0)
+	for range 3 {
+		mapper.Scanline()
+	}
+	if !mapper.IsIRQAsserted() {
+		t.Fatal("reenabled counter did not assert IRQ on reaching zero")
+	}
+	cpu.StoreMemory(0xe000, 0)
+	cpu.StoreMemory(0xc000, 0)
+	cpu.StoreMemory(0xe001, 0)
+	if mapper.IsIRQAsserted() {
+		t.Fatal("enabling IRQ with counter zero asserted without a clock")
+	}
+	mapper.Scanline()
+	if !mapper.IsIRQAsserted() {
+		t.Fatal("zero reload did not reassert IRQ on the next clock")
+	}
+}
+
+func TestMMC3IRQReloadCopyAndRestore(t *testing.T) {
+	cpu := mmc3IRQCPU()
+	mapper := cpu.Mapper.Mapper.(*Mapper4)
+	mapper.IrqCounter = 5
+	cpu.StoreMemory(0xc000, 3)
+	cpu.StoreMemory(0xc001, 0xff)
+	copied := cpu.Copy()
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	restored.Restore()
+	for _, state := range []*CPUState{&copied, &restored} {
+		state.PPU.updateMapperScanline()
+		if state.Mapper.Mapper.(*Mapper4).IrqCounter != 3 {
+			t.Fatal("copy/save state lost the pending reload request")
+		}
+	}
+	mapper.Scanline()
+	if mapper.IrqCounter != 3 {
+		t.Fatal("clocking copy/save state consumed the original's reload request")
+	}
+}
+
 // MMC3 register address decoding.
 
 func TestMMC3RegisterAliases(t *testing.T) {
