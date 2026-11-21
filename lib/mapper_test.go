@@ -33,9 +33,7 @@ func mmc1CHRCPU() (CPUState, []byte) {
 
 func TestMMC1CHR4KiBOffsetArithmetic(t *testing.T) {
 	for _, address := range []uint16{0xa000, 0xc000} {
-		// Bank 31's separate end-of-ROM bounds-check bug is intentionally not
-		// included here. Bank 30 still exercises the upper half of CHR-ROM.
-		for _, bank := range []byte{0, 15, 16, 17, 30} {
+		for bank := range byte(32) {
 			t.Run(fmt.Sprintf("register_%04x_bank_%d", address, bank), func(t *testing.T) {
 				cpu, chr := mmc1CHRCPU()
 				writeMMC1Register(t, &cpu, 0x8000, 0x1c) // 4 KiB CHR mode.
@@ -47,6 +45,40 @@ func TestMMC1CHR4KiBOffsetArithmetic(t *testing.T) {
 				start := int(bank) * 0x1000
 				if !bytes.Equal(cpu.PPU.VideoMemory[base:base+0x1000], chr[start:start+0x1000]) {
 					t.Fatalf("PPU $%04x does not contain CHR bank %d (ROM offset $%05x)", base, bank, start)
+				}
+			})
+		}
+	}
+}
+
+func TestMMC1Last4KiBCHRBank(t *testing.T) {
+	for _, size := range []int{0x2000, 0x4000, 0x8000, 0x10000, 0x20000} {
+		for _, address := range []uint16{0xa000, 0xc000} {
+			t.Run(fmt.Sprintf("CHR_%d_KiB_register_%04x", size/1024, address), func(t *testing.T) {
+				cpu, chr := mmc1CHRCPU()
+				cpu.Cycle = 30000
+				chr = chr[:size]
+				cpu.SetMapper(MakeMapper1(make([]byte, 0x8000), chr))
+				writeMMC1Register(t, &cpu, 0x8000, 0x1c)
+				clear(cpu.PPU.VideoMemory[:0x2000])
+				lastBank := byte(size/0x1000 - 1)
+				writeMMC1Register(t, &cpu, address, lastBank)
+				base := 0
+				if address == 0xc000 {
+					base = 0x1000
+				}
+				if !bytes.Equal(cpu.PPU.VideoMemory[base:base+0x1000], chr[size-0x1000:]) {
+					t.Fatalf("last CHR bank %d was not mapped at PPU $%04x", lastBank, base)
+				}
+				for _, offset := range []int{0, 0xfff} {
+					want := chr[size-0x1000+offset]
+					if got := readPatternByte(&cpu, uint16(base+offset)); got != want {
+						t.Fatalf("PPU $%04x: got $%02x, want $%02x", base+offset, got, want)
+					}
+				}
+				other := base ^ 0x1000
+				if !bytes.Equal(cpu.PPU.VideoMemory[other:other+0x1000], make([]byte, 0x1000)) {
+					t.Fatal("bank write changed the other pattern table")
 				}
 			})
 		}
