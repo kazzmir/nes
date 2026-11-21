@@ -780,7 +780,8 @@ type Mapper4 struct {
     LastBank int `json:"lastbank"`
 
     IrqEnabled bool `json:"irqenabled"`
-    IrqReload byte `json:"irqreload"`
+    IrqReload byte `json:"irqreload"` // IRQ counter latch ($C000).
+    IrqReloadPending bool `json:"irqreloadpending"`
     IrqCounter byte `json:"irqcounter"`
     IrqPending bool `json:"irqpending"`
 
@@ -816,6 +817,7 @@ func (mapper *Mapper4) Copy() Mapper {
         LastBank: mapper.LastBank,
         IrqEnabled: mapper.IrqEnabled,
         IrqReload: mapper.IrqReload,
+        IrqReloadPending: mapper.IrqReloadPending,
         IrqCounter: mapper.IrqCounter,
         IrqPending: mapper.IrqPending,
         WramEnabled: mapper.WramEnabled,
@@ -981,7 +983,8 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
         case 0xc000:
             mapper.IrqReload = value
         case 0xc001:
-            mapper.IrqCounter = value
+            // The written value is ignored; reload from $C000 on the next clock.
+            mapper.IrqReloadPending = true
         case 0xe000:
             mapper.IrqEnabled = false
             mapper.IrqPending = false
@@ -995,13 +998,16 @@ func (mapper *Mapper4) Write(cpu *CPUState, address uint16, value byte) error {
 }
 
 func (mapper *Mapper4) Scanline() {
-    if mapper.IrqCounter == 0 {
+    if mapper.IrqCounter == 0 || mapper.IrqReloadPending {
         mapper.IrqCounter = mapper.IrqReload
     } else {
         mapper.IrqCounter -= 1
-        if mapper.IrqCounter == 0 && mapper.IrqEnabled {
-            mapper.IrqPending = true
-        }
+    }
+    mapper.IrqReloadPending = false
+    // Standard MMC3B/C asserts on zero after either decrement OR reload.
+    // MMC3A's alternate zero-reload behavior is not modeled here.
+    if mapper.IrqCounter == 0 && mapper.IrqEnabled {
+        mapper.IrqPending = true
     }
 }
 

@@ -7,12 +7,23 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **MMC3B/C: IRQ reload semantics were incorrect.** $C001 ignores the
+  written value and requests a one-shot reload from the $C000 latch on the
+  next counter clock. Assert IRQ when the resulting counter is zero and IRQ
+  is enabled, including zero-valued reloads. Preserve reload requests across
+  copies/save states; $E000 acknowledges/disables IRQ without canceling reload.
+  - Code: `lib/mapper.go` (`Mapper4.Write`, `Scanline`, `Copy`).
+  - Tests: `lib/mapper_test.go` covers ignored values/aliases, latest-latch
+    selection, repeated reload requests, zero reloads, enable/acknowledge,
+    and copies/save states.
+  - Revision scope: this implements standard MMC3B/C behavior. MMC3A's
+    alternate zero-reload IRQ behavior is not modeled.
 - [x] **MMC3: register aliases were ignored.** Decode register writes with
   `address & 0xE001`, after handling PRG-RAM with its original address.
   - Code: `lib/mapper.go` (`Mapper4.Write`).
   - Tests: `lib/mapper_test.go` checks every alias of all eight register ports,
     all eight bank-data selections, PPU mapping effects, and PRG-RAM addressing
-    and write protection. IRQ reload semantics remain a separate open issue.
+    and write protection. IRQ reload semantics are covered separately above.
 - [x] **MMC1: consecutive-cycle serial writes were accepted.** Ignore data
   writes within one cycle of the preceding register write, including across
   register addresses. Ignored writes extend the inhibit window; bit-7 reset
@@ -96,10 +107,6 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 
 ### MMC3 (mapper 4)
 
-- [ ] **IRQ reload semantics are incorrect.** $C001 should request reload on
-  the next counter clock and ignore the written value, not assign it directly
-  to `IrqCounter`. Cover zero-latch behavior for standard MMC3B/C and document
-  revision differences. Code: `Mapper4.Write`, `Scanline`.
 - [ ] **IRQ clocks use scanline boundaries rather than qualified PPU A12
   rising edges.** Replace the approximation in `lib/ppu.go` with appropriate
   bus-edge timing/filtering. Test pattern-table configurations and
