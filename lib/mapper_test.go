@@ -522,6 +522,66 @@ func TestMMC2CopyAndSaveState(t *testing.T) {
 	}
 }
 
+// CNROM PRG-ROM mapping.
+
+func TestCNROMPRGMapping(t *testing.T) {
+	for _, size := range []int{0x4000, 0x8000} {
+		t.Run(fmt.Sprintf("PRG_%d_KiB", size/1024), func(t *testing.T) {
+			prg := make([]byte, size)
+			for i := range prg {
+				prg[i] = byte(i>>8) ^ byte(i) ^ 0x5a
+			}
+			cpu := StartupState()
+			cpu.SetMapper(MakeMapper3(prg, make([]byte, 0x8000)))
+			for offset := range 0x8000 {
+				address := uint16(0x8000 + offset)
+				if got, want := cpu.LoadMemory(address), prg[offset%size]; got != want {
+					t.Fatalf("PRG read $%04x: got $%02x, want $%02x", address, got, want)
+				}
+			}
+			// CHR bank switching must not change the fixed PRG mapping.
+			for bank := range byte(4) {
+				cpu.StoreMemory(0x8000, bank)
+				for _, address := range []uint16{0x8000, 0xbfff, 0xc000, 0xffff} {
+					want := prg[int(address-0x8000)%size]
+					if cpu.LoadMemory(address) != want {
+						t.Fatalf("CHR bank %d changed PRG mapping at $%04x", bank, address)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCNROMMirroredVectorsAndExecution(t *testing.T) {
+	prg := make([]byte, 0x4000)
+	copy(prg[0x0100:], []byte{0xa9, 0x42, 0x8d, 0x00, 0x02})       // LDA #$42; STA $0200.
+	copy(prg[0x3ffa:], []byte{0x00, 0xc2, 0x00, 0xc1, 0x00, 0xc3}) // NMI/reset/IRQ.
+	cpu := StartupState()
+	cpu.SetMapper(MakeMapper3(prg, make([]byte, 0x2000)))
+	cpu.Reset()
+	if cpu.PC != 0xc100 {
+		t.Fatalf("mirrored reset vector: got PC $%04x, want $C100", cpu.PC)
+	}
+	table := MakeInstructionDescriptiontable()
+	for range 2 {
+		if err := cpu.Run(table); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if cpu.LoadMemory(0x0200) != 0x42 || cpu.PC != 0xc105 {
+		t.Fatal("CPU did not execute instructions from the mirrored PRG half")
+	}
+	cpu.NMI()
+	if cpu.PC != 0xc200 {
+		t.Fatalf("mirrored NMI vector: got PC $%04x, want $C200", cpu.PC)
+	}
+	cpu.Interrupt()
+	if cpu.PC != 0xc300 {
+		t.Fatalf("mirrored IRQ vector: got PC $%04x, want $C300", cpu.PC)
+	}
+}
+
 // MMC3 PRG-ROM bank address lines.
 
 func mmc3PRGCPU(pages int) CPUState {
