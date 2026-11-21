@@ -1264,6 +1264,10 @@ func TestMMC3FourIndependentNametables(t *testing.T) {
 	if cpu.LoadMemory(0x2007) != 0x2a {
 		t.Fatal("four-screen mapping interfered with palette RAM")
 	}
+	setPatternAddress(&cpu, 0x2000)
+	if cpu.LoadMemory(0x2007) != fourScreenByte(0xf00) {
+		t.Fatal("palette read buffer did not fetch from the fourth nametable")
+	}
 	before := bytes.Clone(cpu.PPU.NametableMemory)
 	cpu.PPU.SetFourScreenMirror()
 	if !bytes.Equal(cpu.PPU.NametableMemory, before) {
