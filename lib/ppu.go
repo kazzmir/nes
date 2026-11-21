@@ -46,6 +46,10 @@ func (mirror NametableMirrorConfiguration) String() string {
 }
 
 type PPUState struct {
+    // Runtime cartridge binding; mapper state is serialized by CPUState.
+    characterMapper CharacterMapper
+    scanlineMapper ScanlineMapper
+
     Flags byte `json:"flags"`
     Mask byte `json:"mask"`
     /* http://wiki.nesdev.org/w/index.php/PPU_registers#PPUSTATUS */
@@ -582,6 +586,19 @@ func (ppu *PPUState) WriteVideoMemory(value byte){
     ppu.VideoAddress += ppu.GetVRamIncrement()
 }
 
+func (ppu *PPUState) setMapper(mapper Mapper) {
+    ppu.characterMapper, _ = mapper.(CharacterMapper)
+    ppu.scanlineMapper, _ = mapper.(ScanlineMapper)
+}
+
+// All pattern fetches share this path so cartridges see CPU and rendering reads.
+func (ppu *PPUState) readPatternMemory(address uint16) byte {
+    if ppu.characterMapper != nil && address < 0x2000 {
+        return ppu.characterMapper.ReadCharacter(ppu, address)
+    }
+    return ppu.VideoMemory[address]
+}
+
 func (ppu *PPUState) ReadVideoMemory() byte {
     if int(ppu.VideoAddress) >= len(ppu.VideoMemory) {
         log.Printf("Warning: attemping to read more than available video memory 0x%x at 0x%x", len(ppu.VideoMemory), ppu.VideoAddress)
@@ -600,7 +617,7 @@ func (ppu *PPUState) ReadVideoMemory() byte {
         low := ppu.VideoAddress & 0x001f
         value = ppu.VideoMemory[high | low]
     } else {
-        value = ppu.VideoMemory[ppu.VideoAddress]
+        value = ppu.readPatternMemory(ppu.VideoAddress)
     }
 
     if ppu.Debug > 0 {
@@ -669,6 +686,44 @@ type Sprite struct {
     Palette byte `json:"palette"`
     Priority byte `json:"priority"`
     Sprite0 bool `json:"sprite0"`
+    // Mapper-handled sprite fetches are cached once per scanline, not per pixel.
+    Pattern [16]byte `json:"pattern"`
+}
+
+func (ppu *PPUState) spritePatternBytes(sprite *Sprite, address uint16) ([]byte, []byte) {
+    if ppu.characterMapper != nil {
+        return sprite.Pattern[:8], sprite.Pattern[8:]
+    }
+    return ppu.VideoMemory[address:address+8], ppu.VideoMemory[address+8:address+16]
+}
+
+// The pixel renderer revisits sprites for every pixel. Fetch their pattern row
+// just once in OAM order, including transparent/offscreen sprites, so a latch
+// trigger doesn't cause later pixels of the same row to use a different bank.
+func (ppu *PPUState) fetchSpritePatterns() {
+    if ppu.characterMapper == nil {
+        return
+    }
+    for i := range ppu.CurrentSprites {
+        sprite := &ppu.CurrentSprites[i]
+        row := ppu.Scanline - int(sprite.Y)
+        height := 8
+        address := ppu.GetSpritePatternTableBase() + uint16(sprite.Tile) * 16
+        if ppu.GetSpriteSize() == SpriteSize8x16 {
+            height = 16
+            address = uint16(sprite.Tile & 1) * 0x1000 + uint16(sprite.Tile & 0xfe) * 16
+        }
+        if row < 0 || row >= height {
+            continue
+        }
+        if sprite.Flip_vertical {
+            row = height - 1 - row
+        }
+        address += uint16(row / 8) * 16
+        row %= 8
+        sprite.Pattern[row] = ppu.readPatternMemory(address + uint16(row))
+        sprite.Pattern[row+8] = ppu.readPatternMemory(address + uint16(row) + 8)
+    }
 }
 
 func (ppu *PPUState) GetSprites() []Sprite {
@@ -965,8 +1020,7 @@ func (ppu *PPUState) getSpritePixel(x int, y int, sprites []Sprite) ([]uint8, by
             tileIndex := sprite.Tile
             if x >= int(sprite.X) && x < int(sprite.X) + 8 && y >= int(sprite.Y) && y < int(sprite.Y) + 8 {
                 tileAddress := patternTable + uint16(tileIndex) * 16
-                leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
-                rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
+                leftBytes, rightBytes := ppu.spritePatternBytes(sprite, tileAddress)
                 palette_base := 0x3f10 + uint16(sprite.Palette) * 4
 
                 // for y := 0; y < 8; y++ {
@@ -1053,8 +1107,7 @@ func (ppu *PPUState) getSpritePixel(x int, y int, sprites []Sprite) ([]uint8, by
                         tileAddress += 16
                     }
                 }
-                leftBytes := ppu.VideoMemory[tileAddress:tileAddress+8]
-                rightBytes := ppu.VideoMemory[tileAddress+8:tileAddress+16]
+                leftBytes, rightBytes := ppu.spritePatternBytes(sprite, tileAddress)
                 palette_base := 0x3f10 + uint16(sprite.Palette) * 4
 
                 use_y := y - int(y_base)
@@ -1378,8 +1431,8 @@ func (ppu *PPUState) LoadBackgroundTile() {
     tileIndex := ppu.LoadNametableMemory(tileAddress)
     patternTileAddress := patternTable + uint16(tileIndex) * 16
     /* Within the tile, pull out row at an offset of fineY */
-    left := ppu.VideoMemory[patternTileAddress + uint16(fineY)]
-    right := ppu.VideoMemory[patternTileAddress + 8 + uint16(fineY)]
+    left := ppu.readPatternMemory(patternTileAddress + uint16(fineY))
+    right := ppu.readPatternMemory(patternTileAddress + 8 + uint16(fineY))
 
     // log.Printf("Left 0x%x right 0x%x", leftAddr, rightAddr)
 
@@ -1438,15 +1491,13 @@ func (ppu *PPUState) PreloadTiles() {
     ppu.LoadBackgroundTile()
 }
 
-/* A bit of a hack, maybe make this more elegant later */
-func (ppu *PPUState) UpdateMapper4Scanline(mapper Mapper){
-    mapper4, ok := mapper.(*Mapper4)
-    if ok {
-        mapper4.Scanline()
+func (ppu *PPUState) updateMapperScanline() {
+    if ppu.scanlineMapper != nil {
+        ppu.scanlineMapper.Scanline()
     }
 }
 
-func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bool, bool) {
+func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
     if ppu.Decay > 0 {
         ppu.Decay -= min(ppu.Decay, cycles)
         if ppu.Decay == 0 {
@@ -1526,7 +1577,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
             ppu.Scanline += 1
 
             if (ppu.IsSpriteEnabled() || ppu.IsBackgroundEnabled()) && ppu.Scanline < 240 {
-                ppu.UpdateMapper4Scanline(mapper)
+                ppu.updateMapperScanline()
             }
 
             /* Load the sprites for the next scanline */
@@ -1549,13 +1600,14 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen, mapper Mapper) (bo
                         }
                     }
                 }
+                ppu.fetchSpritePatterns()
             }
 
             if ppu.Scanline == 261 {
                 ppu.SetSpriteZeroHit(false)
 
                 if ppu.IsSpriteEnabled() || ppu.IsBackgroundEnabled() {
-                    ppu.UpdateMapper4Scanline(mapper)
+                    ppu.updateMapperScanline()
                 }
             }
 

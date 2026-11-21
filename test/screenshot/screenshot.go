@@ -82,7 +82,7 @@ func Run(rom string, maxCycles int64) (nes.VirtualScreen, error) {
 
         cpu.APU.Run(float64(cycleDiff) / 2.0, baseCyclesPerSample, &cpu)
 
-        nmi, drawn := cpu.PPU.Run(cycleDiff * 3, screen, mapper)
+        nmi, drawn := cpu.PPU.Run(cycleDiff * 3, screen)
 
         if drawn {
             buffer.CopyFrom(&screen)

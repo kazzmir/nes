@@ -67,6 +67,21 @@ type Mapper interface {
     IsNSF() bool
 }
 
+// CharacterMapper is an optional mapper capability for cartridges that handle
+// PPU pattern reads. Other cartridges use the PPU's existing pattern memory.
+// Implementations may update bank mappings after fetching the returned byte.
+type CharacterMapper interface {
+    ReadCharacter(ppu *PPUState, address uint16) byte
+}
+
+// ScanlineMapper is an optional capability for cartridges with scanline clocks.
+type ScanlineMapper interface {
+    Scanline()
+}
+
+var _ CharacterMapper = (*Mapper9)(nil)
+var _ ScanlineMapper = (*Mapper4)(nil)
+
 type MapperState struct {
     Kind int `json:"kind"`
     Mapper Mapper `json:"mapper"`
@@ -1046,6 +1061,8 @@ type Mapper9 struct {
 
     PrgRegister byte `json:"prg"`
     ChrRegister [4]byte `json:"chr"`
+    // Each pattern table independently selects its FD or FE CHR register.
+    Latches [2]byte `json:"latches"`
 }
 
 func (mapper *Mapper9) IsNSF() bool {
@@ -1067,6 +1084,7 @@ func (mapper *Mapper9) Copy() Mapper {
         Pages: mapper.Pages,
         PrgRegister: mapper.PrgRegister,
         ChrRegister: copySlice4(mapper.ChrRegister),
+        Latches: mapper.Latches,
     }
 }
 
@@ -1094,22 +1112,61 @@ func (mapper *Mapper9) Read(address uint16) byte {
 }
 
 func (mapper *Mapper9) CharacterBlock(pageSize uint16, register byte) []byte {
-    base := uint32(register) * uint32(pageSize)
-    return mapper.CharacterRom[base:base+uint32(pageSize)]
+    pages := len(mapper.CharacterRom) / int(pageSize)
+    if pages == 0 {
+        return nil
+    }
+    base := (int(register & 0x1f) % pages) * int(pageSize)
+    return mapper.CharacterRom[base:base+int(pageSize)]
+}
+
+func (mapper *Mapper9) chrRegister(table int) byte {
+    index := table * 2
+    // Treat absent latch fields in older save states as FE.
+    if mapper.Latches[table] != 0xfd {
+        index++
+    }
+    return mapper.ChrRegister[index]
 }
 
 func (mapper *Mapper9) SetChrBank(ppu *PPUState) {
-    /* FIXME: Use chrRegister 0 or 2 depending on the ppu latch set at $fd or $fe */
-    ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x1000, mapper.ChrRegister[1]), false)
-    /* FIXME: Use chrRegister 1 or 3 depending on the ppu latch set at $fd or $fe */
-    ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x1000, mapper.ChrRegister[2]), false)
+    ppu.CopyCharacterRom(0x0000, mapper.CharacterBlock(0x1000, mapper.chrRegister(0)), true)
+    ppu.CopyCharacterRom(0x1000, mapper.CharacterBlock(0x1000, mapper.chrRegister(1)), false)
+    ppu.CharacterRomLow = 0
+    ppu.CharacterRomHigh = 0x2000
+}
+
+// ReadCharacter returns the byte from the OLD bank before updating the latch.
+// The triggering read itself must not see the newly selected bank.
+func (mapper *Mapper9) ReadCharacter(ppu *PPUState, address uint16) byte {
+    table := int(address / 0x1000)
+    bank := mapper.CharacterBlock(0x1000, mapper.chrRegister(table))
+    var value byte
+    if len(bank) != 0 {
+        value = bank[address & 0xfff]
+    }
+    var latch byte
+    switch {
+        case address == 0x0fd8, address >= 0x1fd8 && address <= 0x1fdf:
+            latch = 0xfd
+        case address == 0x0fe8, address >= 0x1fe8 && address <= 0x1fef:
+            latch = 0xfe
+    }
+    if latch != 0 && mapper.Latches[table] != latch {
+        mapper.Latches[table] = latch
+        mapper.SetChrBank(ppu)
+    }
+    return value
 }
 
 func (mapper *Mapper9) Write(cpu *CPUState, address uint16, value byte) error {
     page := address >> 12
+    if page >= 0xb && page <= 0xe {
+        value &= 0x1f
+    }
     switch page {
         case 0xa:
-            mapper.PrgRegister = value
+            mapper.PrgRegister = value & 0x0f
             return nil
         case 0xb:
             mapper.ChrRegister[0] = value
@@ -1149,5 +1206,6 @@ func MakeMapper9(programRom []byte, chrMemory []byte) Mapper {
         ProgramRom: programRom,
         CharacterRom: chrMemory,
         Pages: pages,
+        Latches: [2]byte{0xfe, 0xfe},
     }
 }
