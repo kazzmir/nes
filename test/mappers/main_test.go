@@ -31,7 +31,8 @@ func TestReadPrefix(t *testing.T) {
 func TestDistinctBanks(t *testing.T) {
 	chr := make([]byte, 5*0x1000)
 	// Banks 0 and 1 are duplicates; banks 2..4 differ only deep in the prefix.
-	for bank := 2; bank < 5; bank++ {
+	for offset := range 3 {
+		bank := offset + 2
 		chr[bank*0x1000+0x800] = byte(bank)
 	}
 	banks, err := distinctBanks(chr)

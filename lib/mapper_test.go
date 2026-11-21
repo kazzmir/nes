@@ -11,7 +11,7 @@ import (
 
 func writeMMC1Register(t *testing.T, cpu *CPUState, address uint16, value byte) {
 	t.Helper()
-	for bit := 0; bit < 5; bit++ {
+	for bit := range 5 {
 		if err := cpu.Mapper.Mapper.Write(cpu, address, (value>>bit)&1); err != nil {
 			t.Fatal(err)
 		}
@@ -53,7 +53,7 @@ func TestMMC1CHR4KiBOffsetArithmetic(t *testing.T) {
 func TestMMC1CHR8KiBOffsetArithmetic(t *testing.T) {
 	// Exercise every register value, including odd values (bit 0 is ignored),
 	// the bank ending exactly at 64 KiB, and banks above the 64 KiB boundary.
-	for bank := byte(0); bank < 32; bank++ {
+	for bank := range byte(32) {
 		t.Run(fmt.Sprintf("register_%d", bank), func(t *testing.T) {
 			cpu, chr := mmc1CHRCPU()
 			writeMMC1Register(t, &cpu, 0x8000, 0x0c) // 8 KiB CHR mode.
@@ -77,7 +77,7 @@ func mmc2CPU(t *testing.T) CPUState {
 	cpu := StartupState()
 	cpu.Cycle = 30000
 	cpu.SetMapper(MakeMapper9(make([]byte, 0x20000), chr))
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		cpu.StoreMemory(uint16(0xb000+i*0x1000), byte(i))
 	}
 	return cpu
