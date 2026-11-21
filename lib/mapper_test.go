@@ -684,6 +684,89 @@ func TestCPUOptionalOpenBusMapper(t *testing.T) {
 	}
 }
 
+func TestMMC1SUROMPRGBanking(t *testing.T) {
+	for _, pages := range []int{16, 32} { // 256/512 KiB PRG-ROM.
+		for prgMode := range byte(4) {
+			for chrMode := range byte(2) {
+				t.Run(fmt.Sprintf("PRG_%d_KiB_PRG_mode_%d_CHR_mode_%d", pages*16, prgMode, chrMode), func(t *testing.T) {
+					cpu := mmc1RAMCPU(pages * 0x4000)
+					cpu.StoreMemory(0x6000, 0x42)
+					writeMMC1Register(t, &cpu, 0x8000, chrMode<<4|prgMode<<2)
+					for _, outer := range []byte{0, 0x10} {
+						// In 4 KiB CHR mode, software must keep both outer bits
+						// equal. The other CHR bits do not select PRG banks.
+						writeMMC1Register(t, &cpu, 0xa000, outer|0x0b)
+						writeMMC1Register(t, &cpu, 0xc000, outer|0x04)
+						for register := range byte(32) {
+							writeMMC1Register(t, &cpu, 0xe000, register)
+							bank := int(register & 0x0f)
+							var banks [2]int
+							switch prgMode {
+							case 0, 1:
+								banks[0] = int(outer) + (bank & 0x0e)
+								banks[1] = banks[0] + 1
+							case 2:
+								banks = [2]int{int(outer), int(outer) + bank}
+							case 3:
+								banks = [2]int{int(outer) + bank, int(outer) + 15}
+							}
+							for _, address := range []uint16{0x8000, 0x8001, 0xbfff, 0xc000, 0xc001, 0xfffa, 0xfffc, 0xffff} {
+								want := byte(banks[(address-0x8000)/0x4000] % pages)
+								if got := cpu.LoadMemory(address); got != want {
+									t.Fatalf("outer=$%02x register=$%02x read $%04x: got bank %d, want %d", outer, register, address, got, want)
+								}
+							}
+							cpu.Databus = 0xa5
+							wantRAM := byte(0x42)
+							if register&0x10 != 0 {
+								wantRAM = 0xa5
+							}
+							if cpu.LoadMemory(0x6000) != wantRAM {
+								t.Fatal("SUROM outer-bank bit interfered with PRG-RAM disable")
+							}
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestMMC1SUROM32KiBOuterBankCopyAndRestore(t *testing.T) {
+	cpu := mmc1RAMCPU(0x80000)
+	writeMMC1Register(t, &cpu, 0x8000, 0x0c)
+	writeMMC1Register(t, &cpu, 0xe000, 3) // Bit 0 is ignored in 32 KiB mode.
+	writeMMC1Register(t, &cpu, 0x8000, 0) // Switch to 32 KiB mode.
+	for _, outer := range []byte{0, 0x10, 0, 0x10} {
+		writeMMC1Register(t, &cpu, 0xa000, outer)
+		if cpu.LoadMemory(0x8000) != outer+2 || cpu.LoadMemory(0xc000) != outer+3 {
+			t.Fatal("CHR0 outer-bank change did not immediately update both PRG windows")
+		}
+	}
+	copied := cpu.Copy()
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	restored.Restore()
+	for _, state := range []*CPUState{&copied, &restored} {
+		if state.LoadMemory(0x8000) != 18 || state.LoadMemory(0xffff) != 19 {
+			t.Fatal("copy/save state lost upper-half 32 KiB PRG mapping")
+		}
+		writeMMC1Register(t, state, 0xa000, 0)
+		if state.LoadMemory(0x8000) != 2 || state.LoadMemory(0xffff) != 3 {
+			t.Fatal("copy/save state could not switch back to the lower ROM half")
+		}
+	}
+	if cpu.LoadMemory(0x8000) != 18 {
+		t.Fatal("copy/save state changed the original outer bank")
+	}
+}
+
 // MMC2 latches and rendering fetches.
 
 func mmc2CPU(t *testing.T) CPUState {
