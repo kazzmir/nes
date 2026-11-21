@@ -1214,7 +1214,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             cpu.APU.WriteChannelEnable(value, cpu)
             return
         case APUFrameCounter:
-            cpu.APU.WriteFrameCounter(value)
+            cpu.APU.WriteFrameCounter(value, cpu.Cycle)
             return
         case APUDMCLoad:
             cpu.APU.WriteDMCLoad(value)

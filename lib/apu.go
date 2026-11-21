@@ -486,6 +486,8 @@ type APUState struct {
      */
     FrameMode bool `json:"framemode"`
     UpdatedFrameCounter float64 `json:"framecounter"`
+    PendingFrameMode bool `json:"pendingframemode"`
+    HasPendingFrameMode bool `json:"haspendingframemode"`
     InterruptInhibit bool `json:"interruptinhibit"`
     FrameIRQAsserted bool `json:"frameirq"`
 
@@ -513,6 +515,8 @@ func (apu *APUState) Copy() APUState {
         Clock: apu.Clock,
         FrameMode: apu.FrameMode,
         UpdatedFrameCounter: apu.UpdatedFrameCounter,
+        PendingFrameMode: apu.PendingFrameMode,
+        HasPendingFrameMode: apu.HasPendingFrameMode,
         InterruptInhibit: apu.InterruptInhibit,
         FrameIRQAsserted: apu.FrameIRQAsserted,
         SampleCycles: apu.SampleCycles,
@@ -593,33 +597,56 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUSta
     apu.Noise.Run(apuCycles)
     apu.DMC.Run(apuCycles, cpu)
 
-    apu.Cycles += apuCycles
-
+    remaining := apuCycles
     if apu.UpdatedFrameCounter > 0 {
-        apu.UpdatedFrameCounter -= apuCycles * 2
+        // Keep the OLD sequence running until the delayed $4017 reset.
+        // Resetting before clocking this interval loses length/envelope ticks
+        // immediately preceding the reset, and discards any remaining time.
+        resetDue := remaining * 2 >= apu.UpdatedFrameCounter
+        beforeReset := min(remaining, apu.UpdatedFrameCounter / 2)
+        apu.runFrameCounter(beforeReset, !resetDue)
+        remaining -= beforeReset
+        apu.UpdatedFrameCounter -= beforeReset * 2
         if apu.UpdatedFrameCounter <= 0 {
             apu.Cycles = 0
             apu.Clock = 0
             apu.UpdatedFrameCounter = 0
-
-            if ApuDebug > 0 {
-                log.Printf("APU: reset frame counter")
+            // Older save states stored the requested mode in FrameMode.
+            if apu.HasPendingFrameMode {
+                apu.FrameMode = apu.PendingFrameMode
             }
-
+            apu.HasPendingFrameMode = false
             if !apu.FrameMode {
                 apu.QuarterFrame()
                 apu.HalfFrame()
             }
         }
     }
+    apu.runFrameCounter(remaining, true)
 
+    apu.SampleCycles += apuCycles
+    if apu.SampleCycles > cyclesPerSample {
+        sample := apu.GenerateSample()
+        for apu.SampleCycles >= cyclesPerSample {
+            apu.SampleCycles -= cyclesPerSample
+            for _, stream := range apu.AudioStreams {
+                stream.AddSample(sample)
+            }
+        }
+    }
+}
+
+func (apu *APUState) runFrameCounter(apuCycles float64, includeEnd bool) {
+    apu.Cycles += apuCycles
     /* about 240hz on ntsc
      * cpu hz = 1.789773e6
      * apu hz = cpu hz / 2
      * 1.789773e6 / 2 / 3728.5 = 240.01247
      */
     apuCounter := 3728.75
-    for apu.Cycles >= apuCounter {
+    // A reset at the exact event boundary takes precedence over the old
+    // sequencer's event; all clocks strictly before it must still occur.
+    for apu.Cycles > apuCounter || (includeEnd && apu.Cycles == apuCounter) {
         apu.Clock += 1
         apu.Cycles -= apuCounter
 
@@ -654,30 +681,6 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUSta
         }
     }
 
-    apu.SampleCycles += apuCycles
-    // var out []float32
-    if apu.SampleCycles > cyclesPerSample {
-        sample := apu.GenerateSample()
-        for apu.SampleCycles >= cyclesPerSample {
-            apu.SampleCycles -= cyclesPerSample
-            /*
-            apu.SampleBuffer[apu.SamplePosition] = sample
-            apu.SamplePosition += 1
-            if apu.SamplePosition >= len(apu.SampleBuffer) {
-                apu.SamplePosition = 0
-                if out == nil {
-                    out = make([]float32, len(apu.SampleBuffer))
-                }
-                copy(out, apu.SampleBuffer)
-            }
-            */
-            for _, stream := range apu.AudioStreams {
-                stream.AddSample(sample)
-            }
-        }
-    }
-
-    // return out
 }
 
 type DMC struct {
@@ -1137,7 +1140,7 @@ func (apu *APUState) WriteChannelEnable(value byte, cpu *CPUState){
     }
 }
 
-func (apu *APUState) WriteFrameCounter(value byte){
+func (apu *APUState) WriteFrameCounter(value byte, cpuCycle uint64){
     mode := value >> 7
     if ApuDebug > 0 {
         log.Printf("APU: write frame counter value=%v mode=%v", value, mode)
@@ -1150,9 +1153,13 @@ func (apu *APUState) WriteFrameCounter(value byte){
         apu.FrameIRQAsserted = false
     }
 
-    apu.FrameMode = mode == 0
-    /* FIXME: 3 if during an apu cycle, 4 if not. */
-    apu.UpdatedFrameCounter = 4
+    apu.PendingFrameMode = mode == 0
+    apu.HasPendingFrameMode = true
+    // The sequencer reset is delayed by 3 or 4 CPU cycles according to phase.
+    apu.UpdatedFrameCounter = 3
+    if cpuCycle & 1 != 0 {
+        apu.UpdatedFrameCounter = 4
+    }
 }
 
 func bool_to_byte(x bool) byte {
