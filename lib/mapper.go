@@ -491,6 +491,32 @@ func (mapper *Mapper1) WriteCharacter(ppu *PPUState, address uint16, value byte)
     }
 }
 
+func (mapper *Mapper1) copyChrBank(ppu *PPUState, destination uint16, register byte, size int) {
+    // CHR-RAM uses dynamic address mapping and must never be overwritten here.
+    if len(mapper.CharacterMemory) == 0 {
+        return
+    }
+    // Registers select 4 KiB units; widen before computing ROM offsets.
+    base := int(register) * 0x1000
+    end := base + size
+    if end > len(mapper.CharacterMemory) {
+        log.Printf("[mapper1] Warning: could not copy character data from range %v to %v", base, end)
+        return
+    }
+    ppu.CopyCharacterRom(destination, mapper.CharacterMemory[base:end], false)
+}
+
+// Rebuild both pattern tables from the stored bank registers and current mode.
+func (mapper *Mapper1) SetChrBank(ppu *PPUState) {
+    if mapper.ChrBankMode == 0 {
+        // The low bank bit is ignored when selecting an 8 KiB pair.
+        mapper.copyChrBank(ppu, 0x0000, mapper.ChrRegister0 & 0x1e, 0x2000)
+    } else {
+        mapper.copyChrBank(ppu, 0x0000, mapper.ChrRegister0, 0x1000)
+        mapper.copyChrBank(ppu, 0x1000, mapper.ChrRegister1, 0x1000)
+    }
+}
+
 func (mapper *Mapper1) IsIRQAsserted() bool {
     return false
 }
@@ -555,43 +581,18 @@ func (mapper *Mapper1) Write(cpu *CPUState, address uint16, value byte) error {
                     case 3:
                         cpu.PPU.SetHorizontalMirror()
                 }
+                mapper.SetChrBank(&cpu.PPU)
             } else if address >= 0xa000 && address <= 0xbfff {
                 mapper.ChrRegister0 = mapper.Register
-
-                /* chr bank 0 */
-                if mapper.ChrBankMode == 1 {
-                    // Widen before multiplying so offsets and slice ends do not wrap at 64 KiB.
-                    base := int(mapper.Register) * 0x1000
-                    /* FIXME: this is needed for games that have chrrom in the nesfile
-                     * such as bubble bobble and zelda2, but doesn't seem to work
-                     * for ninja gaiden
-                     */
-                    if len(mapper.CharacterMemory) != 0 {
-                        if int(base) < len(mapper.CharacterMemory) && int(base + 0x1000) <= len(mapper.CharacterMemory) && base < base + 0x1000 {
-                            cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x1000], false)
-                        } else {
-                            log.Printf("[mapper1] Warning: could not copy character data from range %v to %v", base, base + 0x1000)
-                        }
-                    }
+                if mapper.ChrBankMode == 0 {
+                    mapper.SetChrBank(&cpu.PPU)
                 } else {
-                    base := int(mapper.Register >> 1) * 0x2000
-                    if len(mapper.CharacterMemory) != 0 {
-                        cpu.PPU.CopyCharacterRom(0x0000, mapper.CharacterMemory[base:base + 0x2000], false)
-                    }
+                    mapper.copyChrBank(&cpu.PPU, 0x0000, mapper.ChrRegister0, 0x1000)
                 }
             } else if address >= 0xc000 && address <= 0xdfff {
                 mapper.ChrRegister1 = mapper.Register
-
-                /* chr bank 1 */
                 if mapper.ChrBankMode == 1 {
-                    base := int(mapper.Register) * 0x1000
-                    if len(mapper.CharacterMemory) != 0 {
-                        if int(base + 0x1000) <= len(mapper.CharacterMemory) {
-                            cpu.PPU.CopyCharacterRom(0x1000, mapper.CharacterMemory[base:base + 0x1000], false)
-                        }
-                    }
-                } else {
-                    /* ignore in 8k mode */
+                    mapper.copyChrBank(&cpu.PPU, 0x1000, mapper.ChrRegister1, 0x1000)
                 }
             } else if address >= 0xe000 {
                 /* prg bank */
