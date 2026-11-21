@@ -204,6 +204,70 @@ func TestMMC1CHRRAMCopyAndRestore(t *testing.T) {
 	}
 }
 
+func TestMMC1SerialReset(t *testing.T) {
+	for control := range byte(32) {
+		for _, address := range []uint16{0x8000, 0xbfff, 0xdfff, 0xffff} {
+			for _, value := range []byte{0x80, 0xff} {
+				t.Run(fmt.Sprintf("control_%02x_address_%04x_value_%02x", control, address, value), func(t *testing.T) {
+					cpu := mmc1RAMCPU(0x40000)
+					writeMMC1Register(t, &cpu, 0xa000, 6)
+					writeMMC1Register(t, &cpu, 0xc000, 11)
+					writeMMC1Register(t, &cpu, 0xe000, 3)
+					writeMMC1Register(t, &cpu, 0x8000, control)
+					mirror := cpu.PPU.NametableMirror
+					// Leave an incomplete serial write that reset must discard.
+					for _, bit := range []byte{1, 0, 1} {
+						cpu.StoreMemory(0xe000, bit)
+					}
+					cpu.StoreMemory(address, value)
+					mapper := cpu.Mapper.Mapper.(*Mapper1)
+					if mapper.Shift != 0 || mapper.Register != 0 {
+						t.Fatal("reset did not clear the partial serial write")
+					}
+					if mapper.PrgBankMode != 3 {
+						t.Fatalf("reset left PRG mode %d, want 3", mapper.PrgBankMode)
+					}
+					if mapper.Mirror != control&3 || mapper.ChrBankMode != control>>4 || cpu.PPU.NametableMirror != mirror {
+						t.Fatal("reset changed mirroring or CHR mode instead of only control bits 2-3")
+					}
+					if mapper.PrgBank != 3 || mapper.ChrRegister0 != 6 || mapper.ChrRegister1 != 11 {
+						t.Fatal("reset changed a PRG/CHR bank register")
+					}
+					if cpu.LoadMemory(0x8000) != 3 || cpu.LoadMemory(0xc000) != 15 {
+						t.Fatal("reset did not immediately map the selected/last 16 KiB PRG banks")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestMMC1SerialWriteAfterReset(t *testing.T) {
+	cpu := mmc1RAMCPU(0x40000)
+	writeMMC1Register(t, &cpu, 0xe000, 3)
+	for _, bit := range []byte{1, 0, 1} {
+		cpu.StoreMemory(0x8000, bit)
+	}
+	cpu.StoreMemory(0xbfff, 0xff)
+	mapper := cpu.Mapper.Mapper.(*Mapper1)
+	const nextBank byte = 6
+	for bit := range 4 {
+		cpu.StoreMemory(0xe000, (nextBank>>bit)&1)
+		if mapper.PrgBank != 3 {
+			t.Fatal("bank committed before five fresh bits after reset")
+		}
+	}
+	cpu.StoreMemory(0xe000, nextBank>>4)
+	if mapper.Shift != 0 || mapper.Register != 0 || mapper.PrgBank != nextBank {
+		t.Fatal("serial writes did not restart cleanly after reset")
+	}
+	// A later full control write can still leave the reset-selected PRG mode.
+	writeMMC1Register(t, &cpu, 0x8000, 0x08)
+	if mapper.PrgBankMode != 2 {
+		t.Fatal("control write could not change PRG mode after reset")
+	}
+}
+
 // MMC2 latches and rendering fetches.
 
 func mmc2CPU(t *testing.T) CPUState {
