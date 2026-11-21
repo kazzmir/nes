@@ -7,6 +7,39 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **Disconnected ROM bank address lines were not respected.** Standard
+  power-of-two ROM sizes now mask unconnected bank bits at access time:
+  UxROM PRG, CNROM CHR, MMC3 CHR, AxROM PRG, and MMC2 PRG/CHR. MMC3 PRG
+  uses the same resolver. MMC3's aligned 2 KiB CHR selections and MMC2's
+  four/five-bit register masks remain separate from physical ROM aliasing.
+  CNROM/AxROM can also select connected higher bits on larger ROM boards.
+  - Code: `lib/mapper.go` (`mirrorBank`, mapper 2/3/4/7/9 access paths).
+    Empty images and unsupported bank holes are bounds-checked rather than
+    panicking; non-power-of-two images do not get invented modulo aliases.
+  - Board wiring: NES 2.0 submapper 1 selects no bus conflicts and submapper
+    2 selects bus conflicts for mappers 2/3/7. Conflicting writes AND the CPU
+    value with the OLD PRG mapping, including AxROM's mirror bit and the CPU
+    data bus. Copies/save states retain this board setting.
+  - Loader: `lib/nes.go` preserves the NES 2.0 submapper and full 12-bit
+    mapper ID. `NESFile.MakeMapper` configures the board in the emulator and
+    screenshot loader. Unknown discrete-board submappers are rejected.
+  - Compatibility: legacy iNES and unspecified submapper 0 retain the
+    existing no-conflict default; they do not identify the physical board.
+  - Tests: `lib/mapper_test.go` covers all 256 write values across multiple
+    ROM sizes, both MMC3 CHR modes, MMC2 latch selections/register masks,
+    fixed PRG windows, bus-conflict variants, old-bank bus values, metadata,
+    empty/irregular images, and copy/save-state preservation.
+  - Fix: `d21bac1`.
+- [x] **MMC2 PRG reads could index outside ROM.** Alias disconnected bank
+  bits and bounds-check reads, including malformed/empty images and addresses
+  below the PRG-ROM window. This does not add MMC2 cartridge-RAM emulation.
+  - Code: `lib/mapper.go` (`Mapper9.ReadBank`, `Read`).
+  - Tests: `lib/mapper_test.go` (`TestDiscreteAndMMC2PRGBankAddressLines`,
+    `TestBankAddressLinesEmptyAndNonPowerOfTwo`).
+- [x] **Dedicated MMC2 register-mask/CHR-wrap tests were missing.**
+  `TestMMC2CHRRegisterMasksAndAddressLines` now exercises all CHR register
+  values, both latch selections in both tables, and ROM sizes 8–128 KiB.
+  PRG register masking and small-ROM aliases have separate coverage above.
 - [x] **MMC3: four-screen mirroring was not preserved.** Parse iNES header
   bit 3 with priority over the H/V bit, configure four independent 1 KiB
   nametables backed by 4 KiB RAM, and ignore MMC3 $A000 mirroring writes
@@ -144,7 +177,7 @@ regression tests before marking an item fixed.
   registers to four bits and CHR registers to five bits; wrap CHR selection to
   available banks instead of slicing outside CHR-ROM.
   - Code: `lib/mapper.go` (`Mapper9.Write`, `CharacterBlock`).
-  - Fix: `7237632`. Add dedicated disconnected-bit/wraparound tests below.
+  - Fix: `7237632`. Dedicated mask/address-line tests are now listed above.
 
 The PPU's optional character-read and scanline interfaces are bound outside
 `PPU.Run()`; scanline binding/copy/restore tests are in `lib/mapper_test.go`.
@@ -167,20 +200,12 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 
 ### Bank selection across mappers
 
-- [ ] **Respect disconnected bank address bits / available ROM size.** Review
-  `Mapper2.Write`/`Read`, `Mapper3.Write`, `Mapper4.CharacterBlock`, and
-  `Mapper7.ReadBank`/`Write`. MMC3 PRG aliasing is fixed above; CHR aliasing and
-  other mappers remain open. Hardware-supported selections currently can
-  return zero, leave stale graphics, or panic instead of aliasing an existing
-  bank. Model the actual board's wiring; also account for bus conflicts where
-  applicable rather than applying one unconditional rule to every board.
-- [ ] **MMC2 PRG reads can still index outside ROM.** Register masking is
-  fixed, but `Mapper9.ReadBank` still assumes the selected PRG bank exists.
-  Handle disconnected PRG address bits for smaller supported ROMs and test
-  the behavior separately from CHR latches.
-- [ ] **Add dedicated MMC2 register-mask/CHR-wrap tests.** The latch checker
-  deliberately selects valid, distinguishable banks; it does not exercise
-  the register masking and CHR wraparound fix.
+- [ ] **Identify ambiguous legacy boards and irregular ROM wiring.** iNES
+  and NES 2.0 submapper 0 do not distinguish conflicting/non-conflicting
+  discrete boards. Add reliable board identification or explicit configuration
+  before changing their compatibility default. Non-power-of-two ROM layouts
+  also need board-specific mapping; current fallback bounds-checks bank holes
+  instead of guessing modulo wiring.
 
 ## Validation
 
@@ -195,3 +220,9 @@ The standalone checker requires the local mapper-9 ROM (or `-rom path/to/rom`).
 The Go unit tests use synthetic cartridge data and do not require ROM files.
 The checker isolates latch banking; it is not proof of cycle-accurate rendering
 or complete MMC2 gameplay compatibility.
+
+After the bank-address-line changes, headless runs through the screenshot
+loader completed ten million CPU cycles each for Contra, Joust, Battletoads,
+and the local Mike Tyson's Punch-Out!! ROM without CPU errors or warnings.
+NES 2.0 bus-conflict variants are covered by synthetic header/board tests;
+the local ROM collection does not provide identified submapper-2 examples.
