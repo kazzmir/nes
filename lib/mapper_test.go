@@ -101,6 +101,77 @@ func TestMMC1CHR8KiBOffsetArithmetic(t *testing.T) {
 	}
 }
 
+func TestMMC1ControlCHRRemapping(t *testing.T) {
+	for _, banks := range [][2]byte{{0, 31}, {5, 2}, {31, 0}, {16, 7}} {
+		t.Run(fmt.Sprintf("CHR0_%d_CHR1_%d", banks[0], banks[1]), func(t *testing.T) {
+			cpu, chr := mmc1CHRCPU()
+			cpu.Cycle = 30000
+			cpu.PPU.CopyCharacterRom(0, chr[:0x2000], true)
+			writeMMC1Register(t, &cpu, 0x8000, 0x0c) // Start in 8 KiB mode.
+			writeMMC1Register(t, &cpu, 0xa000, banks[0])
+			writeMMC1Register(t, &cpu, 0xc000, banks[1]) // Stored but inactive.
+			assertBanks := func(want [2]byte) {
+				t.Helper()
+				for table, bank := range want {
+					base, start := table*0x1000, int(bank)*0x1000
+					if !bytes.Equal(cpu.PPU.VideoMemory[base:base+0x1000], chr[start:start+0x1000]) {
+						t.Fatalf("pattern table %d does not map CHR bank %d", table, bank)
+					}
+					for _, offset := range []int{0, 0xfff} {
+						if got := readPatternByte(&cpu, uint16(base+offset)); got != chr[start+offset] {
+							t.Fatalf("PPU read $%04x did not use CHR bank %d", base+offset, bank)
+						}
+					}
+				}
+			}
+			pair := [2]byte{banks[0] & 0x1e, banks[0] | 1}
+			assertBanks(pair)
+			before := bytes.Clone(cpu.PPU.VideoMemory[:0x2000])
+			const control byte = 0x1c
+			for bit := range 4 {
+				cpu.Cycle += 2
+				cpu.StoreMemory(0x8000, (control>>bit)&1)
+				if !bytes.Equal(cpu.PPU.VideoMemory[:0x2000], before) {
+					t.Fatal("partial control write changed CHR mapping")
+				}
+			}
+			cpu.Cycle += 2
+			cpu.StoreMemory(0x8000, control>>4) // Commit 4 KiB mode.
+			assertBanks(banks)
+			mapper := cpu.Mapper.Mapper.(*Mapper1)
+			if mapper.ChrRegister0 != banks[0] || mapper.ChrRegister1 != banks[1] {
+				t.Fatal("control write changed stored CHR registers")
+			}
+			writeMMC1Register(t, &cpu, 0x8000, 0x0c) // Return to 8 KiB mode.
+			assertBanks(pair)
+			writeMMC1Register(t, &cpu, 0x8000, 0x1c)
+			assertBanks(banks) // No CHR register rewrites are needed in either direction.
+		})
+	}
+}
+
+func TestMMC1ControlCHRRemappingPreservesRAM(t *testing.T) {
+	cpu := mmc1RAMCPU(0x8000)
+	writePatternByte(&cpu, 0x0123, 0x36)
+	writePatternByte(&cpu, 0x1123, 0x9c)
+	original := bytes.Clone(cpu.PPU.VideoMemory[:0x2000])
+	writeMMC1Register(t, &cpu, 0xa000, 1)
+	writeMMC1Register(t, &cpu, 0xc000, 0)
+	for control := range byte(32) {
+		writeMMC1Register(t, &cpu, 0x8000, control)
+		lower, upper := byte(0x36), byte(0x9c)
+		if control&0x10 != 0 {
+			lower, upper = upper, lower
+		}
+		if readPatternByte(&cpu, 0x0123) != lower || readPatternByte(&cpu, 0x1123) != upper {
+			t.Fatalf("control $%02x did not apply CHR-RAM mapping", control)
+		}
+		if !bytes.Equal(cpu.PPU.VideoMemory[:0x2000], original) {
+			t.Fatalf("control $%02x overwrote physical CHR-RAM", control)
+		}
+	}
+}
+
 func mmc1RAMCPU(prgSize int) CPUState {
 	prg := make([]byte, prgSize)
 	for i := range prg {

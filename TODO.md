@@ -7,6 +7,14 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **MMC1: control changes left stale CHR-ROM mappings.** A completed
+  control write rebuilds both pattern tables using the stored CHR registers
+  and the new 4/8 KiB mode. Shared copy logic keeps ROM offsets wide and
+  accepts slices ending exactly at the ROM boundary; CHR-RAM is not copied.
+  - Code: `lib/mapper.go` (`Mapper1.SetChrBank`, `copyChrBank`, `Write`).
+  - Tests: `lib/mapper_test.go` covers both mode-change directions without
+    rewriting bank registers, inactive CHR1 writes, odd/high/final banks,
+    partial serial writes, CPU-visible reads, and CHR-RAM preservation.
 - [x] **MMC1: last valid 4 KiB CHR bank was rejected.** Allow the source slice
   end to equal the CHR-ROM length in both CHR bank-register handlers.
   - Code: `lib/mapper.go` (`Mapper1.Write`).
@@ -115,8 +123,6 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 
 ### MMC1 (mapper 1)
 
-- [ ] **Control changes leave stale CHR mappings.** Changing CHR mode in
-  `Mapper1.Write` must remap using the already-stored CHR registers.
 - [ ] **PRG-RAM disable is ignored.** Implement the PRG register's RAM-disable
   behavior for applicable MMC1 revisions/boards in `Mapper1.Read`/`Write`.
 - [ ] **512 KiB PRG banking is wrong in 32 KiB mode.** `Mapper1.Read` does not
