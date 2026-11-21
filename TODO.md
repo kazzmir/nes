@@ -7,6 +7,15 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **CNROM: 16 KiB PRG-ROM was not mirrored at $C000–FFFF.** Mask A14
+  for 16 KiB PRG-ROMs while retaining the full mapping for 32 KiB ROMs.
+  This also makes the reset, NMI, and IRQ vectors accessible.
+  - Code: `lib/mapper.go` (`Mapper3.Read`).
+  - Tests: `lib/mapper_test.go` checks the entire CPU PRG range for both ROM
+    sizes, unchanged PRG mapping during CHR switching, mirrored interrupt
+    vectors, and CPU execution from the mirrored half.
+  - Local ROM: `roms/Joust (U) .nes` has 16 KiB PRG-ROM. Previously its reset
+    vector read as zero, leaving execution stuck at $0000.
 - [x] **MMC3: PRG bank selections outside the physical ROM returned zero.**
   Alias selected 8 KiB banks to available PRG-ROM banks at read time, without
   changing the latched register bits. This models disconnected address lines
@@ -109,11 +118,6 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 - [ ] **512 KiB PRG banking is wrong in 32 KiB mode.** `Mapper1.Read` does not
   apply the SUROM outer-bank bit in this mode. Keep outer-bank selection
   separate from PRG bank bits and the RAM-disable bit; test both ROM halves.
-
-### CNROM (mapper 3)
-
-- [ ] **16 KiB PRG-ROM is not mirrored.** `Mapper3.Read` returns zero for
-  $C000–FFFF instead of mirroring $8000–BFFF, including the reset vectors.
 
 ### MMC3 (mapper 4)
 
