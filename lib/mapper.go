@@ -748,6 +748,10 @@ func (mapper *Mapper3) IsIRQAsserted() bool {
 func (mapper *Mapper3) Read(address uint16) byte {
     if address >= 0x8000 {
         offset := address - 0x8000
+        // A 16 KiB CNROM PRG-ROM does not decode A14: mirror it at $C000.
+        if len(mapper.ProgramRom) == 0x4000 {
+            offset &= 0x3fff
+        }
         if uint32(offset) < uint32(len(mapper.ProgramRom)) {
             return mapper.ProgramRom[offset]
         } else {
