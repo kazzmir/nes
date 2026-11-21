@@ -701,8 +701,7 @@ func TestMMC3RegisterAliases(t *testing.T) {
 		{"ram_protect", 0xa001, 0xc0, 0},
 		{"ram_disable", 0xa001, 0, 0},
 		{"irq_latch", 0xc000, 5, 0},
-		// Compare reload aliases to the canonical register without asserting its
-		// currently incorrect reload semantics, tracked separately in TODO.md.
+		// Reload behavior is tested separately; here verify address decoding.
 		{"irq_reload", 0xc001, 3, 0},
 		{"irq_disable", 0xe000, 0, 0},
 		{"irq_enable", 0xe001, 0, 0},
