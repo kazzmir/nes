@@ -879,6 +879,388 @@ func TestMMC2CopyAndSaveState(t *testing.T) {
 	}
 }
 
+// Disconnected bank address lines across cartridge types.
+
+func bankTestROM(pages int, pageSize int) []byte {
+	memory := make([]byte, pages*pageSize)
+	for i := range memory {
+		memory[i] = byte(i/pageSize+1) ^ byte(i)
+	}
+	return memory
+}
+
+func TestDiscreteAndMMC2PRGBankAddressLines(t *testing.T) {
+	for _, test := range []struct {
+		mapper   uint32
+		pageSize int
+		pages    []int
+		mask     byte
+	}{
+		{2, 0x4000, []int{2, 4, 8, 16}, 0xff},
+		{7, 0x8000, []int{1, 2, 4, 8, 16}, 0x0f},
+		{9, 0x2000, []int{4, 8, 16}, 0x0f},
+	} {
+		for _, pages := range test.pages {
+			t.Run(fmt.Sprintf("mapper_%d_pages_%d", test.mapper, pages), func(t *testing.T) {
+				prg := bankTestROM(pages, test.pageSize)
+				mapper, err := MakeMapper(test.mapper, prg, make([]byte, 0x8000))
+				if err != nil {
+					t.Fatal(err)
+				}
+				cpu := StartupState()
+				cpu.SetMapper(mapper)
+				for raw := range 256 {
+					value := byte(raw)
+					address := uint16(0x8000)
+					if test.mapper == 9 {
+						address = 0xa000
+					}
+					cpu.StoreMemory(address, value)
+					switch board := mapper.(type) {
+					case *Mapper2:
+						if board.Bank != value {
+							t.Fatal("ROM size altered the latched UxROM register")
+						}
+					case *Mapper7:
+						if board.Bank != int(value&test.mask) || board.Mirror != int(value>>4&1) {
+							t.Fatal("ROM size altered the latched AxROM register")
+						}
+					case *Mapper9:
+						if board.PrgRegister != value&test.mask {
+							t.Fatal("MMC2 did not mask the PRG register to four bits")
+						}
+					}
+					selected := int(value&test.mask) & (pages - 1)
+					for _, address := range []uint16{0x8000, 0x9fff, 0xa000, 0xbfff, 0xc000, 0xdfff, 0xe000, 0xffff} {
+						bank := selected
+						if test.mapper == 2 && address >= 0xc000 {
+							bank = pages - 1
+						}
+						if test.mapper == 9 && address >= 0xa000 {
+							bank = pages - 3 + int(address-0xa000)/0x2000
+						}
+						offset := int(address-0x8000) % test.pageSize
+						if got, want := cpu.LoadMemory(address), prg[bank*test.pageSize+offset]; got != want {
+							t.Fatalf("write $%02x read $%04x: got $%02x, want $%02x (physical bank %d)", value, address, got, want, bank)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestCNROMCHRBankAddressLines(t *testing.T) {
+	for _, pages := range []int{1, 2, 4, 8, 16} {
+		t.Run(fmt.Sprintf("pages_%d", pages), func(t *testing.T) {
+			chr := bankTestROM(pages, 0x2000)
+			cpu := StartupState()
+			cpu.SetMapper(MakeMapper3(make([]byte, 0x8000), chr))
+			for raw := range 256 {
+				cpu.StoreMemory(0x8000, byte(raw))
+				base := (raw & (pages - 1)) * 0x2000
+				if !bytes.Equal(cpu.PPU.VideoMemory[:0x2000], chr[base:base+0x2000]) {
+					t.Fatalf("CHR register $%02x did not alias bank %d", raw, base/0x2000)
+				}
+			}
+			before := bytes.Clone(cpu.PPU.VideoMemory[:0x2000])
+			cpu.StoreMemory(0x6000, 0)
+			if !bytes.Equal(cpu.PPU.VideoMemory[:0x2000], before) {
+				t.Fatal("write below $8000 changed the CHR bank")
+			}
+		})
+	}
+}
+
+func TestMMC3CHRBankAddressLines(t *testing.T) {
+	for _, pages := range []int{8, 16, 32, 64, 128, 256} {
+		for mode := range byte(2) {
+			t.Run(fmt.Sprintf("pages_%d_mode_%d", pages, mode), func(t *testing.T) {
+				chr := bankTestROM(pages, 0x400)
+				cpu := StartupState()
+				mapper := MakeMapper4(make([]byte, 0x8000), chr).(*Mapper4)
+				cpu.SetMapper(mapper)
+				for register := range byte(6) {
+					for raw := range 256 {
+						cpu.StoreMemory(0x8000, mode<<7|register)
+						cpu.StoreMemory(0x8001, byte(raw))
+						value, size, destination := byte(raw), 0x400, 0
+						if register < 2 {
+							value &= 0xfe
+							size, destination = 0x800, int(register)*0x800
+						} else {
+							destination = 0x1000 + int(register-2)*0x400
+						}
+						if mode == 1 {
+							destination ^= 0x1000
+						}
+						base := (int(value) & (pages - 1)) * 0x400
+						if mapper.ChrRegister[register] != value {
+							t.Fatal("physical ROM size altered the latched CHR register")
+						}
+						if !bytes.Equal(cpu.PPU.VideoMemory[destination:destination+size], chr[base:base+size]) {
+							t.Fatalf("CHR register %d=$%02x did not alias physical page %d", register, value, base/0x400)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestMMC2CHRRegisterMasksAndAddressLines(t *testing.T) {
+	for _, pages := range []int{2, 4, 8, 16, 32} {
+		t.Run(fmt.Sprintf("pages_%d", pages), func(t *testing.T) {
+			chr := bankTestROM(pages, 0x1000)
+			cpu := StartupState()
+			mapper := MakeMapper9(make([]byte, 0x20000), chr).(*Mapper9)
+			cpu.SetMapper(mapper)
+			for raw := range 256 {
+				for register := range 4 {
+					cpu.StoreMemory(uint16(0xb000+register*0x1000), byte(raw+register))
+					if mapper.ChrRegister[register] != byte(raw+register)&0x1f {
+						t.Fatal("MMC2 did not mask the CHR register to five bits")
+					}
+				}
+				for _, trigger := range []uint16{0x0fd8, 0x0fe8, 0x1fd8, 0x1fe8} {
+					cpu.PPU.readPatternMemory(trigger)
+					table := int(trigger / 0x1000)
+					register := table * 2
+					if trigger&0xfff == 0xfe8 {
+						register++
+					}
+					base := ((raw + register) & 0x1f & (pages - 1)) * 0x1000
+					if got := cpu.PPU.readPatternMemory(uint16(table*0x1000 + 0x123)); got != chr[base+0x123] {
+						t.Fatalf("CHR write $%02x trigger $%04x fetched the wrong physical bank", raw, trigger)
+					}
+					if !bytes.Equal(cpu.PPU.VideoMemory[table*0x1000:(table+1)*0x1000], chr[base:base+0x1000]) {
+						t.Fatal("MMC2's PPU bank cache did not match the mirrored CHR bank")
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestBankAddressLinesEmptyAndNonPowerOfTwo(t *testing.T) {
+	for _, kind := range []uint32{2, 3, 4, 7, 9} {
+		mapper, err := MakeMapper(kind, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cpu := StartupState()
+		cpu.SetMapper(mapper)
+		for _, address := range []uint16{0x8000, 0xa000, 0xc000, 0xe000, 0xffff} {
+			if mapper.Read(address) != 0 {
+				t.Fatalf("empty mapper %d ROM read was nonzero", kind)
+			}
+		}
+		address := uint16(0x8000)
+		if kind == 9 {
+			address = 0xa000
+		}
+		if err := mapper.Write(&cpu, address, 0xff); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, test := range []struct {
+		kind uint32
+		size int
+	}{
+		{2, 0x4000}, {4, 0x2000}, {7, 0x8000}, {9, 0x2000},
+	} {
+		// A three-bank image does not imply modulo-three electrical wiring.
+		mapper, err := MakeMapper(test.kind, bytes.Repeat([]byte{0x5a}, 3*test.size), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cpu := StartupState()
+		cpu.SetMapper(mapper)
+		if test.kind == 4 {
+			cpu.StoreMemory(0x8000, 6)
+			cpu.StoreMemory(0x8001, 3)
+		} else if test.kind == 9 {
+			cpu.StoreMemory(0xa000, 3)
+		} else {
+			cpu.StoreMemory(0x8000, 3)
+		}
+		if mapper.Read(0x8000) != 0 {
+			t.Fatalf("mapper %d invented modulo-three bank mirroring", test.kind)
+		}
+	}
+}
+
+func discreteBoardROM(t *testing.T, kind uint32, submapper byte, nes2 bool) NESFile {
+	t.Helper()
+	pageSize, pages, chrPages := 0x4000, 4, 0
+	if kind == 3 {
+		pageSize, pages, chrPages = 0x8000, 1, 4
+	} else if kind == 7 {
+		pageSize = 0x8000
+	}
+	prg := bankTestROM(pages, pageSize)
+	prg[0] = 2
+	if pages == 4 {
+		prg[2*pageSize], prg[3*pageSize] = 1, 4
+	}
+	chr := bankTestROM(chrPages, 0x2000)
+	data := make([]byte, 16)
+	copy(data, []byte{'N', 'E', 'S', 0x1a})
+	data[4], data[5], data[6] = byte(len(prg)/0x4000), byte(chrPages), byte(kind<<4)
+	data[8] = submapper << 4
+	if nes2 {
+		data[7] = 8
+	}
+	data = append(append(data, prg...), chr...)
+	rom, err := ParseNes(bytes.NewReader(data), false, "synthetic discrete board")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rom
+}
+
+func assertDiscreteBoardBank(t *testing.T, cpu *CPUState, kind uint32, value byte) {
+	t.Helper()
+	physical := int(value & 3)
+	switch mapper := cpu.Mapper.Mapper.(type) {
+	case *Mapper2:
+		if mapper.Bank != value || cpu.LoadMemory(0x8000) != mapper.BankMemory[physical*0x4000] {
+			t.Fatalf("mapper 2 latched bank $%02x, want $%02x", mapper.Bank, value)
+		}
+	case *Mapper3:
+		if cpu.PPU.VideoMemory[0] != byte(physical+1) {
+			t.Fatalf("mapper 3 selected the wrong CHR bank for value $%02x", value)
+		}
+	case *Mapper7:
+		if mapper.Bank != int(value&0x0f) || cpu.LoadMemory(0x8000) != mapper.ProgramRom[physical*0x8000] {
+			t.Fatalf("mapper 7 latched bank $%02x, want $%02x", mapper.Bank, value&0x0f)
+		}
+		wantMirror := NametableMirrorConfiguration(NametableMirrorScreenA)
+		if value&0x10 != 0 {
+			wantMirror = NametableMirrorScreenB
+		}
+		if cpu.PPU.NametableMirror != wantMirror {
+			t.Fatal("mapper 7 bus conflict was not applied to the mirroring bit")
+		}
+	default:
+		t.Fatalf("unexpected mapper type for %d", kind)
+	}
+}
+
+func TestDiscreteBoardSubmapperBusConflicts(t *testing.T) {
+	for _, kind := range []uint32{2, 3, 7} {
+		for _, test := range []struct {
+			nes2 bool
+			sub  byte
+		}{
+			{false, 2}, // Legacy header byte 8 is NOT submapper metadata.
+			{true, 0}, {true, 1}, {true, 2},
+		} {
+			t.Run(fmt.Sprintf("mapper_%d_NES2_%v_sub_%d", kind, test.nes2, test.sub), func(t *testing.T) {
+				rom := discreteBoardROM(t, kind, test.sub, test.nes2)
+				wantSub := byte(0)
+				if test.nes2 {
+					wantSub = test.sub
+				}
+				if rom.Mapper != kind || rom.Submapper != wantSub || rom.Nes2 != test.nes2 {
+					t.Fatal("incorrect mapper/submapper metadata")
+				}
+				mapper, err := rom.MakeMapper()
+				if err != nil {
+					t.Fatal(err)
+				}
+				cpu := StartupState()
+				cpu.SetMapper(mapper)
+				cpu.StoreMemory(0x8000, 0x17)
+				want := byte(0x17)
+				if test.nes2 && test.sub == 2 {
+					want &= 2 // The currently mapped PRG-ROM drives $02.
+				}
+				if cpu.Databus != want {
+					t.Fatal("CPU data bus did not retain the electrically driven write value")
+				}
+				assertDiscreteBoardBank(t, &cpu, kind, want)
+			})
+		}
+		rom := discreteBoardROM(t, kind, 3, true)
+		if _, err := rom.MakeMapper(); err == nil {
+			t.Fatalf("mapper %d silently accepted an unsupported board submapper", kind)
+		}
+	}
+}
+
+func TestDiscreteBusConflictUsesOldPRGMapping(t *testing.T) {
+	for _, kind := range []uint32{2, 7} {
+		rom := discreteBoardROM(t, kind, 2, true)
+		mapper, err := rom.MakeMapper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cpu := StartupState()
+		cpu.SetMapper(mapper)
+		cpu.StoreMemory(0x8000, 0x17) // Old bank 0 drives $02; select bank 2.
+		assertDiscreteBoardBank(t, &cpu, kind, 2)
+		cpu.StoreMemory(0x8000, 3) // Old bank 2 drives $01, not bank 3's $04.
+		assertDiscreteBoardBank(t, &cpu, kind, 1)
+	}
+	// CNROM's 16 KiB PRG mirror must drive the bus at $C000 too.
+	rom := NESFile{Mapper: 3, Nes2: true, Submapper: 2, ProgramRom: make([]byte, 0x4000), CharacterRom: bankTestROM(4, 0x2000)}
+	rom.ProgramRom[0] = 2
+	mapper, err := rom.MakeMapper()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpu := StartupState()
+	cpu.SetMapper(mapper)
+	cpu.StoreMemory(0xc000, 0x17)
+	assertDiscreteBoardBank(t, &cpu, 3, 2)
+}
+
+func TestDiscreteBusConflictCopyAndRestore(t *testing.T) {
+	for _, kind := range []uint32{2, 3, 7} {
+		rom := discreteBoardROM(t, kind, 2, true)
+		mapper, err := rom.MakeMapper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cpu := StartupState()
+		cpu.SetMapper(mapper)
+		copied := cpu.Copy()
+		data, err := json.Marshal(cpu)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var restored CPUState
+		if err := json.Unmarshal(data, &restored); err != nil {
+			t.Fatal(err)
+		}
+		restored.Restore()
+		for _, state := range []*CPUState{&copied, &restored} {
+			state.StoreMemory(0x8000, 0x17)
+			assertDiscreteBoardBank(t, state, kind, 2)
+		}
+	}
+}
+
+func TestNES2ExtendedMapperNumber(t *testing.T) {
+	rom := discreteBoardROM(t, 2, 2, true)
+	// Byte 8's low nibble extends the mapper number; its high nibble is separate.
+	header := make([]byte, 16)
+	copy(header, []byte{'N', 'E', 'S', 0x1a})
+	header[4], header[6], header[7], header[8] = 4, 0x20, 8, 0x21
+	data := append(header, rom.ProgramRom...)
+	parsed, err := ParseNes(bytes.NewReader(data), false, "extended mapper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Mapper != 0x102 || parsed.Submapper != 2 {
+		t.Fatal("extended mapper number was confused with submapper bits")
+	}
+	if _, err := parsed.MakeMapper(); err == nil {
+		t.Fatal("extended mapper was incorrectly treated as UxROM")
+	}
+}
+
 // CNROM PRG-ROM mapping.
 
 func TestCNROMPRGMapping(t *testing.T) {

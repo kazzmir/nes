@@ -235,6 +235,16 @@ func compareSlice[T comparable](slice1 []T, slice2 []T) error {
     return nil
 }
 
+// mirrorBank removes unconnected address lines for standard power-of-two ROMs.
+// Non-power-of-two images need board-specific wiring; leave their bank number
+// intact so the caller's bounds check rejects holes instead of inventing aliases.
+func mirrorBank(bank int, pages int) int {
+    if pages > 0 && pages & (pages - 1) == 0 {
+        return bank & (pages - 1)
+    }
+    return bank
+}
+
 func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, error) {
     switch mapper {
         case 0: return MakeMapper0(programRom), nil
@@ -648,6 +658,7 @@ func MakeMapper1(bankMemory []byte, chrMemory []byte) Mapper {
 }
 
 type Mapper2 struct {
+    BusConflicts bool `json:"busconflicts"`
     BankMemory []byte `json:"bankmemory"`
     SaveRam []byte `json:"saveram"`
     LastBankAddress uint32 `json:"lastaddress"`
@@ -664,6 +675,10 @@ func (mapper *Mapper2) Compare(other Mapper) error {
         return fmt.Errorf("other was not a mapper2")
     }
 
+    if mapper.BusConflicts != him.BusConflicts {
+        return fmt.Errorf("bus conflict configuration differs")
+    }
+
     if mapper.Bank != him.Bank {
         return fmt.Errorf("bank differs: me=%v him=%v", mapper.Bank, him.Bank)
     }
@@ -677,6 +692,7 @@ func (mapper *Mapper2) Compare(other Mapper) error {
 
 func (mapper *Mapper2) Copy() Mapper {
     return &Mapper2{
+        BusConflicts: mapper.BusConflicts,
         BankMemory: copySlice(mapper.BankMemory),
         SaveRam: copySlice(mapper.SaveRam),
         LastBankAddress: mapper.LastBankAddress,
@@ -698,9 +714,13 @@ func (mapper *Mapper2) Read(address uint16) byte {
         return mapper.SaveRam[use]
     }
 
+    if address < 0x8000 {
+        return 0
+    }
     if address < 0xc000 {
         offset := uint32(address - 0x8000)
-        final := uint32(mapper.Bank) * 0x4000 + offset
+        bank := mirrorBank(int(mapper.Bank), len(mapper.BankMemory) / 0x4000)
+        final := uint32(bank) * 0x4000 + offset
         if final < uint32(len(mapper.BankMemory)) {
             return mapper.BankMemory[final]
         } else {
@@ -709,7 +729,11 @@ func (mapper *Mapper2) Read(address uint16) byte {
         }
     } else {
         offset := uint32(address - 0xc000)
-        return mapper.BankMemory[mapper.LastBankAddress + offset]
+        final := mapper.LastBankAddress + offset
+        if final < uint32(len(mapper.BankMemory)) {
+            return mapper.BankMemory[final]
+        }
+        return 0
     }
 }
 
@@ -725,6 +749,10 @@ func (mapper *Mapper2) Write(cpu *CPUState, address uint16, value byte) error {
     }
 
     if address >= 0x8000 {
+        if mapper.BusConflicts {
+            value &= mapper.Read(address) // ROM drives the OLD mapping during the write.
+            cpu.Databus = value
+        }
         mapper.Bank = value
     }
 
@@ -732,14 +760,19 @@ func (mapper *Mapper2) Write(cpu *CPUState, address uint16, value byte) error {
 }
 
 func MakeMapper2(bankMemory []byte) Mapper {
+    lastBankAddress := 0
+    if len(bankMemory) >= 0x4000 {
+        lastBankAddress = len(bankMemory) - 0x4000
+    }
     return &Mapper2{
         BankMemory: bankMemory,
         SaveRam: make([]byte, 0x2000),
-        LastBankAddress: uint32(len(bankMemory) - 0x4000),
+        LastBankAddress: uint32(lastBankAddress),
     }
 }
 
 type Mapper3 struct {
+    BusConflicts bool `json:"busconflicts"`
     ProgramRom []byte `json:"programrom"`
     BankMemory []byte `json:"bankmemory"`
 }
@@ -750,6 +783,7 @@ func (mapper *Mapper3) IsNSF() bool {
 
 func (mapper *Mapper3) Copy() Mapper {
     return &Mapper3{
+        BusConflicts: mapper.BusConflicts,
         ProgramRom: copySlice(mapper.ProgramRom),
         BankMemory: copySlice(mapper.BankMemory),
     }
@@ -785,9 +819,18 @@ func (mapper *Mapper3) Read(address uint16) byte {
 }
 
 func (mapper *Mapper3) Write(cpu *CPUState, address uint16, value byte) error {
-    use := value & 0x3
-    base := uint16(use) * 0x2000
-    cpu.PPU.CopyCharacterRom(0x000, mapper.BankMemory[base:base+0x2000], false)
+    if address < 0x8000 {
+        return nil
+    }
+    if mapper.BusConflicts {
+        value &= mapper.Read(address)
+        cpu.Databus = value
+    }
+    bank := mirrorBank(int(value), len(mapper.BankMemory) / 0x2000)
+    base := bank * 0x2000
+    if base + 0x2000 <= len(mapper.BankMemory) {
+        cpu.PPU.CopyCharacterRom(0x0000, mapper.BankMemory[base:base+0x2000], false)
+    }
     return nil
 }
 
@@ -878,7 +921,7 @@ func (mapper *Mapper4) ReadBank(offset uint16, bank int) byte {
     }
     // Standard MMC3 PRG-ROM sizes are powers of two. Unconnected bank
     // address lines alias existing banks; retain the full register value.
-    base := (bank % pages) * 0x2000
+    base := mirrorBank(bank, pages) * 0x2000
 
     address := uint32(base)+uint32(offset)
 
@@ -932,7 +975,11 @@ func (mapper *Mapper4) Read(address uint16) byte {
 
 func (mapper *Mapper4) CharacterBlock(length uint32, page byte) []byte {
     /* Kind of weird but I guess a page is always 0x400 (1k) bytes */
-    base := uint32(page) * 0x400
+    pages := len(mapper.CharacterRom) / 0x400
+    if pages == 0 {
+        return nil
+    }
+    base := uint32(mirrorBank(int(page), pages)) * 0x400
     // log.Printf("mapper4: character rom bank page 0x%x at 0x%x - 0x%x", page, base, base + length)
     if base+length <= uint32(len(mapper.CharacterRom)) {
         return mapper.CharacterRom[base:base+length]
@@ -1060,9 +1107,10 @@ func MakeMapper4(programRom []byte, chrMemory []byte) Mapper {
 }
 
 type Mapper7 struct {
+    BusConflicts bool `json:"busconflicts"`
     ProgramRom []byte `json:"programrom"`
     CharacterRom []byte `json:"characterrom"`
-    Bank int `json:"bank"` // 0-7
+    Bank int `json:"bank"` // 0-15 (upper bank bits alias on smaller boards)
     Mirror int `json:"mirror"` // 0=1ScA, 1=1ScB
 }
 
@@ -1080,6 +1128,7 @@ func (mapper *Mapper7) Kind() int {
 
 func (mapper *Mapper7) Copy() Mapper {
     return &Mapper7{
+        BusConflicts: mapper.BusConflicts,
         ProgramRom: copySlice(mapper.ProgramRom),
         CharacterRom: copySlice(mapper.CharacterRom),
         Bank: mapper.Bank,
@@ -1105,6 +1154,7 @@ func (mapper *Mapper7) ReadBank(address uint16, bank int) byte {
         return 0
     }
 
+    bank = mirrorBank(bank, len(mapper.ProgramRom) / 0x8000)
     final := uint32(bank) * 0x8000 + uint32(address)
     if final < uint32(len(mapper.ProgramRom)) {
         return mapper.ProgramRom[final]
@@ -1123,7 +1173,11 @@ func (mapper *Mapper7) Read(address uint16) byte {
 
 func (mapper *Mapper7) Write(cpu *CPUState, address uint16, value byte) error {
     if address >= 0x8000 {
-        bank := value & 0b111
+        if mapper.BusConflicts {
+            value &= mapper.Read(address)
+            cpu.Databus = value
+        }
+        bank := value & 0x0f
         mirror := (value >> 4) & 0x1
 
         mapper.Bank = int(bank)
@@ -1181,11 +1235,21 @@ func (mapper *Mapper9) IsIRQAsserted() bool {
 }
 
 func (mapper *Mapper9) ReadBank(offset uint16, bank int) byte {
-    base := bank * 0x2000
-    return mapper.ProgramRom[uint32(base)+uint32(offset)]
+    if bank < 0 || offset >= 0x2000 {
+        return 0
+    }
+    bank = mirrorBank(bank, len(mapper.ProgramRom) / 0x2000)
+    final := uint32(bank) * 0x2000 + uint32(offset)
+    if final < uint32(len(mapper.ProgramRom)) {
+        return mapper.ProgramRom[final]
+    }
+    return 0
 }
 
 func (mapper *Mapper9) Read(address uint16) byte {
+    if address < 0x8000 {
+        return 0
+    }
     if address >= 0x8000 && address < 0xa000 {
         return mapper.ReadBank(address - 0x8000, int(mapper.PrgRegister))
     } else if address >= 0xa000 && address < 0xc000 {
@@ -1204,7 +1268,10 @@ func (mapper *Mapper9) CharacterBlock(pageSize uint16, register byte) []byte {
     if pages == 0 {
         return nil
     }
-    base := (int(register & 0x1f) % pages) * int(pageSize)
+    base := mirrorBank(int(register & 0x1f), pages) * int(pageSize)
+    if base + int(pageSize) > len(mapper.CharacterRom) {
+        return nil
+    }
     return mapper.CharacterRom[base:base+int(pageSize)]
 }
 

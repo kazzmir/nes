@@ -171,7 +171,7 @@ func SetupCPU(nesFile nes.NESFile, debugCpu bool, debugPpu bool) (nes.CPUState, 
 
     nesFile.ConfigureMirroring(&cpu.PPU)
 
-    mapper, err := nes.MakeMapper(nesFile.Mapper, nesFile.ProgramRom, nesFile.CharacterRom)
+    mapper, err := nesFile.MakeMapper()
     if err != nil {
         return cpu, err
     }
