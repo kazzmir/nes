@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -518,6 +519,103 @@ func TestMMC2CopyAndSaveState(t *testing.T) {
 	restored.LoadMemory(0x2007)
 	if restored.Mapper.Mapper.(*Mapper9).Latches[0] != 0xfe {
 		t.Fatal("restored CPU's $2007 read did not update its mapper")
+	}
+}
+
+// MMC3 register address decoding.
+
+func TestMMC3RegisterAliases(t *testing.T) {
+	prg, chr := make([]byte, 0x10000), make([]byte, 0x2000)
+	for i := range chr {
+		chr[i] = byte(i / 0x400)
+	}
+	type registerWrite struct {
+		name     string
+		address  uint16
+		value    byte
+		register byte
+	}
+	cases := []registerWrite{
+		{"bank_select", 0x8000, 0xc6, 0},
+		{"mirror_horizontal", 0xa000, 1, 0},
+		{"mirror_vertical", 0xa000, 0, 0},
+		{"ram_enable", 0xa001, 0x80, 0},
+		{"ram_protect", 0xa001, 0xc0, 0},
+		{"ram_disable", 0xa001, 0, 0},
+		{"irq_latch", 0xc000, 5, 0},
+		// Compare reload aliases to the canonical register without asserting its
+		// currently incorrect reload semantics, tracked separately in TODO.md.
+		{"irq_reload", 0xc001, 3, 0},
+		{"irq_disable", 0xe000, 0, 0},
+		{"irq_enable", 0xe001, 0, 0},
+	}
+	for index := range byte(8) {
+		value := byte(5)
+		if index >= 6 {
+			value = 0x45 // Also exercise PRG bank register masking.
+		}
+		cases = append(cases, registerWrite{fmt.Sprintf("bank_data_%d", index), 0x8001, value, index})
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			cpu := StartupState()
+			mapper := MakeMapper4(prg, chr).(*Mapper4)
+			mapper.ChrRegister = [6]byte{0, 2, 4, 5, 6, 7}
+			mapper.PrgRegister = [2]byte{1, 2}
+			mapper.RegisterIndex = test.register
+			mapper.IrqCounter, mapper.IrqReload = 9, 7
+			mapper.IrqEnabled = test.address != 0xe001
+			mapper.IrqPending = true
+			mapper.WramEnabled = test.value&0x80 == 0
+			mapper.WramWrite = test.value&0x40 != 0
+			cpu.SetMapper(mapper)
+			initial := *mapper
+			initialMirror := NametableMirrorConfiguration(NametableMirrorVertical)
+			if test.address == 0xa000 && test.value == 0 {
+				initialMirror = NametableMirrorHorizontal
+			}
+			cpu.PPU.NametableMirror = initialMirror
+			cpu.StoreMemory(test.address, test.value)
+			want := *mapper
+			wantPattern := bytes.Clone(cpu.PPU.VideoMemory[:0x2000])
+			wantMirror := cpu.PPU.NametableMirror
+
+			// A1-A12 are not decoded: check every same-parity address in the
+			// register's 8 KiB range, including its canonical address.
+			for offset := uint16(0); offset < 0x2000; offset += 2 {
+				address := test.address + offset
+				*mapper = initial
+				clear(cpu.PPU.VideoMemory[:0x2000])
+				cpu.PPU.NametableMirror = initialMirror
+				cpu.StoreMemory(address, test.value)
+				if !reflect.DeepEqual(*mapper, want) {
+					t.Fatalf("alias $%04x did not produce the same mapper state as $%04x", address, test.address)
+				}
+				if cpu.PPU.NametableMirror != wantMirror || !bytes.Equal(cpu.PPU.VideoMemory[:0x2000], wantPattern) {
+					t.Fatalf("alias $%04x did not produce the same PPU mapping as $%04x", address, test.address)
+				}
+			}
+		})
+	}
+}
+
+func TestMMC3AliasesPreservePRGRAMAddressing(t *testing.T) {
+	cpu := StartupState()
+	mapper := MakeMapper4(make([]byte, 0x8000), make([]byte, 0x2000)).(*Mapper4)
+	cpu.SetMapper(mapper)
+	cpu.StoreMemory(0xbfff, 0x80) // Alias of $A001: enable writable PRG-RAM.
+	for i, address := range []uint16{0x6000, 0x6001, 0x7ffe, 0x7fff} {
+		cpu.StoreMemory(address, byte(i+1))
+	}
+	for i, address := range []uint16{0x6000, 0x6001, 0x7ffe, 0x7fff} {
+		if got := cpu.LoadMemory(address); got != byte(i+1) {
+			t.Fatalf("PRG-RAM $%04x: got %d, want %d", address, got, i+1)
+		}
+	}
+	cpu.StoreMemory(0xbfff, 0xc0) // Write protect through the same alias.
+	cpu.StoreMemory(0x6000, 0xff)
+	if cpu.LoadMemory(0x6000) != 1 {
+		t.Fatal("aliased write-protect register did not protect PRG-RAM")
 	}
 }
 

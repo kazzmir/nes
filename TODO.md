@@ -7,6 +7,12 @@ regression tests before marking an item fixed.
 
 ## Fixed
 
+- [x] **MMC3: register aliases were ignored.** Decode register writes with
+  `address & 0xE001`, after handling PRG-RAM with its original address.
+  - Code: `lib/mapper.go` (`Mapper4.Write`).
+  - Tests: `lib/mapper_test.go` checks every alias of all eight register ports,
+    all eight bank-data selections, PPU mapping effects, and PRG-RAM addressing
+    and write protection. IRQ reload semantics remain a separate open issue.
 - [x] **MMC1: consecutive-cycle serial writes were accepted.** Ignore data
   writes within one cycle of the preceding register write, including across
   register addresses. Ignored writes extend the inhibit window; bit-7 reset
@@ -90,9 +96,6 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 
 ### MMC3 (mapper 4)
 
-- [ ] **Register aliases are ignored.** `Mapper4.Write` switches on exact
-  addresses instead of decoding `address & 0xE001`. Test aliases in every
-  register range (for example, $8002 and $C003).
 - [ ] **IRQ reload semantics are incorrect.** $C001 should request reload on
   the next counter clock and ignore the written value, not assign it directly
   to `IrqCounter`. Cover zero-latch behavior for standard MMC3B/C and document
