@@ -658,6 +658,32 @@ func TestMMC1PRGRAMDisableCopyAndRestore(t *testing.T) {
 	}
 }
 
+type openBusMapperStub struct {
+	Mapper
+}
+
+func (*openBusMapperStub) ReadWithOpenBus(address uint16, openBus byte) byte {
+	return openBus ^ byte(address)
+}
+
+func TestCPUOptionalOpenBusMapper(t *testing.T) {
+	cpu := StartupState()
+	cpu.SetMapper(&openBusMapperStub{Mapper: MakeMapper0(make([]byte, 0x8000))})
+	cpu.Databus = 0xa5
+	if got := cpu.LoadMemory(0x6001); got != 0xa4 || cpu.Databus != 0xa4 {
+		t.Fatal("CPU did not pass the current data bus/address to the optional mapper read")
+	}
+	if got := cpu.LoadMemory(0x6000); got != 0xa4 {
+		t.Fatal("optional mapper read did not receive the updated data bus")
+	}
+	cpu.SetMapper(MakeMapper0(make([]byte, 0x8000)))
+	cpu.StoreMemory(0x6001, 0x36)
+	cpu.Databus = 0xa5
+	if cpu.LoadMemory(0x6001) != 0x36 {
+		t.Fatal("mapper without open-bus capability did not use normal reads")
+	}
+}
+
 // MMC2 latches and rendering fetches.
 
 func mmc2CPU(t *testing.T) CPUState {

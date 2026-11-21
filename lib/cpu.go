@@ -1024,6 +1024,9 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
             log.Printf("No mapper set, cannot read from mapper memory: 0x%x", address)
             return 0
         }
+        if mapper, ok := cpu.Mapper.Mapper.(OpenBusMapper); ok {
+            return mapper.ReadWithOpenBus(address, cpu.Databus)
+        }
         return cpu.Mapper.Mapper.Read(address)
     }
 
