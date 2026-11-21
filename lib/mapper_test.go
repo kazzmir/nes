@@ -522,6 +522,78 @@ func TestMMC2CopyAndSaveState(t *testing.T) {
 	}
 }
 
+// MMC3 PRG-ROM bank address lines.
+
+func mmc3PRGCPU(pages int) CPUState {
+	prg := make([]byte, pages*0x2000)
+	for i := range prg {
+		prg[i] = byte(i/0x2000) ^ byte(i)
+	}
+	cpu := StartupState()
+	cpu.SetMapper(MakeMapper4(prg, make([]byte, 0x2000)))
+	return cpu
+}
+
+func TestMMC3PRGBankAliasing(t *testing.T) {
+	for _, pages := range []int{4, 8, 16, 32, 64} {
+		for mode := range byte(2) {
+			t.Run(fmt.Sprintf("pages_%d_mode_%d", pages, mode), func(t *testing.T) {
+				cpu := mmc3PRGCPU(pages)
+				mapper := cpu.Mapper.Mapper.(*Mapper4)
+				for raw := range 256 {
+					value := byte(raw)
+					cpu.StoreMemory(0x8000, mode<<6|6)
+					cpu.StoreMemory(0x8001, value)
+					cpu.StoreMemory(0x8000, mode<<6|7)
+					cpu.StoreMemory(0x8001, value)
+					// Disconnected ROM address lines must not alter the registers.
+					if mapper.PrgRegister != [2]byte{value & 0x3f, value & 0x3f} {
+						t.Fatalf("write $%02x lost latched bank bits", value)
+					}
+					selected := int(value&0x3f) % pages
+					banks := [4]int{selected, selected, pages - 2, pages - 1}
+					if mode == 1 {
+						banks[0], banks[2] = banks[2], banks[0]
+					}
+					for _, address := range []uint16{0x8000, 0x9fff, 0xa000, 0xbfff, 0xc000, 0xdfff, 0xe000, 0xffff} {
+						bank := banks[(address-0x8000)/0x2000]
+						want := mapper.ProgramRom[bank*0x2000+int(address&0x1fff)]
+						if got := cpu.LoadMemory(address); got != want {
+							t.Fatalf("register $%02x at $%04x: got $%02x, want $%02x (physical bank %d)", value, address, got, want, bank)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestMMC3BatmanPRGBankSelections(t *testing.T) {
+	cpu := mmc3PRGCPU(16) // Batman has 128 KiB PRG-ROM: sixteen 8 KiB banks.
+	for _, banks := range [][2]byte{{0x1c, 0x1d}, {0x12, 0x13}} {
+		for index, bank := range banks {
+			cpu.StoreMemory(0x8000, byte(6+index))
+			cpu.StoreMemory(0x8001, bank)
+		}
+		for slot, bank := range banks {
+			address := uint16(0x8000 + slot*0x2000 + 0x106)
+			want := (bank & 0xf) ^ 0x06
+			if got := cpu.LoadMemory(address); got != want {
+				t.Fatalf("Batman bank $%02x at $%04x: got $%02x, want $%02x", bank, address, got, want)
+			}
+		}
+	}
+}
+
+func TestMMC3EmptyPRGRead(t *testing.T) {
+	cpu := mmc3PRGCPU(0)
+	for _, address := range []uint16{0x8000, 0xa000, 0xc000, 0xe000} {
+		if got := cpu.LoadMemory(address); got != 0 {
+			t.Fatalf("empty PRG-ROM read at $%04x returned $%02x", address, got)
+		}
+	}
+}
+
 // MMC3 IRQ counter/reload behavior (standard MMC3B/C).
 
 func mmc3IRQCPU() CPUState {
