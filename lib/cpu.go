@@ -894,7 +894,7 @@ func (cpu *CPUState) Copy() CPUState {
     if cpu.Mapper.Mapper != nil {
         mapper = cpu.Mapper.Copy()
     }
-    return CPUState{
+    out := CPUState{
         A: cpu.A,
         X: cpu.X,
         Y: cpu.Y,
@@ -912,6 +912,13 @@ func (cpu *CPUState) Copy() CPUState {
         Input: nil,
         Mapper: mapper,
     }
+    out.PPU.setMapper(out.Mapper.Mapper)
+    return out
+}
+
+// do any work needed to set up the CPU/PPU after loading a save state
+func (cpu *CPUState) Restore() {
+    cpu.PPU.setMapper(cpu.Mapper.Mapper)
 }
 
 func (cpu *CPUState) Compare(other *CPUState) error {
@@ -1085,6 +1092,7 @@ const (
 
 func (cpu *CPUState) SetMapper(mapper Mapper){
     cpu.Mapper.Set(mapper)
+    cpu.PPU.setMapper(mapper)
     // mapper.Initialize(cpu)
 }
 

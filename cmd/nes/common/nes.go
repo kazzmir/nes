@@ -288,6 +288,7 @@ func loadCpuState(sha256 string) (*nes.CPUState, error) {
     if out.Version != SaveStateVersion {
         return nil, fmt.Errorf("invalid save state version: %v vs %v", out.Version, SaveStateVersion)
     }
+    out.State.Restore()
     return out.State, nil
 }
 
