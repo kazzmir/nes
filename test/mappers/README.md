@@ -47,5 +47,5 @@ local ROM:
 go test ./test/mappers ./lib
 ```
 
-`lib/mapper9_test.go` additionally checks triggering-read ordering, background
+`lib/mapper_test.go` additionally checks triggering-read ordering, background
 and sprite fetches, independent copies, and JSON save-state restoration.

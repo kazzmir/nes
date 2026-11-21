@@ -1,0 +1,290 @@
+package lib
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"testing"
+)
+
+// MMC1 CHR banking.
+
+func writeMMC1Register(t *testing.T, cpu *CPUState, address uint16, value byte) {
+	t.Helper()
+	for bit := range 5 {
+		if err := cpu.Mapper.Mapper.Write(cpu, address, (value>>bit)&1); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func mmc1CHRCPU() (CPUState, []byte) {
+	chr := make([]byte, 0x20000) // All 32 addressable 4 KiB CHR banks.
+	for i := range chr {
+		chr[i] = byte(i/0x1000) ^ byte(i)
+	}
+	cpu := StartupState()
+	cpu.SetMapper(MakeMapper1(make([]byte, 0x8000), chr))
+	return cpu, chr
+}
+
+func TestMMC1CHR4KiBOffsetArithmetic(t *testing.T) {
+	for _, address := range []uint16{0xa000, 0xc000} {
+		// Bank 31's separate end-of-ROM bounds-check bug is intentionally not
+		// included here. Bank 30 still exercises the upper half of CHR-ROM.
+		for _, bank := range []byte{0, 15, 16, 17, 30} {
+			t.Run(fmt.Sprintf("register_%04x_bank_%d", address, bank), func(t *testing.T) {
+				cpu, chr := mmc1CHRCPU()
+				writeMMC1Register(t, &cpu, 0x8000, 0x1c) // 4 KiB CHR mode.
+				writeMMC1Register(t, &cpu, address, bank)
+				base := 0
+				if address == 0xc000 {
+					base = 0x1000
+				}
+				start := int(bank) * 0x1000
+				if !bytes.Equal(cpu.PPU.VideoMemory[base:base+0x1000], chr[start:start+0x1000]) {
+					t.Fatalf("PPU $%04x does not contain CHR bank %d (ROM offset $%05x)", base, bank, start)
+				}
+			})
+		}
+	}
+}
+
+func TestMMC1CHR8KiBOffsetArithmetic(t *testing.T) {
+	// Exercise every register value, including odd values (bit 0 is ignored),
+	// the bank ending exactly at 64 KiB, and banks above the 64 KiB boundary.
+	for bank := range byte(32) {
+		t.Run(fmt.Sprintf("register_%d", bank), func(t *testing.T) {
+			cpu, chr := mmc1CHRCPU()
+			writeMMC1Register(t, &cpu, 0x8000, 0x0c) // 8 KiB CHR mode.
+			writeMMC1Register(t, &cpu, 0xa000, bank)
+			start := int(bank&0x1e) * 0x1000
+			if !bytes.Equal(cpu.PPU.VideoMemory[:0x2000], chr[start:start+0x2000]) {
+				t.Fatalf("PPU does not contain CHR pair %d/%d (ROM offset $%05x)", bank&0x1e, bank|1, start)
+			}
+		})
+	}
+}
+
+// MMC2 latches and rendering fetches.
+
+func mmc2CPU(t *testing.T) CPUState {
+	t.Helper()
+	chr := make([]byte, 4*0x1000)
+	for i := range chr {
+		chr[i] = byte(0x10 + i/0x1000)
+	}
+	cpu := StartupState()
+	cpu.Cycle = 30000
+	cpu.SetMapper(MakeMapper9(make([]byte, 0x20000), chr))
+	for i := range 4 {
+		cpu.StoreMemory(uint16(0xb000+i*0x1000), byte(i))
+	}
+	return cpu
+}
+
+func TestMMC2TriggerReadUsesOldBank(t *testing.T) {
+	cpu := mmc2CPU(t)
+	for _, step := range []struct {
+		address uint16
+		oldBank byte
+		newBank byte
+	}{
+		{0x0fd8, 0x11, 0x10},
+		{0x0fe8, 0x10, 0x11},
+		{0x1fd8, 0x13, 0x12},
+		{0x1fe8, 0x12, 0x13},
+	} {
+		if got := cpu.PPU.readPatternMemory(step.address); got != step.oldBank {
+			t.Errorf("trigger $%04x returned $%02x, want old bank byte $%02x", step.address, got, step.oldBank)
+		}
+		if got := cpu.PPU.readPatternMemory(step.address & 0x1000); got != step.newBank {
+			t.Errorf("after trigger $%04x: got $%02x, want $%02x", step.address, got, step.newBank)
+		}
+	}
+}
+
+func TestMMC2RenderingFetches(t *testing.T) {
+	cpu := mmc2CPU(t)
+	cpu.PPU.StoreNametableMemory(0x2000, 0xfd)
+	cpu.PPU.VideoAddress = 0
+	cpu.PPU.LoadBackgroundTile() // The high plane at $0FD8 selects lower FD.
+	mapper := cpu.Mapper.Mapper.(*Mapper9)
+	if mapper.Latches[0] != 0xfd {
+		t.Fatal("background fetch did not select FD")
+	}
+
+	cpu.PPU.Flags = 8 // 8x8 sprites in the upper pattern table.
+	cpu.PPU.Scanline = 1
+	cpu.PPU.CurrentSprites = []Sprite{
+		{Tile: 0xfd, Y: 1, X: 255},
+		{Tile: 0, Y: 1},
+	}
+	cpu.PPU.fetchSpritePatterns()
+	if mapper.Latches[1] != 0xfd {
+		t.Fatal("sprite fetch did not select FD")
+	}
+	first, second := cpu.PPU.CurrentSprites[0], cpu.PPU.CurrentSprites[1]
+	if first.Pattern[0] != 0x13 || first.Pattern[8] != 0x13 {
+		t.Fatal("triggering sprite row did not retain old-bank pattern bytes")
+	}
+	if second.Pattern[0] != 0x12 || second.Pattern[8] != 0x12 {
+		t.Fatal("following sprite did not use the new bank")
+	}
+	left, right := cpu.PPU.spritePatternBytes(&first, 0x1fd0)
+	if left[0] != 0x13 || right[0] != 0x13 {
+		t.Fatal("pixel reads lost the cached old-bank row")
+	}
+}
+
+func TestMMC2CopyAndSaveState(t *testing.T) {
+	cpu := mmc2CPU(t)
+	cpu.PPU.readPatternMemory(0x0fd8)
+	cpu.PPU.readPatternMemory(0x1fd8)
+	copyCPU := cpu.Copy()
+	if copyCPU.PPU.characterMapper == cpu.PPU.characterMapper {
+		t.Fatal("copy shares the original mapper binding")
+	}
+	copyCPU.PPU.readPatternMemory(0x0fe8)
+	if cpu.Mapper.Mapper.(*Mapper9).Latches[0] != 0xfd {
+		t.Fatal("copy's latch change affected original")
+	}
+
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.Mapper.Mapper.(*Mapper9).Latches != [2]byte{0xfd, 0xfd} {
+		t.Fatal("save state lost latch selections")
+	}
+	// Restore must rebind the PPU before any register reads or rendering.
+	restored.Restore()
+	if restored.PPU.characterMapper != restored.Mapper.Mapper.(*Mapper9) {
+		t.Fatal("Restore did not bind the PPU to the restored mapper")
+	}
+	restored.LoadMemory(0x2002)
+	restored.StoreMemory(0x2006, 0x0f)
+	restored.StoreMemory(0x2006, 0xe8)
+	restored.LoadMemory(0x2007)
+	if restored.Mapper.Mapper.(*Mapper9).Latches[0] != 0xfe {
+		t.Fatal("restored CPU's $2007 read did not update its mapper")
+	}
+}
+
+// PPU mapper interfaces and scanline clocks.
+
+// This cartridge deliberately is not a Mapper9. Embedding Mapper supplies the
+// unrelated CPU-side methods, which these PPU tests must never call.
+type patternMapperStub struct {
+	Mapper
+	reads []uint16
+}
+
+func (mapper *patternMapperStub) ReadCharacter(_ *PPUState, address uint16) byte {
+	mapper.reads = append(mapper.reads, address)
+	return byte(address)
+}
+
+type scanlineMapperStub struct {
+	Mapper
+	clocks int
+}
+
+func (mapper *scanlineMapperStub) Scanline() {
+	mapper.clocks++
+}
+
+func TestPPUScanlineMapper(t *testing.T) {
+	ppu := MakePPU()
+	mapper := &scanlineMapperStub{}
+	ppu.setMapper(mapper)
+	ppu.Mask = 8
+	screen := MakeVirtualScreen(256, 240)
+	for _, scanline := range []int{0, 260} {
+		ppu.Scanline = scanline
+		ppu.ScanlineCycle = 340
+		ppu.Run(1, screen)
+	}
+	if mapper.clocks != 2 {
+		t.Fatalf("got %d scanline clocks, want 2", mapper.clocks)
+	}
+	ppu.setMapper(MakeMapper0(make([]byte, 0x8000)))
+	if ppu.characterMapper != nil || ppu.scanlineMapper != nil {
+		t.Fatal("switching cartridges did not clear optional mapper bindings")
+	}
+	ppu.updateMapperScanline()
+	if mapper.clocks != 2 {
+		t.Fatal("clocked the previous cartridge")
+	}
+}
+
+func TestPPUScanlineMapperCopyAndRestore(t *testing.T) {
+	cpu := StartupState()
+	mapper := MakeMapper4(make([]byte, 0x8000), make([]byte, 0x2000)).(*Mapper4)
+	mapper.IrqCounter = 1
+	mapper.IrqEnabled = true
+	cpu.SetMapper(mapper)
+	copied := cpu.Copy()
+	copyMapper := copied.Mapper.Mapper.(*Mapper4)
+	if copied.PPU.scanlineMapper != copyMapper {
+		t.Fatal("copy did not bind its own scanline mapper")
+	}
+	copied.PPU.updateMapperScanline()
+	if !copyMapper.IrqPending || mapper.IrqPending {
+		t.Fatal("copy's scanline clock did not affect only its own mapper")
+	}
+
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	restored.Restore()
+	restoredMapper := restored.Mapper.Mapper.(*Mapper4)
+	if restored.PPU.scanlineMapper != restoredMapper {
+		t.Fatal("Restore did not bind the restored scanline mapper")
+	}
+	restored.PPU.updateMapperScanline()
+	if !restoredMapper.IrqPending || mapper.IrqPending {
+		t.Fatal("restored scanline clock did not affect only its own mapper")
+	}
+}
+
+func TestPPUCharacterMapper(t *testing.T) {
+	ppu := MakePPU()
+	mapper := &patternMapperStub{}
+	ppu.setMapper(mapper)
+	if got := ppu.readPatternMemory(0x1234); got != 0x34 {
+		t.Fatalf("pattern read returned $%02x, want $34", got)
+	}
+	ppu.VideoMemory[0x2000] = 0x56
+	if got := ppu.readPatternMemory(0x2000); got != 0x56 || len(mapper.reads) != 1 {
+		t.Fatal("non-pattern read was routed to the character mapper")
+	}
+
+	ppu.Flags = 8
+	ppu.Scanline = 1
+	ppu.CurrentSprites = []Sprite{{Tile: 2, Y: 1}}
+	ppu.fetchSpritePatterns()
+	if len(mapper.reads) != 3 || mapper.reads[1] != 0x1020 || mapper.reads[2] != 0x1028 {
+		t.Fatalf("sprite fetch addresses: %v", mapper.reads)
+	}
+	low, high := ppu.spritePatternBytes(&ppu.CurrentSprites[0], 0x1020)
+	if low[0] != 0x20 || high[0] != 0x28 || len(mapper.reads) != 3 {
+		t.Fatal("sprite pixels did not use the cached mapper reads")
+	}
+
+	// Switching to a cartridge without the capability clears the old binding.
+	ppu.setMapper(MakeMapper0(make([]byte, 0x8000)))
+	ppu.VideoMemory[0x1234] = 0x78
+	if got := ppu.readPatternMemory(0x1234); got != 0x78 || len(mapper.reads) != 3 {
+		t.Fatal("ordinary mapper did not restore the pattern-memory fallback")
+	}
+}
