@@ -54,6 +54,58 @@ func frameResetFixture() APUState {
 	return apu
 }
 
+func TestAPUFiveStepFrameSchedule(t *testing.T) {
+	apu := MakeAPU()
+	apu.FrameMode = false
+	apu.Pulse1.Length.Length = 5
+	apu.Triangle.ControlFlag = true
+	apu.Triangle.LinearCounter = 10
+	last := 0
+	for _, event := range []struct {
+		cycle, length, linear int
+	}{
+		{7457, 5, 9}, {14913, 4, 8}, {22371, 4, 7},
+		{29829, 4, 7}, {37281, 3, 6}, {44739, 3, 5},
+	} {
+		runAPUCPU(&apu, float64(event.cycle-last-1))
+		length, linear := apu.Pulse1.Length.Length, apu.Triangle.LinearCounter
+		runAPUCPU(&apu, 1)
+		if int(apu.Pulse1.Length.Length) != event.length || apu.Triangle.LinearCounter != event.linear ||
+			(event.cycle != 29829 && linear != event.linear+1) ||
+			(event.cycle == 29829 && (int(length) != event.length || linear != event.linear)) {
+			t.Fatalf("CPU cycle %d: length %d->%d, linear %d->%d", event.cycle, length, apu.Pulse1.Length.Length, linear, apu.Triangle.LinearCounter)
+		}
+		if apu.FrameIRQAsserted {
+			t.Fatal("five-step sequencer asserted a frame IRQ")
+		}
+		last = event.cycle
+	}
+}
+
+func TestAPUFiveStepResetNearHalfFrame(t *testing.T) {
+	for _, gap := range []int{0, 1, 2} {
+		apu := MakeAPU()
+		apu.FrameMode = false
+		apu.Clock = 4
+		// Final half-frame event is 3726 APU cycles after the idle slot.
+		apu.Cycles = 3726 - float64(4-gap)/2
+		apu.Pulse1.Length.Length = 3
+		apu.WriteFrameCounter(0x80, 1) // Reset in four CPU cycles.
+		stepped := apu.Copy()
+		runAPUCPU(&apu, 4)
+		for range 4 {
+			runAPUCPU(&stepped, 1)
+		}
+		want := byte(2)
+		if gap == 2 {
+			want = 1 // Two CPU cycles apart: both clocks must occur.
+		}
+		if apu.Pulse1.Length.Length != want || stepped.Pulse1.Length.Length != want {
+			t.Fatalf("gap=%d CPU cycles: length batched=%d stepped=%d, want %d", gap, apu.Pulse1.Length.Length, stepped.Pulse1.Length.Length, want)
+		}
+	}
+}
+
 func TestAPUFrameResetPreservesPrecedingClock(t *testing.T) {
 	apu := frameResetFixture()
 	apu.WriteFrameCounter(0x80, 1) // Five-step reset in four CPU cycles.

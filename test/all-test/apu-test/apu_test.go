@@ -20,9 +20,8 @@ func localAPUROM(t *testing.T, path string) string {
 }
 
 func TestAPUFrameCounterROMs(t *testing.T) {
-	// Keep the formerly passing tests passing, and check the newly fixed 3/4.
-	// Tests 5/6/9/10 remain known failures and are not claimed fixed here.
-	for _, number := range []int{1, 2, 3, 4, 7, 8} {
+	// Tests 9/10 remain known failures.
+	for number := 1; number <= 8; number++ {
 		t.Run(fmt.Sprintf("test_%d", number), func(t *testing.T) {
 			test := apuTests[number-1]
 			rom := localAPUROM(t, test.Rom)
