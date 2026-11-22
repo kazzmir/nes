@@ -849,6 +849,10 @@ type CPUState struct {
     Databus byte `json:"databus"`
 
     Cycle uint64 `json:"cycle"`
+    NMIReady bool `json:"nmiready"`
+
+    // Runtime-only CPU/PPU synchronization, used by Step.
+    ppuStep cpuPPUStep
 
     /* holds a reference to the 2k ram the cpu can directly access.
      * this memory is mapped into Maps[] as well. Maps[] is redundant,
@@ -902,6 +906,7 @@ func (cpu *CPUState) Copy() CPUState {
         PC: cpu.PC,
         Status: cpu.Status,
         Cycle: cpu.Cycle,
+        NMIReady: cpu.NMIReady,
         Ram: copySlice(cpu.Ram),
         Maps: nil,
         StackBase: cpu.StackBase,
@@ -989,6 +994,7 @@ func (cpu *CPUState) PopStack() byte {
 }
 
 func (cpu *CPUState) LoadMemory(address uint16) byte {
+    cpu.clockPPUBus(address)
     // for this one address we do not update the databus
     if address == APUStatus {
         return cpu.loadMemory(address)
@@ -1147,6 +1153,7 @@ func (cpu *CPUState) GetMemoryPage(address uint16) []byte {
 }
 
 func (cpu *CPUState) StoreMemory(address uint16, value byte) {
+    cpu.clockPPUBus(address)
     // large := uint64(address)
 
     cpu.Databus = value
@@ -1344,6 +1351,8 @@ func dumpPage(memory []byte){
     }
 }
 
+// Run is the CPU-only instruction interpreter. Emulation loops should use
+// Step to synchronize PPU register accesses and deliver sampled interrupts.
 func (cpu *CPUState) Run(table InstructionTable) error {
     if cpu.StallCycles > 0 {
         cpu.StallCycles -= 1
@@ -1513,6 +1522,7 @@ func (cpu *CPUState) LoadIndirectY(relative byte) byte {
 */
 
 func (cpu *CPUState) ComputeIndirectX(relative byte) uint16 {
+    cpu.LoadMemory(uint16(relative)) // Indexing's dummy zero-page read.
     zero_address := relative + cpu.X
     /* Load the two bytes at address $(relative+X) to
     * construct a 16-bit address
@@ -2699,11 +2709,7 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             high := original & 0xff00
             low := uint8(original & 0xff) + cpu.Y
             dummy := high | uint16(low)
-            if dummy != address {
-                cpu.LoadMemory(dummy)
-            }
-
-            cpu.LoadMemory(address) // dummy read before storing
+            cpu.LoadMemory(dummy) // Exactly one dummy read, even on page crossing.
             cpu.StoreMemory(address, cpu.A)
             cpu.PC += instruction.Length()
             cpu.Cycle += 6
@@ -4329,6 +4335,8 @@ func (cpu *CPUState) IsIRQAsserted() bool {
 }
 
 func (cpu *CPUState) Reset() {
+    cpu.NMIReady = false
+    cpu.PPU.NMIPending = false
     /* https://en.wikipedia.org/wiki/Interrupts_in_65xx_processors
      *
      * http://users.telenet.be/kim1-6502/6502/proman.html#90

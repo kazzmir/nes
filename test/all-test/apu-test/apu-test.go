@@ -42,22 +42,13 @@ func doTest(rom string, passAddress uint16, failAddress uint16) (bool, error) {
 			return false, fmt.Errorf("APU test exceeded cycle limit at PC 0x%04x", cpu.PC)
 		}
 		cycles := cpu.Cycle
-		err := cpu.Run(instructionTable)
+		_, err := cpu.Step(instructionTable, screen)
 		if err != nil {
 			return false, err
 		}
 		usedCycles := cpu.Cycle
 
 		cpu.APU.Run((float64(usedCycles)-float64(cycles))/2.0, baseCyclesPerSample, &cpu)
-
-		nmi, _ := cpu.PPU.Run((usedCycles-cycles)*3, screen)
-
-		if nmi {
-			if cpu.Debug > 0 {
-				log.Printf("Cycle %v Do NMI\n", cpu.Cycle)
-			}
-			cpu.NMI()
-		}
 	}
 
 	switch cpu.PC {

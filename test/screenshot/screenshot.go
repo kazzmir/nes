@@ -58,10 +58,10 @@ func Run(rom string, maxCycles int64) (nes.VirtualScreen, error) {
 
     buffer := nes.MakeVirtualScreen(256, 240)
 
-    var lastCycle uint64 = 0
+    lastCycle := cpu.Cycle
     totalCycles := int64(0)
     for totalCycles < maxCycles {
-        err := cpu.Run(instructionTable)
+        drawn, err := cpu.Step(instructionTable, screen)
         if err != nil {
             return nes.VirtualScreen{}, err
         }
@@ -73,14 +73,8 @@ func Run(rom string, maxCycles int64) (nes.VirtualScreen, error) {
 
         cpu.APU.Run(float64(cycleDiff) / 2.0, baseCyclesPerSample, &cpu)
 
-        nmi, drawn := cpu.PPU.Run(cycleDiff * 3, screen)
-
         if drawn {
             buffer.CopyFrom(&screen)
-        }
-
-        if nmi {
-            cpu.NMI()
         }
 
         lastCycle = usedCycles
