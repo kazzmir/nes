@@ -73,6 +73,24 @@ func runBlarggROM(path string) (byte, string, error) {
 	return 0, "", fmt.Errorf("cycle limit exceeded at PC $%04x", cpu.PC)
 }
 
+// Strip the ROM's repeated title and result footer, keeping the diagnostic.
+func blarggDiagnostic(name string, code byte, output string) string {
+	var lines []string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == name || line == "Failed" || line == fmt.Sprintf("Failed #%d", code) {
+			continue
+		}
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return fmt.Sprintf("code %d", code)
+	}
+	return strings.Join(lines, ": ")
+}
+
 // RunBlargg runs the standalone NTSC APU tests from the provided ROM directory.
 // An unexpected result (including a pass that should retire a known failure)
 // makes the suite fail without preventing the other ROMs from running.
@@ -81,17 +99,19 @@ func RunBlargg(directory string) bool {
 	for _, test := range blarggROMs {
 		name := "Blargg APU " + test.name
 		code, output, err := runBlarggROM(filepath.Join(directory, test.name+".nes"))
-		switch {
-		case err != nil:
+		if err != nil {
 			log.Printf("%s: %v", test_utils.Failure(name), err)
 			allExpected = false
-		case code != test.wantCode:
-			log.Printf("%s: result %d, expected %d: %q", test_utils.Failure(name), code, test.wantCode, output)
-			allExpected = false
-		case code != 0:
-			log.Printf("%s: expected failure (code %d): %q", name, code, output)
-		default:
+			continue
+		}
+		if code == 0 {
 			log.Print(test_utils.Success(name))
+		} else {
+			log.Printf("%s: %s", test_utils.Failure(name), blarggDiagnostic(test.name, code, output))
+		}
+		if code != test.wantCode {
+			log.Printf("%s: result %d differs from baseline %d", name, code, test.wantCode)
+			allExpected = false
 		}
 	}
 	return allExpected
