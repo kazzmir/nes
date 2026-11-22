@@ -482,6 +482,7 @@ type APUState struct {
     Cycles float64 `json:"cycles"`
     /* frame sequencer clock, ticks at 240hz */
     Clock uint64 `json:"clock"`
+    FrameClockCooldown float64 `json:"frameclockcooldown,omitempty"`
     /* if true then apu is in 4-step mode that generates interrupts
      * otherwise if false then apu is in 5-step mode with no interrupts
      */
@@ -514,6 +515,7 @@ func (apu *APUState) Copy() APUState {
     return APUState{
         Cycles: apu.Cycles,
         Clock: apu.Clock,
+        FrameClockCooldown: apu.FrameClockCooldown,
         FrameMode: apu.FrameMode,
         UpdatedFrameCounter: apu.UpdatedFrameCounter,
         PendingFrameMode: apu.PendingFrameMode,
@@ -618,8 +620,7 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUSta
             }
             apu.HasPendingFrameMode = false
             if !apu.FrameMode {
-                apu.QuarterFrame()
-                apu.HalfFrame()
+                apu.clockFrameUnits(true)
             }
         }
     }
@@ -637,19 +638,52 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUSta
     }
 }
 
+func (apu *APUState) clockFrameUnits(half bool) {
+    if apu.FrameClockCooldown > 0 {
+        return
+    }
+    apu.QuarterFrame()
+    if half {
+        apu.HalfFrame()
+    }
+    // A sequencer tick and a $4017 reset cannot clock the units twice
+    // in the same two-CPU-cycle (one APU cycle) window.
+    apu.FrameClockCooldown = 1
+}
+
 func (apu *APUState) runFrameCounter(apuCycles float64, includeEnd bool) {
-    apu.Cycles += apuCycles
+    elapsed := apuCycles
     /* about 240hz on ntsc
      * cpu hz = 1.789773e6
      * apu hz = cpu hz / 2
      * 1.789773e6 / 2 / 3728.5 = 240.01247
      */
-    apuCounter := 3728.75
+    // Five-step NTSC event positions, in CPU cycles from reset:
+    // 7457, 14913, 22371, 29829 (idle), 37281. It wraps at 37282.
+    fiveStepIntervals := [...]float64{7457, 7456, 7458, 7458, 7452}
     // A reset at the exact event boundary takes precedence over the old
     // sequencer's event; all clocks strictly before it must still occur.
-    for apu.Cycles > apuCounter || (includeEnd && apu.Cycles == apuCounter) {
+    for {
+        apuCounter := 3728.75
+        if !apu.FrameMode {
+            slot := apu.Clock % 5
+            apuCounter = fiveStepIntervals[slot] / 2
+            if slot == 0 && apu.Clock != 0 {
+                apuCounter += 0.5 // The wrap is one CPU cycle after the last event.
+            }
+        }
+        // Old save states used a uniform interval, so a restored event may
+        // already be due. Process it without running the clock backwards.
+        untilTick := max(0, apuCounter - apu.Cycles)
+        if elapsed < untilTick || (!includeEnd && elapsed == untilTick) {
+            apu.Cycles += elapsed
+            apu.FrameClockCooldown = max(0, apu.FrameClockCooldown - elapsed)
+            break
+        }
+        elapsed -= untilTick
+        apu.FrameClockCooldown = max(0, apu.FrameClockCooldown - untilTick)
         apu.Clock += 1
-        apu.Cycles -= apuCounter
+        apu.Cycles = 0
 
         if ApuDebug > 1 {
             log.Printf("APU frame counter tick %v", apu.Clock)
@@ -663,21 +697,14 @@ func (apu *APUState) runFrameCounter(apuCycles float64, includeEnd bool) {
                     apu.FrameIRQAsserted = true
                 }
             }
-            if apu.Clock % 2 == 0 {
-                apu.HalfFrame()
-            }
-
-            /* TOOO: reset clock envelope and triangle linear counter */
-            apu.QuarterFrame()
+            apu.clockFrameUnits(apu.Clock % 2 == 0)
         } else {
             /* mode 1 - 5 step */
             switch apu.Clock % 5 {
-                case 0, 1, 2, 4:
-                    apu.QuarterFrame()
-            }
-            switch apu.Clock % 5 {
-                case 1, 4:
-                    apu.HalfFrame()
+                case 1, 3:
+                    apu.clockFrameUnits(false)
+                case 2, 0:
+                    apu.clockFrameUnits(true)
             }
         }
     }

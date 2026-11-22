@@ -238,6 +238,11 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   nonzero negate sweeps still update the period. This fixes the pulse dropouts,
   not all differences between this emulator's audio and FCEUX.
 
+- [x] **APU ROM tests 5 and 6: five-step length-counter timing.** Correct the
+  NTSC event schedule and prevent a delayed `$4017` reset from issuing another
+  frame clock within one APU cycle of a normal clock. Tests 1–8 pass; 9 and 10
+  remain open.
+
 ## Validation
 
 From the repository root:

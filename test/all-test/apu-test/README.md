@@ -38,8 +38,15 @@ Verified results:
 | 3, 4 | Failed | Passed |
 | 5, 6, 9, 10 | Failed | Still failing |
 
-This is not a complete cycle-accurate APU implementation: the existing
-quarter-frame interval approximation and other sequencer details remain.
+## Tests 5 and 6 fix
+
+The five-step sequence now clocks length at CPU cycles 14913 and 37281,
+with no clock at 29829. A delayed `$4017` reset also cannot clock the frame
+units again just one CPU cycle after a sequencer tick. The old code could
+exhaust the pulse length counter before these ROMs read `$4015`.
+
+Tests 1–8 now pass; 9 and 10 still fail. Four-step timing remains approximate,
+and CPU/APU register accesses are still instruction-batched.
 
 `doTest` now has a two-second emulated-cycle limit rather than hanging on an
 unexpected execution path. `Run` returns false if any ROM fails, instead of
