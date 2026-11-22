@@ -224,6 +224,11 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
     with scripted Start input; this does not establish complete compatibility.
   - Core fix: `719cb32`. The external `ppu_vbl_nmi/04-nmi_control.nes`
     reports Passed; `05-nmi_timing.nes` still fails its exact-dot timing check.
+- [x] **Battletoads hangs during the pit descent.** A `$2001` write at
+  scanline 14, dot 256 enabled rendering too soon, causing an extra vertical
+  scroll increment and a missed sprite-zero hit. Apply the mask three PPU
+  dots after the write. Verified the supplied replay passes the old stall
+  near CPU cycle 377 million and runs through cycle 390 million.
 - [ ] **Complete CPU/PPU cycle accuracy.** The instruction interpreter still
   omits some internal/dummy cycles; interrupt hijacking, branch-specific
   interrupt polling, and dot-level vblank/NMI suppression windows need

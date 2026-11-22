@@ -160,8 +160,8 @@ func TestStepIndirectPPUAccessCycles(t *testing.T) {
 	cpu.Y = 2 // $2001 (PPUMASK).
 	cpu.A = 0x1e
 	stepCPUForTest(t, &cpu)
-	if cpu.PPU.Mask != 0x1e || cpu.Cycle != 40006 {
-		t.Fatal("page-crossing indirect store did not use exactly one dummy read")
+	if cpu.PPU.Mask != 0 || cpu.PPU.PendingMask != 0x1e || cpu.PPU.MaskWriteDots != 3 || cpu.Cycle != 40006 {
+		t.Fatal("page-crossing indirect store did not queue PPUMASK on its sixth cycle")
 	}
 }
 

@@ -55,6 +55,8 @@ type PPUState struct {
 
     Flags byte `json:"flags"`
     Mask byte `json:"mask"`
+    PendingMask byte `json:"pendingmask,omitempty"`
+    MaskWriteDots uint8 `json:"maskwritedots,omitempty"`
     /* http://wiki.nesdev.org/w/index.php/PPU_registers#PPUSTATUS */
     Status byte `json:"status"`
 
@@ -135,6 +137,8 @@ func (ppu *PPUState) Copy() PPUState {
     return PPUState{
         Flags: ppu.Flags,
         Mask: ppu.Mask,
+        PendingMask: ppu.PendingMask,
+        MaskWriteDots: ppu.MaskWriteDots,
         Status: ppu.Status,
         Scanline: ppu.Scanline,
         ScanlineCycle: ppu.ScanlineCycle,
@@ -266,9 +270,12 @@ func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
         case PPUSTATUS:
         case PPUMASK:
             if cycle > ignore_ppu_write_cycle {
-                ppu.SetMask(value)
+                // Rendering changes take effect a few PPU dots after $2001
+                // is written. The old mask still controls intervening scroll clocks.
+                ppu.PendingMask = value
+                ppu.MaskWriteDots = 3
                 if ppu.Debug > 0 {
-                    log.Printf("Set PPUMASK to 0x%x: %v", value, ppu.MaskString())
+                    log.Printf("Queued PPUMASK write 0x%x", value)
                 }
             }
         case PPUSCROLL:
@@ -526,6 +533,8 @@ func (ppu *PPUState) MaskString() string {
 
 func (ppu *PPUState) SetMask(value byte) {
     ppu.Mask = value
+    ppu.PendingMask = 0
+    ppu.MaskWriteDots = 0
 }
 
 func (ppu *PPUState) GetNMIOutput() bool {
@@ -1544,6 +1553,12 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
     didDraw := false
     for range cycles {
         ppu.DotClock += 1
+        if ppu.MaskWriteDots > 0 {
+            ppu.MaskWriteDots -= 1
+            if ppu.MaskWriteDots == 0 {
+                ppu.SetMask(ppu.PendingMask)
+            }
+        }
         if ppu.IsBackgroundEnabled() || ppu.IsSpriteEnabled() {
             if ppu.Scanline < 240 && ppu.ScanlineCycle <= 256 {
                 sprite0 := ppu.RenderPixel(ppu.Scanline, ppu.ScanlineCycle, ppu.CurrentSprites, &screen)
