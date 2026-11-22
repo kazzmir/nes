@@ -283,15 +283,17 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   writes should not restart it. Fix the envelope divider's extra tick.
 - [ ] **Correct noise output and NTSC period.** The LFSR low bit should mute
   output when set, and the NTSC divider currently adds an extra CPU cycle.
-- [ ] **Complete APU frame IRQ and register-access timing.** Model the
-  three-cycle NTSC four-step IRQ assertion window and synchronize CPU/APU
-  accesses to bus cycles instead of advancing the APU after each instruction.
+- [x] **Model the NTSC four-step frame IRQ window.** Assert on CPU cycles
+  29828–29830 without moving the half-frame clock. Blargg's `4-jitter`,
+  `5-len_timing`, and `6-irq_flag_timing` pass.
+- [ ] **Synchronize CPU/APU register accesses to bus cycles.** The APU is
+  still advanced after each instruction.
 - [ ] **Review audio output filtering and gain.** Keep DAC levels for the
   nonlinear mixer, but remove DC at the output. In Filthy Kitchen, bass was
   present and about 10 dB quieter than FCEUX, as was the rest of the audible mix.
 - [x] **Run Blargg's standalone APU ROMs in `all-test`.** The eight ROMs in
-  `test-roms/blargg-apu/` run alongside the original ten. The first three
-  pass; the other five report expected failure codes. A result that differs from
+  `test-roms/blargg-apu/` run alongside the original ten. The first six
+  pass; the two DMC tests report expected failure codes. A result that differs from
   the baseline fails the run. Update the baseline as fixes land.
 
 ## Region timing

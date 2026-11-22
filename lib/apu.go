@@ -698,6 +698,20 @@ func (apu *APUState) runFrameCounter(apuCycles float64, includeEnd bool) {
         // Old save states used a uniform interval, so a restored event may
         // already be due. Process it without running the clock backwards.
         untilTick := max(0, apuCounter - apu.Cycles)
+        if apu.FrameMode && apu.Region != RegionPAL && !apu.InterruptInhibit {
+            // NTSC asserts IRQ one CPU cycle before and after the last
+            // half-frame clock, which also asserts IRQ itself.
+            if slot == 3 || (slot == 0 && apu.Clock != 0) {
+                edge := 0.5
+                if slot == 3 {
+                    edge = apuCounter - 0.5
+                }
+                untilEdge := edge - apu.Cycles
+                if untilEdge > 0 && (elapsed > untilEdge || (includeEnd && elapsed == untilEdge)) {
+                    apu.FrameIRQAsserted = true
+                }
+            }
+        }
         if elapsed < untilTick || (!includeEnd && elapsed == untilTick) {
             apu.Cycles += elapsed
             apu.FrameClockCooldown = max(0, apu.FrameClockCooldown - elapsed)
@@ -724,7 +738,6 @@ func (apu *APUState) runFrameCounter(apuCycles float64, includeEnd bool) {
                     apu.clockFrameUnits(true)
             }
         } else if apu.FrameMode {
-            // Frame IRQ currently modeled at the final half-frame event.
             if apu.Clock % 4 == 0 {
                 if !apu.InterruptInhibit {
                     apu.FrameIRQAsserted = true
