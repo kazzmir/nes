@@ -790,6 +790,10 @@ func dmcNTSCRate(value byte) uint16 {
     return 428
 }
 
+func dmcPALRate(value byte) uint16 {
+    return [...]uint16{398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50}[value & 0xf]
+}
+
 func (apu *APUState) WriteDMCEnable(value byte) {
     irq_enable := (value >> 7) & 0x1
     loop := (value >> 6) & 0x1
@@ -806,7 +810,7 @@ func (apu *APUState) WriteDMCEnable(value byte) {
      */
     rate := dmcNTSCRate(frequency)
     if apu.Region == RegionPAL {
-        rate = [...]uint16{398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50}[frequency]
+        rate = dmcPALRate(frequency)
     }
     apu.DMC.Frequency = float64(rate) / 2.0
     apu.DMC.Counter = 0
