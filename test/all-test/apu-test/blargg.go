@@ -17,9 +17,9 @@ var blarggROMs = []struct {
 	{"1-len_ctr", 0},
 	{"2-len_table", 0},
 	{"3-irq_flag", 0},
-	{"4-jitter", 3},
-	{"5-len_timing", 3},
-	{"6-irq_flag_timing", 3},
+	{"4-jitter", 0},
+	{"5-len_timing", 0},
+	{"6-irq_flag_timing", 0},
 	{"7-dmc_basics", 7},
 	{"8-dmc_rates", 3},
 }

@@ -155,6 +155,33 @@ func TestAPUFourStepFrameSchedule(t *testing.T) {
 	}
 }
 
+func TestAPUNTSCFrameIRQWindow(t *testing.T) {
+	for _, inhibit := range []bool{false, true} {
+		apu := MakeAPU()
+		apu.FrameMode = true
+		apu.InterruptInhibit = inhibit
+		for sequence := range 2 {
+			runAPUCPU(&apu, 29827)
+			if apu.ReadStatus()&0x40 != 0 {
+				t.Fatalf("sequence %d: frame IRQ before cycle 29828", sequence)
+			}
+			for cycle := 29828; cycle <= 29830; cycle++ {
+				runAPUCPU(&apu, 1)
+				if got := apu.ReadStatus()&0x40 != 0; got != !inhibit {
+					t.Fatalf("sequence %d, cycle %d: frame IRQ = %v, inhibit = %v", sequence, cycle, got, inhibit)
+				}
+				if apu.ReadStatus()&0x40 != 0 {
+					t.Fatalf("sequence %d, cycle %d: status read did not clear frame IRQ", sequence, cycle)
+				}
+			}
+		}
+		runAPUCPU(&apu, 1)
+		if apu.ReadStatus()&0x40 != 0 {
+			t.Fatal("frame IRQ reasserted after cycle 29830")
+		}
+	}
+}
+
 func TestAPUFourStepHalfFramePrecedesDelayedReset(t *testing.T) {
 	apu := MakeAPU()
 	apu.FrameMode = true
