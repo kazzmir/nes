@@ -50,16 +50,6 @@ func (r Region) timing() regionTiming {
 	return regionTiming{CPUSpeed, 262, 3, 1}
 }
 
-// CPUFrequency is the emulated clock rate, not the host update rate.
-func (cpu *CPUState) CPUFrequency() float64 { return cpu.PPU.Region.timing().cpuHz }
-
-// SetRegion configures hardware timing before running a cartridge.
-func (cpu *CPUState) SetRegion(region Region) {
-	cpu.PPU.Region = region
-	cpu.PPU.CPUClockRemainder = 0
-	cpu.APU.Region = region
-}
-
 func detectRegion(header, prg, chr []byte, name string) Region {
 	if isNes2(header) {
 		switch header[12] & 3 {

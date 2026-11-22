@@ -1109,6 +1109,16 @@ const (
     JOYPAD2 = 0x4017
 )
 
+// CPUFrequency is the emulated clock rate, not the host update rate.
+func (cpu *CPUState) CPUFrequency() float64 { return cpu.PPU.Region.timing().cpuHz }
+
+// SetRegion configures hardware timing before running a cartridge.
+func (cpu *CPUState) SetRegion(region Region) {
+    cpu.PPU.Region = region
+    cpu.PPU.CPUClockRemainder = 0
+    cpu.APU.Region = region
+}
+
 func (cpu *CPUState) SetMapper(mapper Mapper){
     cpu.Mapper.Set(mapper)
     cpu.PPU.setMapper(mapper)
