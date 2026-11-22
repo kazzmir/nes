@@ -169,6 +169,7 @@ func (action EmulatorActionGetInfo) Value() EmulatorActionValue {
 func SetupCPU(nesFile nes.NESFile, debugCpu bool, debugPpu bool) (nes.CPUState, error) {
     cpu := nes.StartupState()
 
+    cpu.SetRegion(nesFile.Region)
     nesFile.ConfigureMirroring(&cpu.PPU)
 
     mapper, err := nesFile.MakeMapper()
@@ -311,9 +312,6 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
     // hostTickSpeed := 5
     // cycleDiff := nes.CPUSpeed / (1000.0 / float64(hostTickSpeed))
 
-    /* about 20.292 */
-    baseCyclesPerSample := nes.CPUSpeed / 2 / float64(sampleRate)
-
     /*
     cycleTimer := time.NewTicker(time.Duration(hostTickSpeed) * time.Millisecond)
     defer cycleTimer.Stop()
@@ -373,10 +371,9 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                     diff := time.Now().Sub(start)
                     cycleDiff := cpu.Cycle - cycleStart
                     cyclesPerSecond := float64(cycleDiff) / (float64(diff)/float64(time.Second))
-                    xdiff := cyclesPerSecond - nes.CPUSpeed
-                    cycleXDiff := float64(cycleDiff) - float64(nes.CPUSpeed) * float64(diff) / float64(time.Second)
-                    /* cycle diffs should be as close to 0 as possible */
-                    log.Printf("Time=%v Cycles=%v. Expected=%v. Diff=%v Cycles/s=%v. Expected=%v. Diff=%v", diff, cycleDiff, int64(nes.CPUSpeed * float64(diff) / float64(time.Second)), cycleXDiff, cyclesPerSecond, nes.CPUSpeed, xdiff)
+                    cpuHz := cpu.CPUFrequency()
+                    expected := cpuHz * float64(diff) / float64(time.Second)
+                    log.Printf("Time=%v Cycles=%v. Expected=%v. Diff=%v Cycles/s=%v. Expected=%v. Diff=%v", diff, cycleDiff, int64(expected), float64(cycleDiff) - expected, cyclesPerSecond, cpuHz, cyclesPerSecond - cpuHz)
 
                     start = time.Now()
                     cycleStart = cpu.Cycle
@@ -510,7 +507,11 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             default:
         }
 
-        cycleCounter += nes.CPUSpeed / 60 * turboMultiplier
+        // The host callback still runs at 60 Hz; the cartridge timing
+        // determines how many cycles (and therefore frames) it produces.
+        cpuHz := cpu.CPUFrequency()
+        baseCyclesPerSample := cpuHz / 2 / float64(sampleRate)
+        cycleCounter += cpuHz / 60 * turboMultiplier
         if paused {
             cycleCounter = 0
         }

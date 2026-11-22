@@ -5,6 +5,14 @@ import (
 	"testing"
 )
 
+func TestAPUTimerClocksAfterPeriodPlusOne(t *testing.T) {
+	timer := Timer{Low: 0x9c}
+	timer.Reset()
+	if timer.Period() != 0x9c || timer.Run(0x9c) != 0 || timer.Run(1) != 1 || timer.Run(0x9d) != 1 {
+		t.Fatal("timer did not clock every period+1 input cycles")
+	}
+}
+
 func TestAPUPulseSweepZeroShiftPreservesPeriod(t *testing.T) {
 	for _, pulse1 := range []bool{true, false} {
 		for _, value := range []byte{0x88, 0x80} {

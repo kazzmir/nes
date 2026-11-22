@@ -1377,7 +1377,10 @@ func (cpu *CPUState) clockPPUBus(address uint16) {
 func (cpu *CPUState) advancePPU(cycles uint64) {
     step := &cpu.ppuStep
     if cycles > step.clocked {
-        _, drawn := cpu.PPU.Run((cycles-step.clocked)*3, step.screen)
+        timing := cpu.PPU.Region.timing()
+        dots := (cycles-step.clocked)*timing.ppuNumerator + cpu.PPU.CPUClockRemainder
+        cpu.PPU.CPUClockRemainder = dots % timing.ppuDenominator
+        _, drawn := cpu.PPU.Run(dots/timing.ppuDenominator, step.screen)
         step.drawn = step.drawn || drawn
         step.clocked = cycles
     }
@@ -1427,10 +1430,13 @@ func (cpu *CPUState) Step(table InstructionTable, screen VirtualScreen) (bool, e
     }
     cpu.advancePPU(elapsed)
 
-    // One CPU cycle is three PPU dots. The edge must have arrived by the
-    // penultimate cycle's poll. Do not discard a latched edge merely because
+    // Recover the number of dots in the final CPU cycle from its end phase.
+    // The edge must have arrived by the penultimate cycle's poll. Do not
+    // discard a latched edge merely because
     // a subsequent $2002 read or $2000 write deasserted the NMI output.
-    if !interrupt && cpu.PPU.NMIPending && cpu.PPU.DotClock-cpu.PPU.NMIEdgeDot >= 3 {
+    timing := cpu.PPU.Region.timing()
+    lastCycleDots := (timing.ppuNumerator + timing.ppuDenominator - 1 - cpu.PPU.CPUClockRemainder) / timing.ppuDenominator
+    if !interrupt && cpu.PPU.NMIPending && cpu.PPU.DotClock-cpu.PPU.NMIEdgeDot >= lastCycleDots {
         cpu.NMIReady = true
         cpu.PPU.NMIPending = false
     }

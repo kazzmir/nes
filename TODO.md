@@ -252,6 +252,18 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 - [ ] **Complete APU frame IRQ and register-access timing.** The four-step
   IRQ assertion window is simplified, and CPU/APU accesses are still batched.
 
+## Region timing
+
+- [x] **PAL cartridge playback.** Detect region with header metadata, a
+  known-cartridge checksum, or legacy hints. Apply region-specific CPU,
+  PPU, APU, and sample timing. Preserve the PAL CPU/PPU phase in save states.
+  The first 24 World 1-1 pulse-note writes for the European Mario ROM span
+  5.399 seconds in both PAL mode and FCEUX (4.493 seconds in NTSC mode).
+- [ ] **PAL hardware edge cases.** The external `nes-test-roms/pal_apu_tests`
+  ROMs still report failures (length handling, IRQ timing, and related
+  behavior). PPU and CPU/APU bus timing are still approximate. Dendy timing
+  and PAL NSF playback are outside the cartridge timing implementation.
+
 ## Validation
 
 From the repository root:
