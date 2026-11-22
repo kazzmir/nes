@@ -288,10 +288,10 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 - [ ] **Review audio output filtering and gain.** Keep DAC levels for the
   nonlinear mixer, but remove DC at the output. In Filthy Kitchen, bass was
   present and about 10 dB quieter than FCEUX, as was the rest of the audible mix.
-- [ ] **Expand APU ROM coverage.** The ten bundled tests pass. In Blargg's
-  external `nes-test-roms/apu_test/rom_singles/` suite, `3-irq_flag` now passes
-  after the `$4015` fix, but seven tests still fail. Rerun them after the fixes
-  above; `7-dmc_basics` reports that `$4013` alters the active sample length.
+- [x] **Run Blargg's standalone APU ROMs in `all-test`.** The eight ROMs in
+  `test-roms/blargg-apu/` run alongside the original ten. `3-irq_flag` passes;
+  the other seven report expected failure codes. A result that differs from
+  the baseline fails the run. Update the baseline as fixes land.
 
 ## Region timing
 

@@ -8,6 +8,12 @@ import (
 	"testing"
 )
 
+func TestBlarggAPUROMs(t *testing.T) {
+	if !RunBlargg(filepath.Join("..", "..", "..", "test-roms", "blargg-apu")) {
+		t.Fatal("unexpected Blargg APU results")
+	}
+}
+
 func localAPUROM(t *testing.T, path string) string {
 	t.Helper()
 	path = filepath.Join("..", "..", "..", path)
