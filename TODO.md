@@ -315,6 +315,14 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   mapper intentionally has no bus conflicts; synthetic tests verify that
   writes latch the raw CPU value. Do not treat the fixture as passing.
 
+## BNROM / NINA (mapper 34)
+
+- [x] **Mapper 34 board support.** NES 2.0 selects NINA-001/002 or BNROM;
+  legacy images use the CHR size heuristic. BNROM models AND-type bus
+  conflicts, and NINA register writes also update work RAM. Unit tests cover
+  both boards; four local BNROM ROMs completed ten-million-cycle smoke runs.
+  No local NINA ROM was available for gameplay verification.
+
 ## Validation
 
 From the repository root:
