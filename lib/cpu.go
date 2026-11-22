@@ -4409,7 +4409,6 @@ func (cpu *CPUState) Execute(instruction Instruction) error {
             return nil
         case Instruction_BRK:
             cpu.BRK()
-            cpu.Cycle += 7
             return nil
     }
 
