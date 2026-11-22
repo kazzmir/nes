@@ -632,6 +632,9 @@ func (apu *APUState) Run(apuCycles float64, cyclesPerSample float64, cpu *CPUSta
     apu.SampleCycles += apuCycles
     if apu.SampleCycles > cyclesPerSample {
         sample := apu.GenerateSample()
+        if mapper, ok := cpu.Mapper.Mapper.(ExpansionAudioMapper); ok {
+            sample = min(1, sample + mapper.ExpansionSample())
+        }
         for apu.SampleCycles >= cyclesPerSample {
             apu.SampleCycles -= cyclesPerSample
             for _, stream := range apu.AudioStreams {

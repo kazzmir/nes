@@ -1154,6 +1154,136 @@ func assertDiscreteBoardBank(t *testing.T, cpu *CPUState, kind uint32, value byt
 	}
 }
 
+func TestVRC6aBanksAndNametables(t *testing.T) {
+	cpu := StartupState()
+	mapper, err := MakeMapper(24, bankTestROM(8, 0x2000), bankTestROM(16, 0x400))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpu.SetMapper(mapper)
+	cpu.StoreMemory(0x8fff, 0xf2) // 16 KiB bank 2; high bits ignored.
+	cpu.StoreMemory(0xcabc, 0xfe) // 8 KiB bank $1e aliases bank 6.
+	for address, want := range map[uint16]byte{0x8000: 5, 0xa000: 6, 0xc000: 7, 0xe000: 8} {
+		if got := cpu.LoadMemory(address); got != want {
+			t.Fatalf("read $%04x = %d, want %d", address, got, want)
+		}
+	}
+	cpu.StoreMemory(0xb003, 0xa0) // Enable WRAM and vertical mirroring.
+	cpu.StoreMemory(0x6000, 0x42)
+	if got := cpu.LoadMemory(0x6000); got != 0x42 {
+		t.Fatal("enabled WRAM did not retain its value")
+	}
+	cpu.StoreMemory(0xb003, 0x20)
+	cpu.StoreMemory(0x6000, 0x99)
+	if got := cpu.LoadMemory(0x6000); got != 0x99 {
+		t.Fatal("disabled WRAM did not leave the bus undriven")
+	}
+	cpu.PPU.StoreNametableMemory(0x2000, 0x33)
+	if cpu.PPU.LoadNametableMemory(0x2800) != 0x33 || cpu.PPU.LoadNametableMemory(0x2400) != 0 {
+		t.Fatal("incorrect vertical nametable routing")
+	}
+	cpu.StoreMemory(0xdfe1, 7) // VRC6a A0 selects register 1, not 2.
+	if cpu.PPU.readPatternMemory(0x0400) != 8 || cpu.PPU.readPatternMemory(0x0800) != 1 {
+		t.Fatal("incorrect 1 KiB CHR register decode")
+	}
+	cpu.StoreMemory(0xb003, 0xa1)
+	if cpu.LoadMemory(0x6000) != 0x42 || cpu.PPU.readPatternMemory(0x0800) != 7 || cpu.PPU.readPatternMemory(0x0c00) != 8 {
+		t.Fatal("incorrect WRAM retention or paired 2 KiB CHR banks")
+	}
+	cpu.StoreMemory(0xb003, 0x01)
+	if cpu.PPU.readPatternMemory(0x0800) != 8 || cpu.PPU.readPatternMemory(0x0c00) != 8 {
+		t.Fatal("paired CHR pages did not share the bank when A10 passthrough was disabled")
+	}
+	cpu.StoreMemory(0xe002, 6)
+	cpu.StoreMemory(0xe003, 10)
+	cpu.StoreMemory(0xb003, 0x30) // CHR-backed nametables in pairs.
+	cpu.PPU.StoreNametableMemory(0x2000, 0xff)
+	for page, want := range []byte{7, 8, 11, 12} {
+		if got := cpu.PPU.LoadNametableMemory(0x2000 + uint16(page)*0x400); got != want {
+			t.Fatalf("CHR nametable %d = %d, want %d", page, got, want)
+		}
+	}
+}
+
+func TestVRC6aIRQAndSaveState(t *testing.T) {
+	cpu := StartupState()
+	mapper := MakeMapper24(nil, nil)
+	cpu.SetMapper(mapper)
+	cpu.StoreMemory(0xd000, 1)
+	cpu.PPU.writableCharacterMapper.WriteCharacter(&cpu.PPU, 0, 0x69)
+	cpu.StoreMemory(0xf000, 0xff)
+	cpu.StoreMemory(0xf001, 3)
+	mapper.ClockCPU(113)
+	if mapper.IsIRQAsserted() || mapper.IRQPrescaler != 339 {
+		t.Fatal("scanline IRQ fired before 341 prescaler ticks")
+	}
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	restored.Restore()
+	copied := cpu.Copy()
+	for _, state := range []*CPUState{&copied, &restored} {
+		board := state.Mapper.Mapper.(*Mapper24)
+		board.ClockCPU(1)
+		if !board.IsIRQAsserted() || board.IRQPrescaler != 1 || state.PPU.readPatternMemory(0) != 0x69 {
+			t.Fatal("copy/restore lost IRQ phase or CHR RAM binding")
+		}
+		state.StoreMemory(0xf002, 0)
+		if board.IsIRQAsserted() || board.IRQControl&2 == 0 {
+			t.Fatal("acknowledge did not clear IRQ and re-enable counter")
+		}
+	}
+	if mapper.IsIRQAsserted() {
+		t.Fatal("clocking copies affected the original IRQ")
+	}
+	cpu.StoreMemory(0xf000, 0xfe)
+	cpu.StoreMemory(0xf001, 6)  // Cycle mode, disable on acknowledge.
+	cpu.PC = 0
+	cpu.Ram[0] = 0xea // Two-cycle NOP.
+	if _, err := cpu.Step(MakeInstructionDescriptiontable(), MakeVirtualScreen(256, 240)); err != nil {
+		t.Fatal(err)
+	}
+	if !mapper.IsIRQAsserted() || mapper.IRQCounter != 0xfe {
+		t.Fatal("cycle IRQ did not overflow and reload after two CPU cycles")
+	}
+	cpu.StoreMemory(0xf002, 0)
+	mapper.ClockCPU(10)
+	if mapper.IsIRQAsserted() || mapper.IRQControl&2 != 0 {
+		t.Fatal("acknowledge did not disable IRQ counter")
+	}
+}
+
+func TestVRC6aExpansionAudio(t *testing.T) {
+	cpu := StartupState()
+	mapper := MakeMapper24(nil, nil)
+	cpu.SetMapper(mapper)
+	stream := MakeAudioStream(4)
+	cpu.APU.AddAudioStream(stream)
+	cpu.StoreMemory(0x9ffc, 0x8f) // Pulse 1 constant output, volume 15.
+	cpu.StoreMemory(0x9002, 0x80)
+	cpu.StoreMemory(0xa000, 0x87) // Pulse 2 constant output, volume 7.
+	cpu.StoreMemory(0xa002, 0x80)
+	cpu.APU.Run(2, 1, &cpu)
+	if stream.Main.count != 2 || stream.Main.Samples[0] != 22.0/64.0 {
+		t.Fatal("VRC6 audio not mixed into the cartridge output")
+	}
+	before := mapper.Audio.Pulse1.Divider.Count
+	mapper.ClockCPU(3)
+	if mapper.Audio.Pulse1.Divider.Count != before-3 {
+		t.Fatal("VRC6 pulse was not clocked at CPU speed")
+	}
+	cpu.StoreMemory(0x9003, 1)
+	mapper.ClockCPU(3)
+	if mapper.Audio.Pulse1.Divider.Count != before-3 {
+		t.Fatal("VRC6 halt did not freeze audio timing")
+	}
+}
+
 func TestColorDreamsBankAddressLines(t *testing.T) {
 	cpu := StartupState()
 	mapper := MakeMapper11(bankTestROM(2, 0x8000), bankTestROM(4, 0x2000))

@@ -289,6 +289,17 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   completed ten million CPU cycles each; these were smoke runs, not
   conformance checks.
 
+## Konami VRC6a (mapper 24)
+
+- [x] **VRC6a cartridge support.** 16 KiB and 8 KiB PRG banks, WRAM gating,
+  CHR and nametable banking, CPU-clocked IRQ and audio, and copy/save states.
+  The local `Melanchony Of Existance Chapter 0.nes` ran for 720 frames with
+  scripted input; its run did not exercise VRC6 audio or IRQs, which are
+  covered by synthetic tests instead.
+- [ ] **VRC6 timing and additional boards.** Register writes and IRQ polling
+  remain instruction-batched. Cartridge mixing reuses the NSF VRC6 core and
+  is not hardware-calibrated. Mapper 26 (VRC6b) is not implemented.
+
 ## Validation
 
 From the repository root:
