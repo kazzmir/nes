@@ -5,6 +5,27 @@ import (
 	"testing"
 )
 
+func TestPPUHiddenSpriteDoesNotWrapToTop(t *testing.T) {
+	for _, control := range []byte{0, 0x20} { // 8x8 and 8x16 sprites.
+		ppu := MakePPU()
+		ppu.SetControllerFlags(control)
+		ppu.SetMask(0x14) // Sprites enabled, including the leftmost eight pixels.
+		ppu.VideoMemory[0] = 0x80
+		ppu.OAM[0] = 0xff
+		sprites := ppu.GetSprites()
+		if sprites[0].Y != 256 {
+			t.Fatalf("hidden sprite decoded to Y=%d", sprites[0].Y)
+		}
+		if pixel, _, _ := ppu.getSpritePixel(0, 0, sprites); pixel != nil {
+			t.Fatalf("hidden sprite rendered on the top line with PPUCTRL=$%02x", control)
+		}
+		ppu.OAM[0] = 0
+		if pixel, _, spriteZero := ppu.getSpritePixel(0, 1, ppu.GetSprites()); pixel == nil || !spriteZero {
+			t.Fatalf("visible sprite did not render one line below OAM Y with PPUCTRL=$%02x", control)
+		}
+	}
+}
+
 func TestPPUMaskWriteDoesNotClockVerticalScrollOnDot256(t *testing.T) {
 	ppu := MakePPU()
 	ppu.Scanline = 14

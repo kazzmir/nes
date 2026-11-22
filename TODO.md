@@ -239,6 +239,9 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   scroll increment and a missed sprite-zero hit. Apply the mask three PPU
   dots after the write. Verified the supplied replay passes the old stall
   near CPU cycle 377 million and runs through cycle 390 million.
+- [x] **Filthy Kitchen draws a stray sprite in the HUD.** OAM Y `$FF` is
+  offscreen, not scanline 0. Widen the decoded Y coordinate before adding the
+  sprite's one-line offset; tests cover both sprite sizes.
 - [ ] **Complete CPU/PPU cycle accuracy.** The instruction interpreter still
   omits some internal/dummy cycles; interrupt hijacking, branch-specific
   interrupt polling, and dot-level vblank/NMI suppression windows need
@@ -299,6 +302,18 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 - [ ] **VRC6 timing and additional boards.** Register writes and IRQ polling
   remain instruction-batched. Cartridge mixing reuses the NSF VRC6 core and
   is not hardware-calibrated. Mapper 26 (VRC6b) is not implemented.
+
+## Action 53 (mapper 28)
+
+- [x] **Inner/outer PRG banking and CHR RAM.** Support all PRG modes and
+  outer sizes, one-screen and H/V mirroring, last-bank startup, and save
+  states. Use the NES 2.0 volatile CHR RAM size when supplied. Twin Dragons,
+  Filthy Kitchen, Nalleland, and the Streemerz bundle each ran ten million
+  CPU cycles in smoke tests.
+- [ ] **Investigate the bundled `test28.nes` failure.** The local fixture
+  reports failure #2 (bus conflict) in both this emulator and FCEUX. The
+  mapper intentionally has no bus conflicts; synthetic tests verify that
+  writes latch the raw CPU value. Do not treat the fixture as passing.
 
 ## Validation
 

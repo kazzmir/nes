@@ -274,6 +274,13 @@ func (state *MapperState) UnmarshalJSON(data []byte) error {
             }
             state.Mapper = mapper24
             return nil
+        case 28:
+            mapper28, err := unmarshalMapper[*Mapper28](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper28
+            return nil
     }
 
     return fmt.Errorf("could not deserialize mapper. unknown mapper type %v", state.Kind)
@@ -315,6 +322,7 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
         case 9: return MakeMapper9(programRom, chrMemory), nil
         case 11: return MakeMapper11(programRom, chrMemory), nil
         case 24: return MakeMapper24(programRom, chrMemory), nil
+        case 28: return MakeMapper28(programRom, chrMemory), nil
         default: return nil, fmt.Errorf("Unimplemented mapper %v", mapper)
     }
 }
@@ -1979,5 +1987,140 @@ func (mapper *Mapper24) WriteNametable(ppu *PPUState, address uint16, value byte
         mapper.writeCharacterBank(bank, address, value)
     } else {
         ppu.NametableMemory[uint16(bank&1)*0x400+(address&0x3ff)] = value
+    }
+}
+
+// Mapper28 implements Action 53's outer and inner PRG banks and banked CHR RAM.
+type Mapper28 struct {
+    ProgramROM, CharacterMemory []byte
+    CharacterRAM bool
+    SelectedRegister, CharacterBank, InnerBank, OuterBank, Mode byte
+    PowerOn bool
+}
+
+func MakeMapper28(programROM, characterROM []byte) *Mapper28 {
+    characterRAM := len(characterROM) == 0
+    if characterRAM {
+        characterROM = make([]byte, 4*0x2000)
+    }
+    return &Mapper28{
+        ProgramROM: programROM, CharacterMemory: characterROM, CharacterRAM: characterRAM,
+        OuterBank: byte(max(0, len(programROM)/0x4000-1)/2), PowerOn: true,
+    }
+}
+
+func (*Mapper28) Kind() int { return 28 }
+func (*Mapper28) IsNSF() bool { return false }
+func (*Mapper28) IsIRQAsserted() bool { return false }
+func (*Mapper28) MapsExpansion(address uint16) bool { return address >= 0x5000 && address < 0x6000 }
+
+func (mapper *Mapper28) Copy() Mapper {
+    copied := *mapper
+    copied.ProgramROM = copySlice(mapper.ProgramROM)
+    copied.CharacterMemory = copySlice(mapper.CharacterMemory)
+    return &copied
+}
+
+func (mapper *Mapper28) Compare(other Mapper) error {
+    if !reflect.DeepEqual(mapper, other) {
+        return fmt.Errorf("Action 53 mapper state differs")
+    }
+    return nil
+}
+
+func (mapper *Mapper28) programBank(address uint16) int {
+    half := int(address>>14 & 1)
+    outer := int(mapper.OuterBank) << 1
+    mode := (mapper.Mode >> 2) & 3
+    if mode >= 2 && half == int(mode&1) {
+        // The fixed window passes all outer bits through regardless of size.
+        return outer | half
+    }
+    inner := int(mapper.InnerBank)
+    if mode < 2 {
+        inner = inner<<1 | half
+    }
+    size := (mapper.Mode >> 4) & 3
+    mask := (1 << (size + 1)) - 1
+    return (outer &^ mask) | (inner & mask)
+}
+
+func (mapper *Mapper28) Read(address uint16) byte {
+    return mapper.ReadWithOpenBus(address, 0)
+}
+
+func (mapper *Mapper28) ReadWithOpenBus(address uint16, openBus byte) byte {
+    if address < 0x8000 {
+        return openBus
+    }
+    pages := len(mapper.ProgramROM) / 0x4000
+    bank := mapper.programBank(address)
+    if mapper.PowerOn && address >= 0xc000 {
+        bank = pages - 1
+    }
+    offset := mirrorBank(bank, pages)*0x4000 + int(address&0x3fff)
+    if offset < 0 || offset >= len(mapper.ProgramROM) {
+        return openBus
+    }
+    return mapper.ProgramROM[offset]
+}
+
+func (mapper *Mapper28) Write(cpu *CPUState, address uint16, value byte) error {
+    if mapper.MapsExpansion(address) {
+        mapper.SelectedRegister = value & 0x81
+        return nil
+    }
+    if address < 0x8000 {
+        return nil
+    }
+    mapper.PowerOn = false
+    switch mapper.SelectedRegister {
+    case 0x00:
+        mapper.CharacterBank = value & 3
+    case 0x01:
+        mapper.InnerBank = value & 0x0f
+    case 0x80:
+        mapper.Mode = value & 0x3f
+    case 0x81:
+        mapper.OuterBank = value
+    }
+    if mapper.SelectedRegister < 2 && mapper.Mode&2 == 0 {
+        mapper.Mode = mapper.Mode &^ 1 | (value>>4)&1
+    }
+    switch mapper.Mode & 3 {
+    case 0:
+        cpu.PPU.SetScreenAMirror()
+    case 1:
+        cpu.PPU.SetScreenBMirror()
+    case 2:
+        cpu.PPU.SetVerticalMirror()
+    case 3:
+        cpu.PPU.SetHorizontalMirror()
+    }
+    return nil
+}
+
+func (mapper *Mapper28) characterOffset(address uint16) int {
+    if mapper.CharacterRAM && len(mapper.CharacterMemory) > 0 && len(mapper.CharacterMemory) < 0x2000 {
+        return int(address&0x1fff) % len(mapper.CharacterMemory)
+    }
+    bank := mirrorBank(int(mapper.CharacterBank), len(mapper.CharacterMemory)/0x2000)
+    return bank*0x2000 + int(address&0x1fff)
+}
+
+func (mapper *Mapper28) ReadCharacter(_ *PPUState, address uint16) byte {
+    offset := mapper.characterOffset(address)
+    if offset < len(mapper.CharacterMemory) {
+        return mapper.CharacterMemory[offset]
+    }
+    return 0
+}
+
+func (mapper *Mapper28) WriteCharacter(_ *PPUState, address uint16, value byte) {
+    if mapper.CharacterRAM {
+        offset := mapper.characterOffset(address)
+        if offset < len(mapper.CharacterMemory) {
+            mapper.CharacterMemory[offset] = value
+        }
     }
 }

@@ -90,6 +90,14 @@ func isDiskDude(header []byte) bool {
     return bytes.Equal(header[7:16], []byte("DiskDude!"))
 }
 
+// NES 2.0 byte 11 describes volatile CHR RAM in its low nibble.
+func readCharacterRAMSize(header []byte) int {
+    if shift := header[11] & 0x0f; isNes2(header) && shift != 0 {
+        return 64 << shift
+    }
+    return 0
+}
+
 func readMapper(header []byte) uint32 {
     lowBits := header[6] >> 4
     var highBits byte
@@ -108,6 +116,7 @@ func readMapper(header []byte) uint32 {
 type NESFile struct {
     ProgramRom []byte
     CharacterRom []byte
+    CharacterRAMSize int
     Mapper uint32
     Submapper byte
     Nes2 bool
@@ -159,6 +168,10 @@ func (nesFile NESFile) MakeMapper() (Mapper, error) {
             board.BusConflicts = submapper == 2
         case *Mapper11:
             board.BusConflicts = submapper == 2
+        case *Mapper28:
+            if nesFile.Nes2 && board.CharacterRAM && nesFile.CharacterRAMSize > 0 {
+                board.CharacterMemory = make([]byte, nesFile.CharacterRAMSize)
+            }
     }
     return mapper, nil
 }
@@ -247,6 +260,7 @@ func ParseNes(reader io.Reader, debug bool, name string) (NESFile, error) {
     return NESFile{
         ProgramRom: programRom,
         CharacterRom: characterRom,
+        CharacterRAMSize: readCharacterRAMSize(header[:]),
         Mapper: mapper,
         Submapper: submapper,
         Nes2: nes2,

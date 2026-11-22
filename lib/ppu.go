@@ -736,7 +736,7 @@ func (ppu *PPUState) ReadStatus() byte {
 type Sprite struct {
     Tile byte `json:"tile"`
     X byte `json:"x"`
-    Y byte `json:"y"`
+    Y uint16 `json:"y"` // Visible start line, including the OAM Y+1 offset.
     Flip_horizontal bool `json:"fliphorizontal"`
     Flip_vertical bool `json:"flipvertical"`
     Palette byte `json:"palette"`
@@ -816,7 +816,7 @@ func (ppu *PPUState) GetSprites() []Sprite {
         ppu.oamSprites[spriteCount] = Sprite{
             Tile: tile,
             X: x,
-            Y: y + 1, // sprites are offset by 1 pixel
+            Y: uint16(y) + 1, // $FF hides the sprite; it must not wrap to line 0.
             Flip_horizontal: flip_horizontal,
             Flip_vertical: flip_vertical,
             Palette: palette,
