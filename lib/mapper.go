@@ -281,6 +281,13 @@ func (state *MapperState) UnmarshalJSON(data []byte) error {
             }
             state.Mapper = mapper28
             return nil
+        case 34:
+            mapper34, err := unmarshalMapper[*Mapper34](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper34
+            return nil
     }
 
     return fmt.Errorf("could not deserialize mapper. unknown mapper type %v", state.Kind)
@@ -323,6 +330,7 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
         case 11: return MakeMapper11(programRom, chrMemory), nil
         case 24: return MakeMapper24(programRom, chrMemory), nil
         case 28: return MakeMapper28(programRom, chrMemory), nil
+        case 34: return MakeMapper34(programRom, chrMemory, len(chrMemory) > 0x2000), nil
         default: return nil, fmt.Errorf("Unimplemented mapper %v", mapper)
     }
 }
@@ -2122,5 +2130,112 @@ func (mapper *Mapper28) WriteCharacter(_ *PPUState, address uint16, value byte) 
         if offset < len(mapper.CharacterMemory) {
             mapper.CharacterMemory[offset] = value
         }
+    }
+}
+
+// Mapper34 represents either BNROM or NINA-001/002. The two boards share
+// a mapper number but have different register addresses and CHR wiring.
+type Mapper34 struct {
+    ProgramROM, CharacterMemory, WorkRAM []byte
+    NINA, CharacterRAM bool
+    ProgramBank byte
+    CharacterBanks [2]byte
+}
+
+func MakeMapper34(programROM, characterROM []byte, nina bool) *Mapper34 {
+    mapper := &Mapper34{ProgramROM: programROM, CharacterMemory: characterROM, NINA: nina}
+    if nina {
+        mapper.WorkRAM = make([]byte, 0x2000)
+    } else if len(characterROM) == 0 {
+        mapper.CharacterRAM = true
+        mapper.CharacterMemory = make([]byte, 0x2000)
+    }
+    return mapper
+}
+
+func (*Mapper34) Kind() int { return 34 }
+func (*Mapper34) IsNSF() bool { return false }
+func (*Mapper34) IsIRQAsserted() bool { return false }
+
+func (mapper *Mapper34) Copy() Mapper {
+    copied := *mapper
+    copied.ProgramROM = copySlice(mapper.ProgramROM)
+    copied.CharacterMemory = copySlice(mapper.CharacterMemory)
+    copied.WorkRAM = copySlice(mapper.WorkRAM)
+    return &copied
+}
+
+func (mapper *Mapper34) Compare(other Mapper) error {
+    if !reflect.DeepEqual(mapper, other) {
+        return fmt.Errorf("mapper 34 state differs")
+    }
+    return nil
+}
+
+func (mapper *Mapper34) Read(address uint16) byte {
+    return mapper.ReadWithOpenBus(address, 0)
+}
+
+func (mapper *Mapper34) ReadWithOpenBus(address uint16, openBus byte) byte {
+    if address < 0x8000 {
+        if mapper.NINA && address >= 0x6000 && int(address - 0x6000) < len(mapper.WorkRAM) {
+            return mapper.WorkRAM[address - 0x6000]
+        }
+        return openBus
+    }
+    offset := int(address & 0x7fff)
+    if len(mapper.ProgramROM) == 0x4000 {
+        offset &= 0x3fff // A missing PRG A14 line mirrors a 16 KiB image.
+    } else {
+        bank := mirrorBank(int(mapper.ProgramBank), len(mapper.ProgramROM)/0x8000)
+        offset += bank * 0x8000
+    }
+    if offset >= len(mapper.ProgramROM) {
+        return openBus
+    }
+    return mapper.ProgramROM[offset]
+}
+
+func (mapper *Mapper34) Write(cpu *CPUState, address uint16, value byte) error {
+    if mapper.NINA {
+        if address >= 0x6000 && address < 0x8000 {
+            // Register writes also reach WRAM, including the unused bits.
+            offset := int(address - 0x6000)
+            if offset < len(mapper.WorkRAM) {
+                mapper.WorkRAM[offset] = value
+            }
+            switch address {
+            case 0x7ffd:
+                mapper.ProgramBank = value & 1
+            case 0x7ffe, 0x7fff:
+                mapper.CharacterBanks[address - 0x7ffe] = value & 0x0f
+            }
+        }
+    } else if address >= 0x8000 {
+        // BNROM's currently selected PRG ROM drives the bus during writes.
+        value &= mapper.ReadWithOpenBus(address, value)
+        cpu.Databus = value
+        mapper.ProgramBank = value & 3
+    }
+    return nil
+}
+
+func (mapper *Mapper34) ReadCharacter(_ *PPUState, address uint16) byte {
+    offset := int(address & 0x1fff)
+    if mapper.NINA {
+        register := offset >> 12
+        bank := mirrorBank(int(mapper.CharacterBanks[register]), len(mapper.CharacterMemory)/0x1000)
+        offset = bank*0x1000 + (offset & 0x0fff)
+    }
+    if offset >= len(mapper.CharacterMemory) {
+        return 0
+    }
+    return mapper.CharacterMemory[offset]
+}
+
+func (mapper *Mapper34) WriteCharacter(_ *PPUState, address uint16, value byte) {
+    offset := int(address & 0x1fff)
+    if mapper.CharacterRAM && offset < len(mapper.CharacterMemory) {
+        mapper.CharacterMemory[offset] = value
     }
 }

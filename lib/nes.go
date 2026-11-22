@@ -155,6 +155,21 @@ func (nesFile NESFile) MakeMapper() (Mapper, error) {
                 return nil, fmt.Errorf("unsupported mapper %d submapper %d", nesFile.Mapper, submapper)
             }
     }
+    if nesFile.Mapper == 34 {
+        // Legacy headers cannot name the board. Larger CHR ROMs require NINA's
+        // banked CHR windows; explicit NES 2.0 board metadata takes precedence.
+        nina := len(nesFile.CharacterRom) > 0x2000
+        switch submapper {
+        case 1:
+            nina = true
+        case 2:
+            nina = false
+        case 0:
+        default:
+            return nil, fmt.Errorf("unsupported mapper 34 submapper %d", submapper)
+        }
+        return MakeMapper34(nesFile.ProgramRom, nesFile.CharacterRom, nina), nil
+    }
     mapper, err := MakeMapper(nesFile.Mapper, nesFile.ProgramRom, nesFile.CharacterRom)
     if err != nil {
         return nil, err

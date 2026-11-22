@@ -1284,6 +1284,96 @@ func TestVRC6aExpansionAudio(t *testing.T) {
 	}
 }
 
+func TestMapper34BoardSelection(t *testing.T) {
+	for _, test := range []struct {
+		nes2          bool
+		submapper     byte
+		characterSize int
+		nina          bool
+	}{
+		{false, 1, 0, false}, {false, 2, 0x4000, true},
+		{true, 0, 0x2000, false}, {true, 0, 0x4000, true},
+		{true, 1, 0x2000, true}, {true, 2, 0x4000, false},
+	} {
+		rom := NESFile{Mapper: 34, Nes2: test.nes2, Submapper: test.submapper, CharacterRom: make([]byte, test.characterSize)}
+		board, err := rom.MakeMapper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if board.(*Mapper34).NINA != test.nina {
+			t.Fatalf("wrong mapper 34 board for %+v", test)
+		}
+	}
+	if _, err := (NESFile{Mapper: 34, Nes2: true, Submapper: 3}).MakeMapper(); err == nil {
+		t.Fatal("unsupported mapper 34 submapper accepted")
+	}
+}
+
+func TestBNROMBanking(t *testing.T) {
+	program := bankTestROM(4, 0x8000)
+	program[0], program[2*0x8000] = 2, 1
+	cpu := StartupState()
+	mapper := MakeMapper34(program, nil, false)
+	cpu.SetMapper(mapper)
+	cpu.PPU.SetVerticalMirror()
+	cpu.StoreMemory(0x8000, 3)
+	if cpu.Databus != 2 || mapper.ProgramBank != 2 || cpu.LoadMemory(0xc000) != 3 {
+		t.Fatal("first write did not use the old PRG bank for bus conflicts")
+	}
+	cpu.StoreMemory(0x8000, 3)
+	if mapper.ProgramBank != 1 || cpu.PPU.NametableMirror != NametableMirrorVertical {
+		t.Fatal("second write used wrong PRG bank or changed mirroring")
+	}
+	cpu.StoreMemory(0x7ffd, 0xa5)
+	if cpu.LoadMemory(0x7ffd) != 0xa5 || mapper.ProgramBank != 1 {
+		t.Fatal("BNROM incorrectly mapped NINA registers or RAM")
+	}
+	cpu.PPU.WriteVideoMemory(0x53)
+	if cpu.PPU.readPatternMemory(0) != 0x53 {
+		t.Fatal("BNROM CHR RAM write was lost")
+	}
+	cpu.SetMapper(MakeMapper34(bankTestROM(1, 0x4000), nil, false))
+	if cpu.LoadMemory(0x8000) != cpu.LoadMemory(0xc000) {
+		t.Fatal("16 KiB BNROM did not mirror PRG")
+	}
+}
+
+func TestNINABankingAndState(t *testing.T) {
+	cpu := StartupState()
+	mapper := MakeMapper34(bankTestROM(2, 0x8000), bankTestROM(16, 0x1000), true)
+	cpu.SetMapper(mapper)
+	cpu.StoreMemory(0x7ffc, 0x33)
+	cpu.StoreMemory(0x7ffd, 0xf3)
+	cpu.StoreMemory(0x7ffe, 0xe5)
+	cpu.StoreMemory(0x7fff, 0xaf)
+	cpu.StoreMemory(0x8000, 0)
+	cpu.PPU.WriteVideoMemory(0xff) // CHR ROM must ignore writes.
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	restored.Restore()
+	copied := cpu.Copy()
+	for _, state := range []*CPUState{&cpu, &copied, &restored} {
+		if state.LoadMemory(0x8000) != 2 || state.PPU.readPatternMemory(0) != 6 || state.PPU.readPatternMemory(0x1000) != 16 {
+			t.Fatal("NINA's PRG or independent CHR windows mapped incorrectly")
+		}
+		for index, want := range []byte{0x33, 0xf3, 0xe5, 0xaf} {
+			if got := state.LoadMemory(0x7ffc + uint16(index)); got != want {
+				t.Fatalf("WRAM byte %d = $%02x, want $%02x", index, got, want)
+			}
+		}
+	}
+	copied.StoreMemory(0x7ffe, 0)
+	if mapper.CharacterBanks[0] != 5 || cpu.LoadMemory(0x7ffe) != 0xe5 {
+		t.Fatal("writing the copy changed the live NINA board")
+	}
+}
+
 func TestAction53PRGBanking(t *testing.T) {
 	cpu := StartupState()
 	program := bankTestROM(32, 0x4000)
