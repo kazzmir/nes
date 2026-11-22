@@ -5,7 +5,7 @@
 The corresponding assembly source and GPL license are included here.
 
 ```sh
-go test ./lib -run TestKlaus6502FunctionalROM -v
+go test ./test/klaus-6502 -v
 ```
 
 There is no video output. In a debugger, `$FFF0` is the success loop; any

@@ -1,19 +1,21 @@
-package lib
+package klaus6502
 
 import (
 	"path/filepath"
 	"testing"
+
+	nes "github.com/kazzmir/nes/lib"
 )
 
 func TestBRKTakesSevenCycles(t *testing.T) {
 	prg := make([]byte, 0x4000)
 	prg[0x3ffd] = 0x80 // Reset to $8000 (BRK).
 	prg[0x3fff] = 0x90 // BRK vector at $9000.
-	cpu := StartupState()
-	cpu.SetMapper(MakeMapper0(prg))
+	cpu := nes.StartupState()
+	cpu.SetMapper(nes.MakeMapper0(prg))
 	cpu.Reset()
 	before := cpu.Cycle
-	if err := cpu.Run(MakeInstructionDescriptiontable()); err != nil {
+	if err := cpu.Run(nes.MakeInstructionDescriptiontable()); err != nil {
 		t.Fatal(err)
 	}
 	if cpu.PC != 0x9000 || cpu.Cycle-before != 7 {
@@ -22,7 +24,7 @@ func TestBRKTakesSevenCycles(t *testing.T) {
 }
 
 func TestKlaus6502FunctionalROM(t *testing.T) {
-	rom, err := ParseNesFile(filepath.Join("..", "test-roms", "klaus-6502", "6502_functional_test.nes"), false)
+	rom, err := nes.ParseNesFile(filepath.Join("..", "..", "test-roms", "klaus-6502", "6502_functional_test.nes"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +32,7 @@ func TestKlaus6502FunctionalROM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cpu := StartupState()
+	cpu := nes.StartupState()
 	cpu.SetMapper(mapper)
 	cpu.Reset()
 
@@ -38,7 +40,7 @@ func TestKlaus6502FunctionalROM(t *testing.T) {
 	// not need a running PPU or asynchronous APU interrupts.
 	const pass = 0xfff0
 	const cycleLimit = 100_000_000
-	table := MakeInstructionDescriptiontable()
+	table := nes.MakeInstructionDescriptiontable()
 	for cpu.Cycle < cycleLimit {
 		pc := cpu.PC
 		if pc == pass {
