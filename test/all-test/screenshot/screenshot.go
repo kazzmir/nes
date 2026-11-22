@@ -2,6 +2,7 @@ package screenshot
 
 import (
     get_screenshot "github.com/kazzmir/nes/test/screenshot"
+    "errors"
     "image/png"
     "path/filepath"
     "fmt"
@@ -112,15 +113,41 @@ func testPng(png string) error {
     return nil
 }
 
-func Run(debug bool) (bool, error) {
-    pngFiles := findPngFiles("images")
+var mmc5Checkpoints = [...]int64{180_000, 300_000, 600_000, 1_200_000, 2_400_000}
 
-    for _, png := range pngFiles {
-        err := testPng(png)
-        if err != nil {
-            return false, err
+func checkMMC5Screenshot(dir string, cycles int64) error {
+    expectedPath := filepath.Join(dir, fmt.Sprintf("%d.png", cycles))
+    expected, err := loadPng(expectedPath)
+    if err != nil {
+        return err
+    }
+    screen, err := get_screenshot.Run(filepath.Join(dir, "mmc5test.nes"), cycles)
+    if err != nil {
+        return err
+    }
+    if !compareImage(expected, get_screenshot.ScreenToImage(screen)) {
+        return fmt.Errorf("pixels differ from %s", expectedPath)
+    }
+    return nil
+}
+
+func Run(debug bool) (bool, error) {
+    var failures []error
+    for _, cycles := range mmc5Checkpoints {
+        name := fmt.Sprintf("mmc5test screenshot at %d CPU cycles", cycles)
+        if err := checkMMC5Screenshot(filepath.Join("test-roms", "mmc5test"), cycles); err != nil {
+            failures = append(failures, fmt.Errorf("%s: %w", name, err))
+            log.Print(test_utils.Failure(name))
+        } else {
+            log.Print(test_utils.Success(name))
         }
     }
 
-    return true, nil
+    for _, png := range findPngFiles("images") {
+        if err := testPng(png); err != nil {
+            failures = append(failures, err)
+        }
+    }
+
+    return len(failures) == 0, errors.Join(failures...)
 }
