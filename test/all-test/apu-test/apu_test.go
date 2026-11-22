@@ -8,6 +8,22 @@ import (
 	"testing"
 )
 
+func TestBlarggDiagnostic(t *testing.T) {
+	const output = "Channel: 0\n\nProblem with length table, timing, or $4015\n\n1-len_ctr\n\nFailed #3"
+	if got := blarggDiagnostic("1-len_ctr", 3, output); got != "Channel: 0: Problem with length table, timing, or $4015" {
+		t.Fatalf("diagnostic = %q", got)
+	}
+	if got := blarggDiagnostic("2-len_table", 1, "2-len_table\n\nFailed"); got != "code 1" {
+		t.Fatalf("fallback diagnostic = %q", got)
+	}
+}
+
+func TestBlarggAPUROMs(t *testing.T) {
+	if !RunBlargg(filepath.Join("..", "..", "..", "test-roms", "blargg-apu")) {
+		t.Fatal("unexpected Blargg APU results")
+	}
+}
+
 func localAPUROM(t *testing.T, path string) string {
 	t.Helper()
 	path = filepath.Join("..", "..", "..", path)

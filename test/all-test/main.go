@@ -3,6 +3,7 @@ package main
 import (
     "log"
     "flag"
+    "os"
 
     "github.com/kazzmir/nes/test/all-test/nestest"
     aputest "github.com/kazzmir/nes/test/all-test/apu-test"
@@ -16,7 +17,7 @@ func main(){
     log.SetFlags(log.Lshortfile | log.Lmicroseconds)
 
     doNesTest := flag.Bool("nes", false, "Run nestest")
-    doApuTest := flag.Bool("apu", false, "Run aputest")
+    doApuTest := flag.Bool("apu", false, "Run bundled and Blargg APU tests")
     doCpuTest := flag.Bool("cpu", false, "Run cpu test")
     doBranchTest := flag.Bool("branch", false, "Run branch test")
     doScreenshotTest := flag.Bool("screenshot", false, "Run screenshot test")
@@ -62,12 +63,14 @@ func main(){
         }
     }
 
+    apuPassed := true
     if *doApuTest {
         ok, err := aputest.Run(false)
         if err != nil {
             log.Printf("aputest failed with an error: %v", err)
         }
-        _ = ok
+        blarggOK := aputest.RunBlargg("test-roms/blargg-apu")
+        apuPassed = ok && err == nil && blarggOK
     }
 
     if *doBranchTest {
@@ -98,5 +101,9 @@ func main(){
         if !ok {
             log.Printf("screenshot tests failed")
         }
+    }
+
+    if !apuPassed {
+        os.Exit(1)
     }
 }

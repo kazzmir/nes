@@ -5,6 +5,32 @@ import (
 	"testing"
 )
 
+func TestAPUStatusReadExposesIRQFlags(t *testing.T) {
+	cpu := StartupState()
+	cpu.Databus = 0x20
+	cpu.APU.FrameIRQAsserted = true
+	cpu.APU.DMC.IRQAsserted = true
+	cpu.APU.Pulse1.Length.Length = 1
+
+	if got := cpu.LoadMemory(APUStatus); got != 0xe1 {
+		t.Fatalf("first $4015 read = $%02x, want $e1", got)
+	}
+	if cpu.Databus != 0x20 {
+		t.Fatalf("$4015 read changed external data bus to $%02x", cpu.Databus)
+	}
+	if cpu.APU.FrameIRQAsserted || !cpu.APU.DMC.IRQAsserted {
+		t.Fatal("$4015 read must acknowledge frame IRQ but leave DMC IRQ asserted")
+	}
+	if got := cpu.LoadMemory(APUStatus); got != 0xa1 {
+		t.Fatalf("second $4015 read = $%02x, want $a1", got)
+	}
+	cpu.Databus = 0xc0
+	cpu.APU.DMC.IRQAsserted = false
+	if got := cpu.LoadMemory(APUStatus); got != 0x01 {
+		t.Fatalf("$4015 read with IRQs clear = $%02x, want $01", got)
+	}
+}
+
 func TestAPUTimerClocksAfterPeriodPlusOne(t *testing.T) {
 	timer := Timer{Low: 0x9c}
 	timer.Reset()
