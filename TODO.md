@@ -265,11 +265,13 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 - [x] **Expose IRQ flags on `$4015` reads.** Only bit 5 comes from open
   bus. Reads return both IRQ flags, acknowledge only the frame IRQ, and
   leave the external data bus unchanged.
-- [ ] **Separate DMC sample configuration from active playback.** Writes to
-  `$4012`/`$4013` should not change the current fetch address or remaining byte
-  count. Clear a pending DMC IRQ when `$4010` disables it. Model the independent
-  sample buffer and bus-cycle-dependent DMA stalls instead of always stalling
-  three cycles.
+- [x] **Separate DMC sample configuration from active playback.** Writes to
+  `$4012`/`$4013` affect the next start or loop. `$4010` preserves the current
+  timer countdown and clears the IRQ when disabled. The memory reader and
+  output unit use an independent one-byte buffer. Blargg DMC tests 7 and 8 pass.
+- [ ] **Model bus-cycle-dependent DMC DMA stalls.** Fetches are still batched
+  and always stall the CPU for three cycles; halt/alignment and overlap with
+  OAM DMA are not modeled.
 - [x] **Honor channel enables and length-counter halts.** Disabling a
   channel clears its length; a disabled channel cannot reload it. Pulse and
   noise use bit 5 to halt length, and triangle uses `$4008` bit 7. Blargg's
@@ -292,9 +294,8 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   nonlinear mixer, but remove DC at the output. In Filthy Kitchen, bass was
   present and about 10 dB quieter than FCEUX, as was the rest of the audible mix.
 - [x] **Run Blargg's standalone APU ROMs in `all-test`.** The eight ROMs in
-  `test-roms/blargg-apu/` run alongside the original ten. The first six
-  pass; the two DMC tests report expected failure codes. A result that differs from
-  the baseline fails the run. Update the baseline as fixes land.
+  `test-roms/blargg-apu/` run alongside the original ten. All eight Blargg
+  ROMs now pass.
 
 ## Region timing
 

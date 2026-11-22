@@ -1126,6 +1126,13 @@ func (cpu *CPUState) SetRegion(region Region) {
     cpu.PPU.Region = region
     cpu.PPU.CPUClockRemainder = 0
     cpu.APU.Region = region
+    if cpu.Cycle == 0 {
+        rate := dmcNTSCRate(0)
+        if region == RegionPAL {
+            rate = dmcPALRate(0)
+        }
+        cpu.APU.DMC.Frequency = float64(rate) / 2
+    }
 }
 
 func (cpu *CPUState) SetMapper(mapper Mapper){

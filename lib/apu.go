@@ -572,7 +572,10 @@ func MakeAPU() APUState {
         },
         DMC: DMC{
             Silence: true,
-            Frequency: 5000, // arbitrary value, just has to be non-zero
+            Frequency: float64(dmcNTSCRate(0)) / 2,
+            StartingAddress: 0xc000,
+            Length: 1,
+            BitsRemaining: 8,
         },
     }
 }
@@ -761,7 +764,8 @@ type DMC struct {
     Irq bool `json:"irq"`
     Loop bool `json:"loop"`
     Frequency float64 `json:"frequency"`
-    Counter float64 `json:"counter"`
+    Counter float64 `json:"counter"` // Elapsed timer phase from older saves.
+    TimerRemaining float64 `json:"timerremaining,omitempty"`
     StartingAddress uint16 `json:"startingaddress"`
     Address uint16 `json:"address"`
     Length uint16 `json:"length"`
@@ -770,14 +774,13 @@ type DMC struct {
 
     IRQAsserted bool `json:"irqasserted"`
 
-    // Divider Divider
-
     Silence bool `json:"silence"`
 
     ShiftRegister byte `json:"shift"`
     BitsRemaining byte `json:"bitsremaining"`
 
     SampleBuffer byte `json:"samplebuffer"`
+    SampleBufferFull bool `json:"samplebufferfull,omitempty"`
 }
 
 func (dmc *DMC) Copy() DMC {
@@ -785,12 +788,7 @@ func (dmc *DMC) Copy() DMC {
 }
 
 func (dmc *DMC) GenerateSample() byte {
-    /*
-    if dmc.Silence {
-        return 0
-    }
-    */
-
+    // The DAC holds its level even when the output unit is silent.
     return dmc.OutputLevel
 }
 
@@ -833,40 +831,41 @@ func (apu *APUState) WriteDMCEnable(value byte) {
     }
 
     apu.DMC.Irq = irq_enable == 1
+    if !apu.DMC.Irq {
+        apu.DMC.IRQAsserted = false
+    }
     apu.DMC.Loop = loop == 1
-    /* these periods are all even numbers because there are 2 CPU cycles in an APU cycle.
-     * A rate of 428 means the output level changes every 214 APU cycles.
-     */
+    // The rate table is in CPU cycles, but Run takes APU cycles.
     rate := dmcNTSCRate(frequency)
     if apu.Region == RegionPAL {
         rate = dmcPALRate(frequency)
     }
+    // Keep the current timer countdown; use this rate on the next reload.
+    apu.DMC.initTimer()
     apu.DMC.Frequency = float64(rate) / 2.0
-    apu.DMC.Counter = 0
 }
 
-func (dmc *DMC) Reset() {
-    dmc.Silence = false
+func (dmc *DMC) initTimer() {
+    if dmc.TimerRemaining == 0 {
+        dmc.TimerRemaining = max(0, dmc.Frequency - dmc.Counter)
+        dmc.Counter = 0
+    }
+}
+
+func (dmc *DMC) restartReader() {
     dmc.BytesRemaining = dmc.Length
     dmc.Address = dmc.StartingAddress
 }
 
-func (dmc *DMC) LoadSample(cpu *CPUState) {
-    if dmc.BytesRemaining > 0 {
+func (dmc *DMC) fillSampleBuffer(cpu *CPUState) {
+    if !dmc.SampleBufferFull && dmc.BytesRemaining > 0 {
         if ApuDebug > 0 {
             log.Printf("APU: read dmc sample from 0x%x bytes remaining 0x%x", dmc.Address, dmc.BytesRemaining)
         }
         dmc.SampleBuffer = cpu.LoadMemory(dmc.Address)
-        dmc.ShiftRegister = dmc.SampleBuffer
-        dmc.BitsRemaining = 8
-        /* Stall the cpu for X cycles. FIXME: proper accuracy is
-         * 4 cycles if it falls on a CPU read cycle.
-         * 3 cycles if it falls on a single CPU write cycle (or the second write of a double CPU write).
-         * 4 cycles if it falls on the first write of a double CPU write cycle.[4]
-         * 2 cycles if it occurs during an OAM DMA, or on the $4014 write cycle that triggers the OAM DMA.
-         * 1 cycle if it occurs on the second-last OAM DMA cycle.
-         * 3 cycles if it occurs on the last OAM DMA cycle.
-         */
+        dmc.SampleBufferFull = true
+        // DMA is still instruction-batched: actual halt/alignment and OAM
+        // DMA overlap depend on the CPU bus cycle.
         cpu.Stall(3)
         /* The address is incremented; if it exceeds $FFFF, it is wrapped around to $8000. */
         if dmc.Address < 0xffff {
@@ -875,29 +874,28 @@ func (dmc *DMC) LoadSample(cpu *CPUState) {
             dmc.Address = 0x8000
         }
 
-        if dmc.BytesRemaining > 0 {
-            dmc.BytesRemaining -= 1
-        }
-
+        dmc.BytesRemaining--
         if dmc.BytesRemaining == 0 {
             if dmc.Loop {
-                dmc.Reset()
-            } else {
-                if dmc.Irq {
-                    dmc.IRQAsserted = true
-                }
+                dmc.restartReader()
+            } else if dmc.Irq {
+                dmc.IRQAsserted = true
             }
         }
-    } else {
-        /* Did not read a sample from memory */
-        dmc.Silence = true
     }
 }
 
 func (dmc *DMC) Run(cycles float64, cpu *CPUState) {
-    dmc.Counter += cycles
-    for dmc.Counter >= float64(dmc.Frequency) {
-        dmc.Counter -= float64(dmc.Frequency)
+    // A read can be triggered by enabling DMC with an empty sample buffer,
+    // independently of the output timer.
+    dmc.fillSampleBuffer(cpu)
+    if dmc.Frequency <= 0 {
+        return
+    }
+    dmc.initTimer()
+    for cycles >= dmc.TimerRemaining {
+        cycles -= dmc.TimerRemaining
+        dmc.TimerRemaining = dmc.Frequency
         if !dmc.Silence {
             value := dmc.ShiftRegister & 0x1
             /* If the silence flag is clear, the output level changes based on bit 0 of the shift register.
@@ -908,14 +906,10 @@ func (dmc *DMC) Run(cycles float64, cpu *CPUState) {
             if value == 1 {
                 if dmc.OutputLevel <= 125 {
                     dmc.OutputLevel += 2
-                } else {
-                    dmc.OutputLevel = 127
                 }
             } else {
                 if dmc.OutputLevel >= 2 {
                     dmc.OutputLevel -= 2
-                } else {
-                    dmc.OutputLevel = 0
                 }
             }
         }
@@ -926,15 +920,21 @@ func (dmc *DMC) Run(cycles float64, cpu *CPUState) {
         }
 
         if dmc.BitsRemaining == 0 {
-            dmc.LoadSample(cpu)
+            dmc.BitsRemaining = 8
+            dmc.Silence = !dmc.SampleBufferFull
+            if dmc.SampleBufferFull {
+                dmc.ShiftRegister = dmc.SampleBuffer
+                dmc.SampleBufferFull = false
+                dmc.fillSampleBuffer(cpu)
+            }
         }
     }
+    dmc.TimerRemaining -= cycles
 }
 
 func (apu *APUState) WriteDMCAddress(value byte) {
     /* Sample address = %11AAAAAA.AA000000 = $C000 + (A * 64) */
     apu.DMC.StartingAddress = 0xc000 + (uint16(value) * 64)
-    apu.DMC.Address = apu.DMC.StartingAddress
 
     if ApuDebug > 0 {
         log.Printf("APU: write dmc address 0x%x", apu.DMC.StartingAddress)
@@ -947,7 +947,6 @@ func (apu *APUState) WriteDMCLength(value byte) {
     }
     /* Sample length = %LLLL.LLLL0001 = (L * 16) + 1 bytes */
     apu.DMC.Length = (uint16(value) * 16) + 1
-    apu.DMC.BytesRemaining = apu.DMC.Length
 }
 
 func (apu *APUState) WriteDMCLoad(value byte){
@@ -1188,7 +1187,7 @@ func (apu *APUState) WriteChannelEnable(value byte, cpu *CPUState){
     if dmc == 1 {
         /* If BytesRemaining > 0 then some sample is still playing, so let it finish */
         if apu.DMC.BytesRemaining == 0 {
-            apu.DMC.Reset()
+            apu.DMC.restartReader()
         }
     } else {
         apu.DMC.BytesRemaining = 0

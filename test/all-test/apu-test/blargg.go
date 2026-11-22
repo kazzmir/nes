@@ -20,8 +20,8 @@ var blarggROMs = []struct {
 	{"4-jitter", 0},
 	{"5-len_timing", 0},
 	{"6-irq_flag_timing", 0},
-	{"7-dmc_basics", 7},
-	{"8-dmc_rates", 3},
+	{"7-dmc_basics", 0},
+	{"8-dmc_rates", 0},
 }
 
 func runBlarggROM(path string) (byte, string, error) {
