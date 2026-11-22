@@ -1098,8 +1098,7 @@ func (apu *APUState) WriteTriangleTimerHigh(value byte){
 }
 
 /* http://wiki.nesdev.org/w/index.php/APU_Noise */
-func noisePeriod(period byte) uint16 {
-    /* NTSC */
+func noiseNTSCPeriod(period byte) uint16 {
     switch period & 0xf {
         case 0: return 4
         case 1: return 8
@@ -1123,6 +1122,10 @@ func noisePeriod(period byte) uint16 {
     return 4
 }
 
+func noisePALPeriod(period byte) uint16 {
+    return [...]uint16{4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778}[period & 0xf]
+}
+
 func (apu *APUState) WriteNoiseMode(value byte){
     mode := (value >> 7) & 0x1
     period := value & 0xf
@@ -1131,10 +1134,9 @@ func (apu *APUState) WriteNoiseMode(value byte){
     }
 
     apu.Noise.Mode = mode
-    rate := noisePeriod(period)
+    rate := noiseNTSCPeriod(period)
     if apu.Region == RegionPAL {
-        rate = [...]uint16{4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778}[period]
-        rate-- // Divider clocks after period+1 CPU cycles.
+        rate = noisePALPeriod(period) - 1 // Divider clocks after period+1 CPU cycles.
     }
     apu.Noise.Timer.SetPeriod(rate)
 }
