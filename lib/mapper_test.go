@@ -1242,7 +1242,7 @@ func TestVRC6aIRQAndSaveState(t *testing.T) {
 		t.Fatal("clocking copies affected the original IRQ")
 	}
 	cpu.StoreMemory(0xf000, 0xfe)
-	cpu.StoreMemory(0xf001, 6)  // Cycle mode, disable on acknowledge.
+	cpu.StoreMemory(0xf001, 6) // Cycle mode, disable on acknowledge.
 	cpu.PC = 0
 	cpu.Ram[0] = 0xea // Two-cycle NOP.
 	if _, err := cpu.Step(MakeInstructionDescriptiontable(), MakeVirtualScreen(256, 240)); err != nil {
@@ -1281,6 +1281,120 @@ func TestVRC6aExpansionAudio(t *testing.T) {
 	mapper.ClockCPU(3)
 	if mapper.Audio.Pulse1.Divider.Count != before-3 {
 		t.Fatal("VRC6 halt did not freeze audio timing")
+	}
+}
+
+func TestAction53PRGBanking(t *testing.T) {
+	cpu := StartupState()
+	program := bankTestROM(32, 0x4000)
+	copy(program[len(program)-4:], []byte{0x34, 0xc2})
+	mapper := MakeMapper28(program, nil)
+	cpu.SetMapper(mapper)
+	cpu.Reset()
+	if cpu.PC != 0xc234 {
+		t.Fatalf("reset did not fetch vector from last 16 KiB: $%04x", cpu.PC)
+	}
+	cpu.StoreMemory(0x5fff, 0xff) // Only bits 7 and 0 select the register.
+	cpu.StoreMemory(0xffff, 0xff) // No bus conflicts.
+	cpu.StoreMemory(0x5000, 1)
+	cpu.StoreMemory(0x8000, 10)
+	cpu.StoreMemory(0x5000, 0x80)
+	for mode, sizes := range [4][4][2]byte{
+		{{30, 31}, {28, 29}, {28, 29}, {20, 21}},
+		{{30, 31}, {28, 29}, {28, 29}, {20, 21}},
+		{{30, 30}, {30, 30}, {30, 26}, {30, 26}},
+		{{30, 31}, {30, 31}, {26, 31}, {26, 31}},
+	} {
+		for size, banks := range sizes {
+			cpu.StoreMemory(0x8000, byte(size<<4|mode<<2))
+			got := [2]byte{cpu.LoadMemory(0x8000) - 1, cpu.LoadMemory(0xc000) - 1}
+			if got != banks {
+				t.Fatalf("mode %d size %d: banks %v, want %v", mode, size, got, banks)
+			}
+		}
+	}
+	if mapper.OuterBank != 0xff || mapper.PowerOn {
+		t.Fatal("outer register or power-on mapping incorrect")
+	}
+	cpu.Reset()
+	if mapper.Mode != 0x3c || mapper.OuterBank != 0xff {
+		t.Fatal("CPU reset changed Action 53 state")
+	}
+	cpu.Databus = 0x94
+	if cpu.LoadMemory(0x5fff) != 0x94 || cpu.LoadMemory(0x6000) != 0x94 {
+		t.Fatal("write-only select or unmapped RAM drove the CPU data bus")
+	}
+}
+
+func TestAction53CHRRAMMirroringAndState(t *testing.T) {
+	cpu := StartupState()
+	cpu.SetMapper(MakeMapper28(nil, nil))
+	for bank := range byte(4) {
+		cpu.StoreMemory(0x5000, 0)
+		cpu.StoreMemory(0x8000, bank)
+		cpu.PPU.WriteVideoMemory(0xa0 + bank)
+		cpu.PPU.VideoAddress = 0
+	}
+	cpu.StoreMemory(0x8000, 0x13)
+	if cpu.PPU.NametableMirror != NametableMirrorScreenB || cpu.PPU.readPatternMemory(0) != 0xa3 {
+		t.Fatal("CHR bank and one-screen mirroring did not latch together")
+	}
+	cpu.StoreMemory(0x5000, 1)
+	cpu.StoreMemory(0x8000, 0)
+	if cpu.PPU.NametableMirror != NametableMirrorScreenA {
+		t.Fatal("inner PRG register did not update one-screen mirroring")
+	}
+	for mode, want := range []NametableMirrorConfiguration{NametableMirrorScreenA, NametableMirrorScreenB, NametableMirrorVertical, NametableMirrorHorizontal} {
+		cpu.StoreMemory(0x5000, 0x80)
+		cpu.StoreMemory(0x8000, byte(mode))
+		if cpu.PPU.NametableMirror != want {
+			t.Fatalf("wrong mirroring mode %d", mode)
+		}
+	}
+	cpu.StoreMemory(0x5000, 0)
+	cpu.StoreMemory(0x8000, 3)
+	if cpu.PPU.NametableMirror != NametableMirrorHorizontal {
+		t.Fatal("CHR register changed hard-selected horizontal mirroring")
+	}
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	restored.Restore()
+	copied := cpu.Copy()
+	for _, state := range []*CPUState{&copied, &restored} {
+		if state.PPU.readPatternMemory(0) != 0xa3 || state.PPU.NametableMirror != NametableMirrorHorizontal {
+			t.Fatal("copy/restore lost CHR bank or mirroring")
+		}
+		state.PPU.WriteVideoMemory(0x55)
+	}
+	if cpu.PPU.readPatternMemory(0) != 0xa3 {
+		t.Fatal("writing a copy affected the original CHR RAM")
+	}
+}
+
+func TestAction53NES2CHRRAMSize(t *testing.T) {
+	image := make([]byte, 16+0x4000)
+	copy(image, "NES\x1a")
+	image[4], image[6], image[7], image[11] = 1, 0xc0, 0x18, 8
+	rom, err := ParseNes(bytes.NewReader(image), false, "Action 53 test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	board, err := rom.MakeMapper()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapper := board.(*Mapper28)
+	mapper.CharacterBank = 3
+	mapper.WriteCharacter(nil, 0, 0x42)
+	mapper.CharacterBank = 1
+	if len(mapper.CharacterMemory) != 0x4000 || mapper.ReadCharacter(nil, 0) != 0x42 {
+		t.Fatal("NES 2.0 CHR RAM did not alias disconnected bank line")
 	}
 }
 

@@ -300,6 +300,18 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   remain instruction-batched. Cartridge mixing reuses the NSF VRC6 core and
   is not hardware-calibrated. Mapper 26 (VRC6b) is not implemented.
 
+## Action 53 (mapper 28)
+
+- [x] **Inner/outer PRG banking and CHR RAM.** Support all PRG modes and
+  outer sizes, one-screen and H/V mirroring, last-bank startup, and save
+  states. Use the NES 2.0 volatile CHR RAM size when supplied. Twin Dragons,
+  Filthy Kitchen, Nalleland, and the Streemerz bundle each ran ten million
+  CPU cycles in smoke tests.
+- [ ] **Investigate the bundled `test28.nes` failure.** The local fixture
+  reports failure #2 (bus conflict) in both this emulator and FCEUX. The
+  mapper intentionally has no bus conflicts; synthetic tests verify that
+  writes latch the raw CPU value. Do not treat the fixture as passing.
+
 ## Validation
 
 From the repository root:
