@@ -1097,6 +1097,8 @@ func discreteBoardROM(t *testing.T, kind uint32, submapper byte, nes2 bool) NESF
 		pageSize, pages, chrPages = 0x8000, 1, 4
 	} else if kind == 7 {
 		pageSize = 0x8000
+	} else if kind == 11 {
+		pageSize, chrPages = 0x8000, 16
 	}
 	prg := bankTestROM(pages, pageSize)
 	prg[0] = 2
@@ -1107,9 +1109,10 @@ func discreteBoardROM(t *testing.T, kind uint32, submapper byte, nes2 bool) NESF
 	data := make([]byte, 16)
 	copy(data, []byte{'N', 'E', 'S', 0x1a})
 	data[4], data[5], data[6] = byte(len(prg)/0x4000), byte(chrPages), byte(kind<<4)
+	data[7] = byte(kind & 0xf0)
 	data[8] = submapper << 4
 	if nes2 {
-		data[7] = 8
+		data[7] |= 8
 	}
 	data = append(append(data, prg...), chr...)
 	rom, err := ParseNes(bytes.NewReader(data), false, "synthetic discrete board")
@@ -1142,13 +1145,36 @@ func assertDiscreteBoardBank(t *testing.T, cpu *CPUState, kind uint32, value byt
 		if cpu.PPU.NametableMirror != wantMirror {
 			t.Fatal("mapper 7 bus conflict was not applied to the mirroring bit")
 		}
+	case *Mapper11:
+		if mapper.Register != value || cpu.LoadMemory(0x8000) != mapper.ProgramROM[physical*0x8000] || cpu.PPU.readPatternMemory(0) != byte(value>>4)+1 {
+			t.Fatalf("mapper 11 selected wrong banks for $%02x", value)
+		}
 	default:
 		t.Fatalf("unexpected mapper type for %d", kind)
 	}
 }
 
+func TestColorDreamsBankAddressLines(t *testing.T) {
+	cpu := StartupState()
+	mapper := MakeMapper11(bankTestROM(2, 0x8000), bankTestROM(4, 0x2000))
+	cpu.SetMapper(mapper)
+	cpu.PPU.SetHorizontalMirror()
+	cpu.StoreMemory(0xffff, 0xff)
+	if mapper.Register != 0xff || cpu.LoadMemory(0x8000) != 2 || cpu.PPU.readPatternMemory(0) != 4 {
+		t.Fatal("disconnected bank address lines did not alias to physical ROM")
+	}
+	cpu.StoreMemory(0x6000, 0xa5)
+	if mapper.Register != 0xff || cpu.LoadMemory(0x6000) != 0xa5 || cpu.PPU.NametableMirror != NametableMirrorHorizontal {
+		t.Fatal("unmapped write changed the latch or cartridge mirroring")
+	}
+	cpu.StoreMemory(0x8000, 0x0c)
+	if cpu.LoadMemory(0x8000) != 1 || cpu.PPU.readPatternMemory(0) != 1 {
+		t.Fatal("unused latch bits changed banking")
+	}
+}
+
 func TestDiscreteBoardSubmapperBusConflicts(t *testing.T) {
-	for _, kind := range []uint32{2, 3, 7} {
+	for _, kind := range []uint32{2, 3, 7, 11} {
 		for _, test := range []struct {
 			nes2 bool
 			sub  byte
@@ -1190,7 +1216,7 @@ func TestDiscreteBoardSubmapperBusConflicts(t *testing.T) {
 }
 
 func TestDiscreteBusConflictUsesOldPRGMapping(t *testing.T) {
-	for _, kind := range []uint32{2, 7} {
+	for _, kind := range []uint32{2, 7, 11} {
 		rom := discreteBoardROM(t, kind, 2, true)
 		mapper, err := rom.MakeMapper()
 		if err != nil {
@@ -1217,7 +1243,7 @@ func TestDiscreteBusConflictUsesOldPRGMapping(t *testing.T) {
 }
 
 func TestDiscreteBusConflictCopyAndRestore(t *testing.T) {
-	for _, kind := range []uint32{2, 3, 7} {
+	for _, kind := range []uint32{2, 3, 7, 11} {
 		rom := discreteBoardROM(t, kind, 2, true)
 		mapper, err := rom.MakeMapper()
 		if err != nil {

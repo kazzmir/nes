@@ -280,6 +280,15 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   indexed stores at `$E01B` dummy-read the write-only NSF bank selectors.
   Reads at `$5FF8–$5FFF` now return open bus without warnings; writes are unchanged.
 
+## Color Dreams (mapper 11)
+
+- [x] **32 KiB PRG and 8 KiB CHR switching.** Preserve hardwired nametable
+  mirroring, alias disconnected ROM bank lines, and honor NES 2.0 bus-conflict
+  submappers (legacy defaults to no conflicts). Tests cover banking, bus
+  conflicts, and copy/save-state restore. Four local mapper 11 test ROMs
+  completed ten million CPU cycles each; these were smoke runs, not
+  conformance checks.
+
 ## Validation
 
 From the repository root:
