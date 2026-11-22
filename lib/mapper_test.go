@@ -1321,8 +1321,6 @@ func TestCNROMMirroredVectorsAndExecution(t *testing.T) {
 	}
 }
 
-// MMC3 PRG-ROM bank address lines.
-
 func mmc3PRGCPU(pages int) CPUState {
 	prg := make([]byte, pages*0x2000)
 	for i := range prg {
@@ -1332,6 +1330,136 @@ func mmc3PRGCPU(pages int) CPUState {
 	cpu.SetMapper(MakeMapper4(prg, make([]byte, 0x2000)))
 	return cpu
 }
+
+// MMC5 cartridge routing and state.
+
+func TestMMC5PRGModesAndWorkRAM(t *testing.T) {
+	prg := make([]byte, 32*0x2000)
+	for bank := range 32 {
+		prg[bank*0x2000] = byte(bank)
+	}
+	cpu := StartupState()
+	mapper, err := MakeMapper(5, prg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpu.SetMapper(mapper)
+	if got := cpu.LoadMemory(0xe000); got != 31 {
+		t.Fatalf("power-on last bank: %d", got)
+	}
+	for i, value := range []byte{0x85, 0x87, 0x89, 0x8b} {
+		cpu.StoreMemory(0x5114+uint16(i), value)
+	}
+	for mode, want := range [][4]byte{{8, 9, 10, 11}, {6, 7, 10, 11}, {6, 7, 9, 11}, {5, 7, 9, 11}} {
+		cpu.StoreMemory(0x5100, byte(mode))
+		for slot, bank := range want {
+			address := 0x8000 + uint16(slot)*0x2000
+			if got := cpu.LoadMemory(address); got != bank {
+				t.Fatalf("mode %d, slot %d: got bank %d, want %d", mode, slot, got, bank)
+			}
+		}
+	}
+	cpu.StoreMemory(0x5113, 3)
+	cpu.StoreMemory(0x5114, 3)
+	cpu.StoreMemory(0x6000, 42)
+	if cpu.LoadMemory(0x8000) != 0 {
+		t.Fatal("WRAM was not protected")
+	}
+	cpu.StoreMemory(0x5102, 2)
+	cpu.StoreMemory(0x5103, 1)
+	cpu.StoreMemory(0x6000, 42)
+	if cpu.LoadMemory(0x8000) != 42 {
+		t.Fatal("banked WRAM windows did not share storage")
+	}
+}
+
+func TestMMC5PatternAndNametableSources(t *testing.T) {
+	chr := make([]byte, 256*0x400)
+	for bank := range 256 {
+		chr[bank*0x400] = byte(bank)
+	}
+	cpu := StartupState()
+	m := MakeMapper5(nil, chr)
+	cpu.SetMapper(m)
+	cpu.StoreMemory(0x5101, 3)
+	cpu.PPU.SetControllerFlags(0x20) // 8x16 sprites use separate banks.
+	cpu.StoreMemory(0x5120, 5)
+	cpu.StoreMemory(0x5128, 9)
+	if got := m.ReadSpriteCharacter(&cpu.PPU, 0); got != 5 {
+		t.Fatalf("sprite bank: %d", got)
+	}
+	if lo, _, _ := m.ReadBackgroundTile(&cpu.PPU, 0x2000, 0x1000, 0); lo != 9 {
+		t.Fatalf("background bank: %d", lo)
+	}
+	if got := m.ReadCharacter(&cpu.PPU, 0); got != 9 {
+		t.Fatalf("CPU CHR read did not use last written set: %d", got)
+	}
+	cpu.StoreMemory(0x5105, 0xe4) // CIRAM 0, CIRAM 1, ExRAM, fill.
+	for tab := range 4 {
+		cpu.PPU.StoreNametableMemory(0x2000+uint16(tab)*0x400, byte(tab+1))
+	}
+	cpu.StoreMemory(0x5106, 4)
+	cpu.StoreMemory(0x5107, 2)
+	for tab := range 4 {
+		if got := cpu.PPU.LoadNametableMemory(0x2000 + uint16(tab)*0x400); got != byte(tab+1) {
+			t.Fatalf("nametable %d value=%d", tab, got)
+		}
+	}
+	if cpu.PPU.LoadNametableMemory(0x2fc0) != 0xaa {
+		t.Fatal("fill attribute was not replicated across all quadrants")
+	}
+	cpu.StoreMemory(0x5104, 2)
+	cpu.StoreMemory(0x5c10, 0x83)
+	if cpu.LoadMemory(0x5c10) != 0x83 || cpu.PPU.LoadNametableMemory(0x2810) != 0 {
+		t.Fatal("CPU ExRAM did not disconnect from PPU nametable routing")
+	}
+	cpu.StoreMemory(0x5104, 1)
+	if lo, _, palette := m.ReadBackgroundTile(&cpu.PPU, 0x2010, 0, 0); lo != 12 || palette != 2 {
+		t.Fatalf("extended attributes: bank byte=%d palette=%d", lo, palette)
+	}
+}
+
+func TestMMC5IRQExpansionAndState(t *testing.T) {
+	cpu := StartupState()
+	m := MakeMapper5(nil, nil)
+	cpu.SetMapper(m)
+	cpu.StoreMemory(0x5205, 31)
+	cpu.StoreMemory(0x5206, 99)
+	if lo, hi := cpu.LoadMemory(0x5205), cpu.LoadMemory(0x5206); uint16(hi)<<8|uint16(lo) != 31*99 {
+		t.Fatal("bad MMC5 multiplication result")
+	}
+	cpu.StoreMemory(0x5203, 2)
+	cpu.PPU.SetMask(8)
+	cpu.PPU.Run(2+2*341, MakeVirtualScreen(256, 240))
+	if !m.IRQPending || m.IsIRQAsserted() {
+		t.Fatal("scanline match should latch pending IRQ even while disabled")
+	}
+	cpu.StoreMemory(0x5204, 0x80)
+	cpu.PPU.StoreNametableMemory(0x2000, 0x3c)
+	data, err := json.Marshal(cpu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored CPUState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	restored.Restore()
+	copied := cpu.Copy()
+	for _, state := range []*CPUState{&copied, &restored} {
+		if !state.Mapper.Mapper.IsIRQAsserted() || state.PPU.LoadNametableMemory(0x2400) != 0x3c {
+			t.Fatal("state lost IRQ or nametable routing")
+		}
+		if got := state.LoadMemory(0x5204); got != 0xc0 || state.Mapper.Mapper.IsIRQAsserted() {
+			t.Fatalf("status=$%02x or IRQ not acknowledged", got)
+		}
+	}
+	if !m.IsIRQAsserted() {
+		t.Fatal("acknowledging a copy affected the live mapper")
+	}
+}
+
+// MMC3 PRG-ROM bank address lines.
 
 func TestMMC3PRGBankAliasing(t *testing.T) {
 	for _, pages := range []int{4, 8, 16, 32, 64} {

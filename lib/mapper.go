@@ -4,6 +4,7 @@ import (
     "fmt"
     "log"
     "encoding/json"
+    "reflect"
 )
 
 /* Mappers work by replacing a range of memory addressable by the cpu.
@@ -88,6 +89,32 @@ type WritableCharacterMapper interface {
 // ScanlineMapper is an optional capability for cartridges with scanline clocks.
 type ScanlineMapper interface {
     Scanline()
+}
+
+// ExpansionMapper identifies CPU registers below the usual cartridge window.
+type ExpansionMapper interface {
+    MapsExpansion(address uint16) bool
+}
+
+// NametableMapper owns routing of PPU nametable accesses, including CPU PPUDATA.
+type NametableMapper interface {
+    ReadNametable(ppu *PPUState, address uint16) byte
+    WriteNametable(ppu *PPUState, address uint16, value byte)
+}
+
+// BackgroundTileMapper can supply attributes and pattern bytes per tile.
+type BackgroundTileMapper interface {
+    ReadBackgroundTile(ppu *PPUState, address, patternBase uint16, row byte) (low, high, palette byte)
+}
+
+// SpriteCharacterMapper distinguishes sprite fetches from CPU pattern reads.
+type SpriteCharacterMapper interface {
+    ReadSpriteCharacter(ppu *PPUState, address uint16) byte
+}
+
+// RenderingScanlineMapper sees visible scanlines and the end of rendering.
+type RenderingScanlineMapper interface {
+    RenderingScanline(line int, rendering bool)
 }
 
 var _ OpenBusMapper = (*Mapper1)(nil)
@@ -202,6 +229,13 @@ func (state *MapperState) UnmarshalJSON(data []byte) error {
             }
             state.Mapper = mapper4
             return nil
+        case 5:
+            mapper5, err := unmarshalMapper[*Mapper5](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper5
+            return nil
         case 7:
             mapper7, err := unmarshalMapper[*Mapper7](data)
             if err != nil {
@@ -252,6 +286,7 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
         case 2: return MakeMapper2(programRom), nil
         case 3: return MakeMapper3(programRom, chrMemory), nil
         case 4: return MakeMapper4(programRom, chrMemory), nil
+        case 5: return MakeMapper5(programRom, chrMemory), nil
         case 7: return MakeMapper7(programRom, chrMemory), nil
         case 9: return MakeMapper9(programRom, chrMemory), nil
         default: return nil, fmt.Errorf("Unimplemented mapper %v", mapper)
@@ -1104,6 +1139,262 @@ func MakeMapper4(programRom []byte, chrMemory []byte) Mapper {
         SaveRam: make([]byte, 0x2000),
         LastBank: pages-1,
     }
+}
+
+// Mapper5 implements the MMC5 cartridge hardware used by the US Castlevania
+// III. Scanline detection is approximated by PPU rendering callbacks.
+type Mapper5 struct {
+    ProgramROM, CharacterROM, WorkRAM       []byte
+    ExRAM                                   [1024]byte
+    PRGMode, CHRMode                        byte
+    PRGBanks                                [5]byte // $5113 through $5117
+    CHRBanks                                [12]uint16
+    CHRUpper                                byte
+    LastCHRBackground                       bool
+    Protect1, Protect2                      byte
+    ExMode, Nametables, FillTile, FillColor byte
+    IRQTarget, IRQLine                      byte
+    IRQEnabled, IRQPending, InFrame         bool
+    MultiplyA, MultiplyB                    byte
+}
+
+func MakeMapper5(programROM, characterROM []byte) *Mapper5 {
+    return &Mapper5{ProgramROM: programROM, CharacterROM: characterROM,
+        WorkRAM: make([]byte, 0x10000), PRGMode: 3,
+        PRGBanks: [5]byte{0, 0, 0, 0, 0xff}}
+}
+
+func (*Mapper5) Kind() int                         { return 5 }
+func (*Mapper5) IsNSF() bool                       { return false }
+func (*Mapper5) MapsExpansion(address uint16) bool { return address >= 0x5000 && address < 0x6000 }
+func (mapper *Mapper5) IsIRQAsserted() bool             { return mapper.IRQEnabled && mapper.IRQPending }
+
+func (mapper *Mapper5) Copy() Mapper {
+    copied := *mapper
+    copied.ProgramROM = copySlice(mapper.ProgramROM)
+    copied.CharacterROM = copySlice(mapper.CharacterROM)
+    copied.WorkRAM = copySlice(mapper.WorkRAM)
+    return &copied
+}
+
+func (mapper *Mapper5) Compare(other Mapper) error {
+    if !reflect.DeepEqual(mapper, other) {
+        return fmt.Errorf("MMC5 state differs")
+    }
+    return nil
+}
+
+func (mapper *Mapper5) prgAddress(address uint16) (isROM bool, offset int) {
+    if address < 0x8000 {
+        return false, int(mapper.PRGBanks[0]&7)*0x2000 + int(address&0x1fff)
+    }
+    slot := int(address-0x8000) / 0x2000
+    register, bankSpan := slot+1, 1
+    switch mapper.PRGMode {
+    case 0:
+        register, bankSpan = 4, 4
+    case 1:
+        register, bankSpan = 2+2*(slot/2), 2
+    case 2:
+        if slot < 2 {
+            register, bankSpan = 2, 2
+        }
+    }
+    value := mapper.PRGBanks[register]
+    isROM = register == 4 || value&0x80 != 0
+    bank := int(value & 7)
+    if isROM {
+        bank = int(value & 0x7f)
+    }
+    bank = bank&^(bankSpan-1) | slot&(bankSpan-1)
+    if isROM {
+        bank = mirrorBank(bank, len(mapper.ProgramROM)/0x2000)
+    }
+    return isROM, bank*0x2000 + int(address&0x1fff)
+}
+
+func (mapper *Mapper5) Read(address uint16) byte { return mapper.ReadWithOpenBus(address, 0) }
+
+func (mapper *Mapper5) ReadWithOpenBus(address uint16, openBus byte) byte {
+    switch address {
+    case 0xfffa, 0xfffb:
+        // Fetching the NMI vector also resets the MMC5 scanline detector.
+        mapper.InFrame, mapper.IRQPending, mapper.IRQLine = false, false, 0
+    case 0x5204:
+        var status byte
+        if mapper.IRQPending {
+            status |= 0x80
+        }
+        if mapper.InFrame {
+            status |= 0x40
+        }
+        mapper.IRQPending = false
+        return status
+    case 0x5205:
+        return byte(uint16(mapper.MultiplyA) * uint16(mapper.MultiplyB))
+    case 0x5206:
+        return byte(uint16(mapper.MultiplyA) * uint16(mapper.MultiplyB) >> 8)
+    }
+    if address >= 0x5c00 && address < 0x6000 && mapper.ExMode >= 2 {
+        return mapper.ExRAM[address&0x3ff]
+    }
+    if address >= 0x6000 {
+        isROM, offset := mapper.prgAddress(address)
+        data := mapper.WorkRAM
+        if isROM {
+            data = mapper.ProgramROM
+        }
+        if offset < len(data) {
+            return data[offset]
+        }
+    }
+    return openBus
+}
+
+func (mapper *Mapper5) Write(_ *CPUState, address uint16, value byte) error {
+    switch {
+    case address >= 0x6000:
+        isROM, offset := mapper.prgAddress(address)
+        if !isROM && mapper.Protect1 == 2 && mapper.Protect2 == 1 && offset < len(mapper.WorkRAM) {
+            mapper.WorkRAM[offset] = value
+        }
+    case address >= 0x5c00:
+        if mapper.ExMode < 3 {
+            if mapper.ExMode < 2 && !mapper.InFrame {
+                value = 0
+            }
+            mapper.ExRAM[address&0x3ff] = value
+        }
+    case address >= 0x5113 && address <= 0x5117:
+        mapper.PRGBanks[address-0x5113] = value
+    case address >= 0x5120 && address <= 0x512b:
+        mapper.CHRBanks[address-0x5120] = uint16(value) | uint16(mapper.CHRUpper)<<8
+        mapper.LastCHRBackground = address >= 0x5128
+    default:
+        switch address {
+        case 0x5100:
+            mapper.PRGMode = value & 3
+        case 0x5101:
+            mapper.CHRMode = value & 3
+        case 0x5102:
+            mapper.Protect1 = value & 3
+        case 0x5103:
+            mapper.Protect2 = value & 3
+        case 0x5104:
+            mapper.ExMode = value & 3
+        case 0x5105:
+            mapper.Nametables = value
+        case 0x5106:
+            mapper.FillTile = value
+        case 0x5107:
+            mapper.FillColor = (value & 3) * 0x55
+        case 0x5130:
+            mapper.CHRUpper = value & 3
+        case 0x5203:
+            mapper.IRQTarget = value
+        case 0x5204:
+            mapper.IRQEnabled = value&0x80 != 0
+        case 0x5205:
+            mapper.MultiplyA = value
+        case 0x5206:
+            mapper.MultiplyB = value
+        }
+    }
+    return nil
+}
+
+func (mapper *Mapper5) RenderingScanline(line int, rendering bool) {
+    if !rendering || line >= 240 {
+        mapper.InFrame = false
+        return
+    }
+    if !mapper.InFrame || line == 0 {
+        mapper.InFrame, mapper.IRQLine = true, 0
+        return
+    }
+    mapper.IRQLine++
+    if mapper.IRQLine == mapper.IRQTarget {
+        mapper.IRQPending = true
+    }
+}
+
+func (mapper *Mapper5) characterByte(bank, size, offset int) byte {
+    bank = mirrorBank(bank, len(mapper.CharacterROM)/size)
+    index := bank*size + offset
+    if index >= len(mapper.CharacterROM) {
+        return 0
+    }
+    return mapper.CharacterROM[index]
+}
+
+func (mapper *Mapper5) readCHR(address uint16, background bool) byte {
+    size := 0x2000 >> mapper.CHRMode
+    offset := int(address)
+    register := (offset/size+1)*(size/0x400) - 1
+    if background {
+        register = 8 + register%4
+    }
+    return mapper.characterByte(int(mapper.CHRBanks[register]), size, offset%size)
+}
+
+func (mapper *Mapper5) ReadCharacter(ppu *PPUState, address uint16) byte {
+    return mapper.readCHR(address, ppu.GetSpriteSize() == SpriteSize8x16 && mapper.LastCHRBackground)
+}
+
+func (mapper *Mapper5) ReadSpriteCharacter(_ *PPUState, address uint16) byte {
+    return mapper.readCHR(address, false)
+}
+
+func (mapper *Mapper5) nametableSource(address uint16) byte {
+    return (mapper.Nametables >> (((address >> 10) & 3) * 2)) & 3
+}
+
+func (mapper *Mapper5) ReadNametable(ppu *PPUState, address uint16) byte {
+    offset := address & 0x3ff
+    source := mapper.nametableSource(address)
+    switch source {
+    case 0, 1:
+        return ppu.NametableMemory[uint16(source)*0x400+offset]
+    case 2:
+        if mapper.ExMode < 2 {
+            return mapper.ExRAM[offset]
+        }
+    case 3:
+        if offset >= 0x3c0 {
+            return mapper.FillColor
+        }
+        return mapper.FillTile
+    }
+    return 0
+}
+
+func (mapper *Mapper5) WriteNametable(ppu *PPUState, address uint16, value byte) {
+    offset := address & 0x3ff
+    source := mapper.nametableSource(address)
+    switch source {
+    case 0, 1:
+        ppu.NametableMemory[uint16(source)*0x400+offset] = value
+    case 2:
+        if mapper.ExMode < 2 {
+            mapper.ExRAM[offset] = value
+        }
+    }
+}
+
+func (mapper *Mapper5) ReadBackgroundTile(ppu *PPUState, address, patternBase uint16, row byte) (byte, byte, byte) {
+    tile := mapper.ReadNametable(ppu, address)
+    if mapper.ExMode == 1 {
+        attribute := mapper.ExRAM[address&0x3ff]
+        bank := int(attribute&0x3f) | int(mapper.CHRUpper)<<6
+        offset := int(tile)*16 + int(row)
+        return mapper.characterByte(bank, 0x1000, offset), mapper.characterByte(bank, 0x1000, offset+8), attribute >> 6
+    }
+    attributeAddress := 0x23c0 | (address & 0xc00) | ((address >> 4) & 0x38) | ((address >> 2) & 7)
+    shift := (address & 2) | ((address >> 4) & 4)
+    palette := (mapper.ReadNametable(ppu, attributeAddress) >> shift) & 3
+    pattern := patternBase + uint16(tile)*16 + uint16(row)
+    background := ppu.GetSpriteSize() == SpriteSize8x16
+    return mapper.readCHR(pattern, background), mapper.readCHR(pattern+8, background), palette
 }
 
 type Mapper7 struct {

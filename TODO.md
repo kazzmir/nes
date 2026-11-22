@@ -207,6 +207,16 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   also need board-specific mapping; current fallback bounds-checks bank holes
   instead of guessing modulo wiring.
 
+## MMC5 (mapper 5)
+
+- [x] **US Castlevania III:** banked PRG and CHR, separate background/sprite
+  CHR fetches, nametable routing, ExRAM, fill mode, and scanline IRQs. The
+  local ROM reaches the first stage and responds to movement input in
+  `test/screenshot/mmc5_test.go`.
+- [ ] **Complete MMC5 hardware support.** IRQ counting uses scanline callbacks,
+  not the chip’s actual PPU bus detection. Vertical split rendering, expansion
+  audio, board-specific WRAM sizing, and CHR RAM are not implemented.
+
 ## CPU/PPU integration
 
 - [x] **Bad Dudes stalls on a grey screen waiting for vblank.** Its main
