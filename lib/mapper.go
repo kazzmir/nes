@@ -250,6 +250,13 @@ func (state *MapperState) UnmarshalJSON(data []byte) error {
             }
             state.Mapper = mapper9
             return nil
+        case 11:
+            mapper11, err := unmarshalMapper[*Mapper11](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper11
+            return nil
     }
 
     return fmt.Errorf("could not deserialize mapper. unknown mapper type %v", state.Kind)
@@ -289,6 +296,7 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
         case 5: return MakeMapper5(programRom, chrMemory), nil
         case 7: return MakeMapper7(programRom, chrMemory), nil
         case 9: return MakeMapper9(programRom, chrMemory), nil
+        case 11: return MakeMapper11(programRom, chrMemory), nil
         default: return nil, fmt.Errorf("Unimplemented mapper %v", mapper)
     }
 }
@@ -1654,4 +1662,72 @@ func MakeMapper9(programRom []byte, chrMemory []byte) Mapper {
         Pages: pages,
         Latches: [2]byte{0xfe, 0xfe},
     }
+}
+
+// Mapper11 is the Color Dreams board: a single latch switches 32 KiB of PRG
+// and 8 KiB of CHR. Nametable mirroring is hardwired, not latch-controlled.
+type Mapper11 struct {
+    ProgramROM []byte `json:"programrom"`
+    CharacterROM []byte `json:"characterrom"`
+    Register byte `json:"register"`
+    BusConflicts bool `json:"busconflicts"`
+}
+
+func MakeMapper11(programROM, characterROM []byte) *Mapper11 {
+    return &Mapper11{ProgramROM: programROM, CharacterROM: characterROM}
+}
+
+func (*Mapper11) Kind() int { return 11 }
+func (*Mapper11) IsNSF() bool { return false }
+func (*Mapper11) IsIRQAsserted() bool { return false }
+
+func (mapper *Mapper11) Copy() Mapper {
+    copied := *mapper
+    copied.ProgramROM = copySlice(mapper.ProgramROM)
+    copied.CharacterROM = copySlice(mapper.CharacterROM)
+    return &copied
+}
+
+func (mapper *Mapper11) Compare(other Mapper) error {
+    if !reflect.DeepEqual(mapper, other) {
+        return fmt.Errorf("Color Dreams mapper state differs")
+    }
+    return nil
+}
+
+func (mapper *Mapper11) Read(address uint16) byte {
+    return mapper.ReadWithOpenBus(address, 0)
+}
+
+func (mapper *Mapper11) ReadWithOpenBus(address uint16, openBus byte) byte {
+    if address < 0x8000 {
+        return openBus
+    }
+    bank := mirrorBank(int(mapper.Register & 3), len(mapper.ProgramROM) / 0x8000)
+    offset := bank*0x8000 + int(address - 0x8000)
+    if offset >= len(mapper.ProgramROM) {
+        return openBus
+    }
+    return mapper.ProgramROM[offset]
+}
+
+func (mapper *Mapper11) Write(cpu *CPUState, address uint16, value byte) error {
+    if address >= 0x8000 {
+        if mapper.BusConflicts {
+            // The old mapping still drives the ROM side of the bus.
+            value &= mapper.ReadWithOpenBus(address, value)
+            cpu.Databus = value
+        }
+        mapper.Register = value
+    }
+    return nil
+}
+
+func (mapper *Mapper11) ReadCharacter(_ *PPUState, address uint16) byte {
+    bank := mirrorBank(int(mapper.Register >> 4), len(mapper.CharacterROM) / 0x2000)
+    offset := bank*0x2000 + int(address & 0x1fff)
+    if offset >= len(mapper.CharacterROM) {
+        return 0
+    }
+    return mapper.CharacterROM[offset]
 }

@@ -132,7 +132,7 @@ func (nesFile NESFile) ConfigureMirroring(ppu *PPUState) {
 }
 
 // MakeMapper applies board variants described by NES 2.0 submappers. For
-// UxROM/CNROM/AxROM, submapper 1 has no bus conflicts and 2 has bus conflicts.
+// UxROM/CNROM/AxROM/Color Dreams, submapper 1 has no bus conflicts and 2 has bus conflicts.
 // Legacy iNES and unspecified submapper 0 retain the existing no-conflict
 // behavior; the header does not identify which electrical board was used.
 func (nesFile NESFile) MakeMapper() (Mapper, error) {
@@ -141,7 +141,7 @@ func (nesFile NESFile) MakeMapper() (Mapper, error) {
         submapper = nesFile.Submapper
     }
     switch nesFile.Mapper {
-        case 2, 3, 7:
+        case 2, 3, 7, 11:
             if submapper > 2 {
                 return nil, fmt.Errorf("unsupported mapper %d submapper %d", nesFile.Mapper, submapper)
             }
@@ -156,6 +156,8 @@ func (nesFile NESFile) MakeMapper() (Mapper, error) {
         case *Mapper3:
             board.BusConflicts = submapper == 2
         case *Mapper7:
+            board.BusConflicts = submapper == 2
+        case *Mapper11:
             board.BusConflicts = submapper == 2
     }
     return mapper, nil
