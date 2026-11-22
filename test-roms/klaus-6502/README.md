@@ -5,7 +5,8 @@
 The corresponding assembly source and GPL license are included here.
 
 ```sh
-go test ./test/klaus-6502 -v
+go run ./test/all-test -cpu
+go test ./test/all-test/cpu-test -v
 ```
 
 There is no video output. In a debugger, `$FFF0` is the success loop; any

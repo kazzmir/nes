@@ -128,7 +128,49 @@ func doDummyOAMWriteTest() (bool, error) {
     return result == 0, nil
 }
 
+const klaus6502ROM = "test-roms/klaus-6502/6502_functional_test.nes"
+
+func doKlaus6502Test(path string) error {
+    rom, err := nes.ParseNesFile(path, false)
+    if err != nil {
+        return err
+    }
+    mapper, err := rom.MakeMapper()
+    if err != nil {
+        return err
+    }
+    cpu := nes.StartupState()
+    cpu.SetMapper(mapper)
+    cpu.Reset()
+
+    // The ROM tests CPU semantics, including BRK/RTI, without a running PPU
+    // or asynchronous APU interrupts.
+    const pass = 0xfff0
+    const cycleLimit = 100_000_000
+    table := nes.MakeInstructionDescriptiontable()
+    for cpu.Cycle < cycleLimit {
+        pc := cpu.PC
+        if pc == pass {
+            return nil
+        }
+        if err := cpu.Run(table); err != nil {
+            return fmt.Errorf("PC=$%04X test case=$%02X: %w", pc, cpu.Ram[0x200], err)
+        }
+        if cpu.PC == pc {
+            return fmt.Errorf("failure loop at $%04X, test case=$%02X (A=%02X X=%02X Y=%02X P=%02X)", pc, cpu.Ram[0x200], cpu.A, cpu.X, cpu.Y, cpu.Status)
+        }
+    }
+    return fmt.Errorf("cycle limit exceeded at $%04X, test case=$%02X", cpu.PC, cpu.Ram[0x200])
+}
+
 func Run(debug bool) (bool, error) {
+    klausErr := doKlaus6502Test(klaus6502ROM)
+    if klausErr != nil {
+        log.Printf("%s: %v", test_utils.Failure("Klaus 6502 functional test"), klausErr)
+    } else {
+        log.Print(test_utils.Success("Klaus 6502 functional test"))
+    }
+
     dummyReadTest, err := doDummyReadTest()
     if err != nil {
         return false, err
@@ -162,5 +204,5 @@ func Run(debug bool) (bool, error) {
         log.Print(test_utils.Failure("Dummy OAM writes"))
     }
 
-    return dummyReadTest && dummyPPUWriteTest && dummyOAMWriteTest, nil
+    return klausErr == nil && dummyReadTest && dummyPPUWriteTest && dummyOAMWriteTest, nil
 }
