@@ -239,6 +239,9 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   scroll increment and a missed sprite-zero hit. Apply the mask three PPU
   dots after the write. Verified the supplied replay passes the old stall
   near CPU cycle 377 million and runs through cycle 390 million.
+- [x] **Filthy Kitchen draws a stray sprite in the HUD.** OAM Y `$FF` is
+  offscreen, not scanline 0. Widen the decoded Y coordinate before adding the
+  sprite's one-line offset; tests cover both sprite sizes.
 - [ ] **Complete CPU/PPU cycle accuracy.** The instruction interpreter still
   omits some internal/dummy cycles; interrupt hijacking, branch-specific
   interrupt polling, and dot-level vblank/NMI suppression windows need
