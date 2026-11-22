@@ -229,6 +229,15 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   interrupt polling, and dot-level vblank/NMI suppression windows need
   dedicated work. The Bad Dudes fix does not resolve MMC3 A12 IRQ accuracy.
 
+## APU
+
+- [x] **Batman loses both pulse channels during music.** The local NTSC ROM
+  writes `$88` to both sweep registers, as confirmed in FCEUX. A zero shift
+  must not update the pulse timer; the old sweep drove both periods to zero.
+  `lib/apu_test.go` covers zero shift on both channels and verifies that
+  nonzero negate sweeps still update the period. This fixes the pulse dropouts,
+  not all differences between this emulator's audio and FCEUX.
+
 ## Validation
 
 From the repository root:

@@ -5,6 +5,40 @@ import (
 	"testing"
 )
 
+func TestAPUPulseSweepZeroShiftPreservesPeriod(t *testing.T) {
+	for _, pulse1 := range []bool{true, false} {
+		for _, value := range []byte{0x88, 0x80} {
+			pulse := Pulse{}
+			pulse.ParseSweep(value)
+			pulse.Timer.SetPeriod(0x180)
+			for range 4 {
+				pulse.Sweep.Tick(pulse1, &pulse.Timer)
+				if got := pulse.Timer.Period(); got != 0x180 {
+					t.Fatalf("pulse1=%v sweep=%#02x changed period to %#x with zero shift", pulse1, value, got)
+				}
+			}
+		}
+	}
+}
+
+func TestAPUPulseSweepNonzeroShiftUpdatesPeriod(t *testing.T) {
+	for _, pulse1 := range []bool{true, false} {
+		pulse := Pulse{}
+		pulse.ParseSweep(0x89)
+		pulse.Timer.SetPeriod(0x180)
+		for range 2 {
+			pulse.Sweep.Tick(pulse1, &pulse.Timer)
+		}
+		want := uint16(0xc0)
+		if pulse1 {
+			want-- // Pulse 1 uses one's-complement negation.
+		}
+		if got := pulse.Timer.Period(); got != want {
+			t.Fatalf("pulse1=%v period=%#x, want %#x", pulse1, got, want)
+		}
+	}
+}
+
 func runAPUCPU(apu *APUState, cycles float64) {
 	cpu := StartupState()
 	apu.Run(cycles/2, 100, &cpu)

@@ -157,7 +157,8 @@ type Sweep struct {
 
 func (sweep *Sweep) Tick(pulse1 bool, timer *Timer){
     if sweep.Enabled {
-        if sweep.Divider.Clock(1) {
+        // A zero shift inhibits timer updates, not the sweep divider clock.
+        if sweep.Divider.Clock(1) && sweep.ShiftCount != 0 {
             shifted := int(timer.Period() >> sweep.ShiftCount)
             if sweep.Negate {
                 if pulse1 {
