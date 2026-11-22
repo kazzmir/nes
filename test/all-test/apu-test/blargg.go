@@ -14,8 +14,8 @@ var blarggROMs = []struct {
 	name     string
 	wantCode byte // Nonzero only for a known failure; remove when fixed.
 }{
-	{"1-len_ctr", 3},
-	{"2-len_table", 1},
+	{"1-len_ctr", 0},
+	{"2-len_table", 0},
 	{"3-irq_flag", 0},
 	{"4-jitter", 3},
 	{"5-len_timing", 3},

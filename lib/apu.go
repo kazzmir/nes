@@ -243,6 +243,19 @@ func (pulse *Pulse) ParseSweep(value byte){
     }
 }
 
+func (pulse *Pulse) writeDuty(value byte) {
+    duty := value >> 6
+    loop := value & 0x20 != 0
+    constantVolume := value & 0x10 != 0
+    volume := value & 0x0f
+    if ApuDebug > 0 {
+        log.Printf("APU: write %v duty value=%v duty=%v loop/halt=%v constant=%v volume=%v", pulse.Name, value, duty, loop, constantVolume, volume)
+    }
+    pulse.SetDuty(duty)
+    pulse.Length.Halt = loop
+    pulse.Envelope.Set(loop, constantVolume, volume)
+}
+
 func (pulse *Pulse) SetDuty(duty byte){
     pulse.Duty = duty
     pulse.Sequencer.SetDuty(duty)
@@ -982,18 +995,7 @@ func (apu *APUState) GenerateSample() float32 {
 }
 
 func (apu *APUState) WritePulse1Duty(value byte){
-    duty := value >> 6
-    loop_envelope := (value >> 5) & 0x1
-    length_counter_halt := (value >> 4) & 0x1
-    volume := (value & 0xf)
-
-    if ApuDebug > 0 {
-        log.Printf("APU: write pulse1 duty value=%v duty=%v loop=%v length=%v volume=%v", value, duty, loop_envelope, length_counter_halt, volume)
-    }
-
-    apu.Pulse1.SetDuty(duty)
-    apu.Pulse1.Length.Halt = length_counter_halt == 0x1
-    apu.Pulse1.Envelope.Set(loop_envelope == 0x1, length_counter_halt == 0x1, volume)
+    apu.Pulse1.writeDuty(value)
 }
 
 func (apu *APUState) WritePulse1Sweep(value byte){
@@ -1015,7 +1017,9 @@ func (apu *APUState) WritePulse1Timer(value byte){
 func (apu *APUState) WritePulse1Length(value byte){
     apu.Pulse1.Timer.High = uint16(value & 7)
     lengthIndex := value >> 3
-    apu.Pulse1.Length.SetLength(lengthIndex)
+    if apu.EnablePulse1 {
+        apu.Pulse1.Length.SetLength(lengthIndex)
+    }
     apu.Pulse1.Sequencer.Position = 0
 
     if ApuDebug > 0 {
@@ -1028,18 +1032,7 @@ func (apu *APUState) WritePulse1Length(value byte){
 }
 
 func (apu *APUState) WritePulse2Duty(value byte){
-    duty := value >> 6
-    loop_envelope := (value >> 5) & 0x1
-    length_counter_halt := (value >> 4) & 0x1
-    volume := (value & 0xf)
-
-    if ApuDebug > 0 {
-        log.Printf("APU: write pulse2 duty value=%v duty=%v loop=%v length=%v volume=%v", value, duty, loop_envelope, length_counter_halt, volume)
-    }
-
-    apu.Pulse2.SetDuty(duty)
-    apu.Pulse2.Length.Halt = length_counter_halt == 0x1
-    apu.Pulse2.Envelope.Set(loop_envelope == 0x1, length_counter_halt == 0x1, volume)
+    apu.Pulse2.writeDuty(value)
 }
 
 func (apu *APUState) WritePulse2Sweep(value byte){
@@ -1064,7 +1057,9 @@ func (apu *APUState) WritePulse2Length(value byte){
 
     apu.Pulse2.Timer.High = uint16(value & 7)
     lengthIndex := value >> 3
-    apu.Pulse2.Length.SetLength(lengthIndex)
+    if apu.EnablePulse2 {
+        apu.Pulse2.Length.SetLength(lengthIndex)
+    }
 
     apu.Pulse2.Timer.Reset()
 
@@ -1076,8 +1071,8 @@ func (apu *APUState) WriteTriangleCounter(value byte){
     if ApuDebug > 0 {
         log.Printf("APU: write triangle counter %v", value)
     }
-    control := (value >> 7) & 0x1
-    apu.Triangle.ControlFlag = control == 1
+    apu.Triangle.ControlFlag = value & 0x80 != 0
+    apu.Triangle.Length.Halt = apu.Triangle.ControlFlag
     apu.Triangle.LinearCounterReload = int(value & 127)
 }
 
@@ -1096,7 +1091,9 @@ func (apu *APUState) WriteTriangleTimerHigh(value byte){
     apu.Triangle.Timer.High = uint16(value & 7)
     apu.Triangle.Timer.Reset()
     lengthIndex := value >> 3
-    apu.Triangle.Length.SetLength(lengthIndex)
+    if apu.EnableTriangle {
+        apu.Triangle.Length.SetLength(lengthIndex)
+    }
     apu.Triangle.LinearCounterReloadFlag = true
 }
 
@@ -1149,6 +1146,7 @@ func (apu *APUState) WriteNoiseEnvelope(value byte){
     constant := (value >> 4) & 0x1 == 0x1
     period := value & 0xf
     // log.Printf("APU: write noise envelope value=%v loop=%v enable=%v period=%v", value, loop, enable, period)
+    apu.Noise.Length.Halt = loop
     apu.Noise.Envelope.Set(loop, constant, period)
 }
 
@@ -1156,7 +1154,9 @@ func (apu *APUState) WriteNoiseLength(value byte){
     // log.Printf("APU: write noise length value=%v", value)
 
     length := value >> 3
-    apu.Noise.Length.SetLength(length)
+    if apu.EnableNoise {
+        apu.Noise.Length.SetLength(length)
+    }
 }
 
 func (apu *APUState) IsIRQAsserted() bool {
@@ -1196,6 +1196,10 @@ func (apu *APUState) WriteChannelEnable(value byte, cpu *CPUState){
 
     if !apu.EnableTriangle {
         apu.Triangle.Length.Clear()
+    }
+
+    if !apu.EnableNoise {
+        apu.Noise.Length.Clear()
     }
 
     if ApuDebug > 0 {

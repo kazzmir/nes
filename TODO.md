@@ -270,12 +270,13 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   count. Clear a pending DMC IRQ when `$4010` disables it. Model the independent
   sample buffer and bus-cycle-dependent DMA stalls instead of always stalling
   three cycles.
-- [ ] **Honor channel enables and length-counter halts.** Clear noise length
-  when disabled and ignore length reloads for disabled channels. Use bit 5
-  rather than bit 4 to halt pulse length counters, and wire bit 5 for noise.
-- [ ] **Correct triangle sustain and DAC hold.** `$4008` bit 7 should halt
-  the length counter. Stop advancing the waveform when the length or linear
-  counter reaches zero, but hold the last DAC level rather than outputting zero.
+- [x] **Honor channel enables and length-counter halts.** Disabling a
+  channel clears its length; a disabled channel cannot reload it. Pulse and
+  noise use bit 5 to halt length, and triangle uses `$4008` bit 7. Blargg's
+  `1-len_ctr` and `2-len_table` pass.
+- [ ] **Correct triangle DAC hold.** Stop advancing the waveform when the
+  length or linear counter reaches zero, but hold the last DAC level rather
+  than outputting zero.
 - [ ] **Correct pulse sweep and envelope behavior.** Mute on sweep target
   overflow rather than testing only the current period. Length-register writes
   should request an envelope restart on the next quarter-frame clock; control
@@ -289,8 +290,8 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   nonlinear mixer, but remove DC at the output. In Filthy Kitchen, bass was
   present and about 10 dB quieter than FCEUX, as was the rest of the audible mix.
 - [x] **Run Blargg's standalone APU ROMs in `all-test`.** The eight ROMs in
-  `test-roms/blargg-apu/` run alongside the original ten. `3-irq_flag` passes;
-  the other seven report expected failure codes. A result that differs from
+  `test-roms/blargg-apu/` run alongside the original ten. The first three
+  pass; the other five report expected failure codes. A result that differs from
   the baseline fails the run. Update the baseline as fixes land.
 
 ## Region timing

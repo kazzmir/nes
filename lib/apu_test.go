@@ -5,6 +5,46 @@ import (
 	"testing"
 )
 
+func TestAPULengthCounterEnableAndHalt(t *testing.T) {
+	for channel, name := range []string{"pulse1", "pulse2", "triangle", "noise"} {
+		t.Run(name, func(t *testing.T) {
+			cpu := StartupState()
+			mask := byte(1 << channel)
+			control := uint16(0x4000 + 4*channel)
+			halt := byte(0x20)
+			if name == "triangle" {
+				halt = 0x80
+			}
+			loadLength := func() { cpu.StoreMemory(control+3, 0x18) } // Two half-frame clocks.
+			checkActive := func(want bool) {
+				t.Helper()
+				if got := cpu.LoadMemory(APUStatus)&mask != 0; got != want {
+					t.Fatalf("length counter active = %v, want %v", got, want)
+				}
+			}
+
+			loadLength()
+			checkActive(false)
+			cpu.StoreMemory(APUStatus, mask)
+			checkActive(false)
+			cpu.StoreMemory(control, 0x10) // Bit 4 does not halt the counter.
+			loadLength()
+			cpu.APU.HalfFrame()
+			checkActive(true)
+			cpu.APU.HalfFrame()
+			checkActive(false)
+
+			cpu.StoreMemory(control, halt)
+			loadLength()
+			cpu.APU.HalfFrame()
+			cpu.APU.HalfFrame()
+			checkActive(true)
+			cpu.StoreMemory(APUStatus, 0)
+			checkActive(false)
+		})
+	}
+}
+
 func TestAPUStatusReadExposesIRQFlags(t *testing.T) {
 	cpu := StartupState()
 	cpu.Databus = 0x20
