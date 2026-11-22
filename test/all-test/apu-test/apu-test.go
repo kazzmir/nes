@@ -35,7 +35,7 @@ func doTest(rom string, passAddress uint16, failAddress uint16) (bool, error) {
 	screen := nes.MakeVirtualScreen(256, 240)
 	instructionTable := nes.MakeInstructionDescriptiontable()
 	baseCyclesPerSample := 100.0
-	deadline := cpu.Cycle + uint64(nes.CPUSpeed*2)
+	deadline := cpu.Cycle + uint64(nes.CPUSpeedNTSC*2)
 
 	for cpu.PC != passAddress && cpu.PC != failAddress {
 		if cpu.Cycle >= deadline {

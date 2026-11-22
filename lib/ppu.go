@@ -313,7 +313,7 @@ func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
 func (ppu *PPUState) UpdateDatabus(value byte) {
     ppu.Databus = value
     // decay to 0 after 1 second of cpu time
-    ppu.Decay = uint64(CPUSpeed)
+    ppu.Decay = uint64(CPUSpeedNTSC)
 }
 
 func (ppu *PPUState) ReadMemory(address uint16) byte {

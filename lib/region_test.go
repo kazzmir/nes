@@ -77,7 +77,7 @@ func TestPALPPURatioAndState(t *testing.T) {
 	for _, state := range []CPUState{cpu.Copy(), restore} {
 		state.ppuStep.screen = screen
 		state.advancePPU(3)
-		if state.PPU.DotClock != 16 || state.PPU.CPUClockRemainder != 0 || state.APU.Region != RegionPAL || state.CPUFrequency() != 1662607.125 {
+		if state.PPU.DotClock != 16 || state.PPU.CPUClockRemainder != 0 || state.APU.Region != RegionPAL || state.CPUFrequency() != CPUSpeedPAL {
 			t.Fatal("PAL timing or fractional phase lost after copy/save state")
 		}
 	}

@@ -45,9 +45,9 @@ type regionTiming struct {
 
 func (r Region) timing() regionTiming {
 	if r == RegionPAL {
-		return regionTiming{1662607.125, 312, 16, 5}
+		return regionTiming{CPUSpeedPAL, 312, 16, 5}
 	}
-	return regionTiming{CPUSpeed, 262, 3, 1}
+	return regionTiming{CPUSpeedNTSC, 262, 3, 1}
 }
 
 func detectRegion(header, prg, chr []byte, name string) Region {

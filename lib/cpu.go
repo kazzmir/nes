@@ -24,7 +24,10 @@ const BRKVector uint16 = 0xfffe
  * NTSC 2c0c clock speed is 21.47~ MHz ÷ 12 = 1.789773 MHz
  * Every second we should run this many cycles
  */
-const CPUSpeed float64 = 1.789773e6
+const (
+    CPUSpeedNTSC float64 = 1.789773e6
+    CPUSpeedPAL  float64 = 1662607.125
+)
 
 type InstructionReader struct {
     data io.Reader

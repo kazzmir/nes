@@ -39,7 +39,7 @@ func doTest(rom string) (bool, error) {
 
     cpu.Reset()
 
-    err = commonNes.SimpleRun(&cpu, uint64(nes.CPUSpeed * 1))
+    err = commonNes.SimpleRun(&cpu, uint64(nes.CPUSpeedNTSC * 1))
 
     if err != commonNes.MaxCyclesReached {
         return false, err
