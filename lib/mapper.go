@@ -1158,8 +1158,8 @@ type Mapper5 struct {
     MultiplyA, MultiplyB                    byte
 }
 
-func MakeMapper5(prg, chr []byte) *Mapper5 {
-    return &Mapper5{ProgramROM: prg, CharacterROM: chr,
+func MakeMapper5(programROM, characterROM []byte) *Mapper5 {
+    return &Mapper5{ProgramROM: programROM, CharacterROM: characterROM,
         WorkRAM: make([]byte, 0x10000), PRGMode: 3,
         PRGBanks: [5]byte{0, 0, 0, 0, 0xff}}
 }
@@ -1170,11 +1170,11 @@ func (*Mapper5) MapsExpansion(address uint16) bool { return address >= 0x5000 &&
 func (mapper *Mapper5) IsIRQAsserted() bool             { return mapper.IRQEnabled && mapper.IRQPending }
 
 func (mapper *Mapper5) Copy() Mapper {
-    out := *mapper
-    out.ProgramROM = copySlice(mapper.ProgramROM)
-    out.CharacterROM = copySlice(mapper.CharacterROM)
-    out.WorkRAM = copySlice(mapper.WorkRAM)
-    return &out
+    copied := *mapper
+    copied.ProgramROM = copySlice(mapper.ProgramROM)
+    copied.CharacterROM = copySlice(mapper.CharacterROM)
+    copied.WorkRAM = copySlice(mapper.WorkRAM)
+    return &copied
 }
 
 func (mapper *Mapper5) Compare(other Mapper) error {
@@ -1184,33 +1184,33 @@ func (mapper *Mapper5) Compare(other Mapper) error {
     return nil
 }
 
-func (mapper *Mapper5) prgAddress(address uint16) (rom bool, offset int) {
+func (mapper *Mapper5) prgAddress(address uint16) (isROM bool, offset int) {
     if address < 0x8000 {
         return false, int(mapper.PRGBanks[0]&7)*0x2000 + int(address&0x1fff)
     }
     slot := int(address-0x8000) / 0x2000
-    reg, span := slot+1, 1
+    register, bankSpan := slot+1, 1
     switch mapper.PRGMode {
     case 0:
-        reg, span = 4, 4
+        register, bankSpan = 4, 4
     case 1:
-        reg, span = 2+2*(slot/2), 2
+        register, bankSpan = 2+2*(slot/2), 2
     case 2:
         if slot < 2 {
-            reg, span = 2, 2
+            register, bankSpan = 2, 2
         }
     }
-    value := mapper.PRGBanks[reg]
-    rom = reg == 4 || value&0x80 != 0
+    value := mapper.PRGBanks[register]
+    isROM = register == 4 || value&0x80 != 0
     bank := int(value & 7)
-    if rom {
+    if isROM {
         bank = int(value & 0x7f)
     }
-    bank = bank&^(span-1) | slot&(span-1)
-    if rom {
+    bank = bank&^(bankSpan-1) | slot&(bankSpan-1)
+    if isROM {
         bank = mirrorBank(bank, len(mapper.ProgramROM)/0x2000)
     }
-    return rom, bank*0x2000 + int(address&0x1fff)
+    return isROM, bank*0x2000 + int(address&0x1fff)
 }
 
 func (mapper *Mapper5) Read(address uint16) byte { return mapper.ReadWithOpenBus(address, 0) }
@@ -1239,9 +1239,9 @@ func (mapper *Mapper5) ReadWithOpenBus(address uint16, openBus byte) byte {
         return mapper.ExRAM[address&0x3ff]
     }
     if address >= 0x6000 {
-        rom, offset := mapper.prgAddress(address)
+        isROM, offset := mapper.prgAddress(address)
         data := mapper.WorkRAM
-        if rom {
+        if isROM {
             data = mapper.ProgramROM
         }
         if offset < len(data) {
@@ -1254,8 +1254,8 @@ func (mapper *Mapper5) ReadWithOpenBus(address uint16, openBus byte) byte {
 func (mapper *Mapper5) Write(_ *CPUState, address uint16, value byte) error {
     switch {
     case address >= 0x6000:
-        rom, offset := mapper.prgAddress(address)
-        if !rom && mapper.Protect1 == 2 && mapper.Protect2 == 1 && offset < len(mapper.WorkRAM) {
+        isROM, offset := mapper.prgAddress(address)
+        if !isROM && mapper.Protect1 == 2 && mapper.Protect2 == 1 && offset < len(mapper.WorkRAM) {
             mapper.WorkRAM[offset] = value
         }
     case address >= 0x5c00:
@@ -1330,11 +1330,11 @@ func (mapper *Mapper5) characterByte(bank, size, offset int) byte {
 func (mapper *Mapper5) readCHR(address uint16, background bool) byte {
     size := 0x2000 >> mapper.CHRMode
     offset := int(address)
-    reg := (offset/size+1)*(size/0x400) - 1
+    register := (offset/size+1)*(size/0x400) - 1
     if background {
-        reg = 8 + reg%4
+        register = 8 + register%4
     }
-    return mapper.characterByte(int(mapper.CHRBanks[reg]), size, offset%size)
+    return mapper.characterByte(int(mapper.CHRBanks[register]), size, offset%size)
 }
 
 func (mapper *Mapper5) ReadCharacter(ppu *PPUState, address uint16) byte {
@@ -1384,14 +1384,14 @@ func (mapper *Mapper5) WriteNametable(ppu *PPUState, address uint16, value byte)
 func (mapper *Mapper5) ReadBackgroundTile(ppu *PPUState, address, patternBase uint16, row byte) (byte, byte, byte) {
     tile := mapper.ReadNametable(ppu, address)
     if mapper.ExMode == 1 {
-        attr := mapper.ExRAM[address&0x3ff]
-        bank := int(attr&0x3f) | int(mapper.CHRUpper)<<6
+        attribute := mapper.ExRAM[address&0x3ff]
+        bank := int(attribute&0x3f) | int(mapper.CHRUpper)<<6
         offset := int(tile)*16 + int(row)
-        return mapper.characterByte(bank, 0x1000, offset), mapper.characterByte(bank, 0x1000, offset+8), attr >> 6
+        return mapper.characterByte(bank, 0x1000, offset), mapper.characterByte(bank, 0x1000, offset+8), attribute >> 6
     }
-    attrAddress := 0x23c0 | (address & 0xc00) | ((address >> 4) & 0x38) | ((address >> 2) & 7)
+    attributeAddress := 0x23c0 | (address & 0xc00) | ((address >> 4) & 0x38) | ((address >> 2) & 7)
     shift := (address & 2) | ((address >> 4) & 4)
-    palette := (mapper.ReadNametable(ppu, attrAddress) >> shift) & 3
+    palette := (mapper.ReadNametable(ppu, attributeAddress) >> shift) & 3
     pattern := patternBase + uint16(tile)*16 + uint16(row)
     background := ppu.GetSpriteSize() == SpriteSize8x16
     return mapper.readCHR(pattern, background), mapper.readCHR(pattern+8, background), palette
