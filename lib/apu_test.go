@@ -48,10 +48,52 @@ func frameResetFixture() APUState {
 	apu := MakeAPU()
 	apu.FrameMode = true // Four-step sequence, just before a half-frame clock.
 	apu.Clock = 1
-	apu.Cycles = 3728.25
+	apu.Cycles = 3727.5
 	apu.EnablePulse1 = true
 	apu.Pulse1.Length.Length = 2
 	return apu
+}
+
+func TestAPUFourStepFrameSchedule(t *testing.T) {
+	apu := MakeAPU()
+	apu.FrameMode = true
+	apu.Pulse1.Length.Length = 4
+	apu.Triangle.ControlFlag = true
+	apu.Triangle.LinearCounter = 10
+	last := 0
+	for _, event := range []struct {
+		cycle int
+		half  bool
+	}{
+		{7457, false}, {14913, true}, {22371, false}, {29829, true},
+		{37287, false}, // 29830 (wrap) + 7457.
+	} {
+		runAPUCPU(&apu, float64(event.cycle-last-1))
+		length, linear := apu.Pulse1.Length.Length, apu.Triangle.LinearCounter
+		runAPUCPU(&apu, 1)
+		if event.half {
+			length--
+		}
+		if apu.Pulse1.Length.Length != length || apu.Triangle.LinearCounter != linear-1 {
+			t.Fatalf("incorrect frame clocks at CPU cycle %d", event.cycle)
+		}
+		last = event.cycle
+	}
+}
+
+func TestAPUFourStepHalfFramePrecedesDelayedReset(t *testing.T) {
+	apu := MakeAPU()
+	apu.FrameMode = true
+	apu.Pulse1.Length.Length = 2
+	runAPUCPU(&apu, 29826)
+	if apu.Pulse1.Length.Length != 1 {
+		t.Fatal("expected one clock before the last half-frame event")
+	}
+	apu.WriteFrameCounter(0, 1) // Reset at 29830; the half-frame clock is at 29829.
+	runAPUCPU(&apu, 4)
+	if apu.Pulse1.Length.Length != 0 || apu.Clock != 0 || apu.Cycles != 0 {
+		t.Fatal("delayed reset lost the half-frame clock immediately before it")
+	}
 }
 
 func TestAPUFiveStepFrameSchedule(t *testing.T) {
@@ -121,7 +163,7 @@ func TestAPUFrameResetPreservesPrecedingClock(t *testing.T) {
 
 func TestAPUFrameResetBoundaryOrdering(t *testing.T) {
 	apu := frameResetFixture()
-	apu.Cycles = 3726.75 // The next half-frame clock coincides with reset.
+	apu.Cycles = 3726 // The next half-frame clock coincides with reset.
 	apu.WriteFrameCounter(0x80, 1)
 	runAPUCPU(&apu, 4)
 	if apu.Pulse1.Length.Length != 1 || apu.Clock != 0 || apu.Cycles != 0 {

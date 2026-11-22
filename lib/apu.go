@@ -653,24 +653,23 @@ func (apu *APUState) clockFrameUnits(half bool) {
 
 func (apu *APUState) runFrameCounter(apuCycles float64, includeEnd bool) {
     elapsed := apuCycles
-    /* about 240hz on ntsc
-     * cpu hz = 1.789773e6
-     * apu hz = cpu hz / 2
-     * 1.789773e6 / 2 / 3728.5 = 240.01247
-     */
+    // Four-step NTSC events at 7457, 14913, 22371, 29829 CPU cycles.
+    // The last half-frame clock precedes the wrap at 29830 by one cycle.
+    fourStepIntervals := [...]float64{7457, 7456, 7458, 7458}
     // Five-step NTSC event positions, in CPU cycles from reset:
     // 7457, 14913, 22371, 29829 (idle), 37281. It wraps at 37282.
     fiveStepIntervals := [...]float64{7457, 7456, 7458, 7458, 7452}
     // A reset at the exact event boundary takes precedence over the old
     // sequencer's event; all clocks strictly before it must still occur.
     for {
-        apuCounter := 3728.75
-        if !apu.FrameMode {
-            slot := apu.Clock % 5
-            apuCounter = fiveStepIntervals[slot] / 2
-            if slot == 0 && apu.Clock != 0 {
-                apuCounter += 0.5 // The wrap is one CPU cycle after the last event.
-            }
+        intervals := fiveStepIntervals[:]
+        if apu.FrameMode {
+            intervals = fourStepIntervals[:]
+        }
+        slot := apu.Clock % uint64(len(intervals))
+        apuCounter := intervals[slot] / 2
+        if slot == 0 && apu.Clock != 0 {
+            apuCounter += 0.5 // The wrap is one CPU cycle after the last event.
         }
         // Old save states used a uniform interval, so a restored event may
         // already be due. Process it without running the clock backwards.
@@ -691,7 +690,7 @@ func (apu *APUState) runFrameCounter(apuCycles float64, includeEnd bool) {
 
         /* mode 0 - 4 step */
         if apu.FrameMode {
-            /* every 29830 cycles */
+            // Frame IRQ currently modeled at the final half-frame event.
             if apu.Clock % 4 == 0 {
                 if !apu.InterruptInhibit {
                     apu.FrameIRQAsserted = true

@@ -240,8 +240,12 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
 
 - [x] **APU ROM tests 5 and 6: five-step length-counter timing.** Correct the
   NTSC event schedule and prevent a delayed `$4017` reset from issuing another
-  frame clock within one APU cycle of a normal clock. Tests 1–8 pass; 9 and 10
-  remain open.
+  frame clock within one APU cycle of a normal clock.
+- [x] **APU ROM tests 9 and 10: four-step length-counter timing.** Clock length
+  at cycle 29829, one cycle before the wrap and before the delayed `$4017`
+  reset in these tests. All ten ROMs in `test-roms/apu/` pass.
+- [ ] **Complete APU frame IRQ and register-access timing.** The four-step
+  IRQ assertion window is simplified, and CPU/APU accesses are still batched.
 
 ## Validation
 
