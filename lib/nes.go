@@ -52,12 +52,10 @@ func IsNESFile(path string) bool {
 
 func readPRG(header []byte) uint64 {
     lsb := header[4]
-    /* only use the lowest 4 bits of byte 9 in the header */
-    msb := header[9] & 0b1111
-
-    if isDiskDude(header){
-        msb = 0
+    if !isNes2(header) {
+        return uint64(lsb) << 14
     }
+    msb := header[9] & 0b1111
 
     if msb == 15 {
         low2 := lsb & 3
@@ -70,11 +68,10 @@ func readPRG(header []byte) uint64 {
 
 func readCHR(header []byte) uint64 {
     lsb := header[5]
-    msb := (header[9] >> 4) & 15
-
-    if isDiskDude(header){
-        msb = 0
+    if !isNes2(header) {
+        return uint64(lsb) << 13
     }
+    msb := (header[9] >> 4) & 15
 
     if msb == 15 {
         low2 := lsb & 3
@@ -114,6 +111,7 @@ type NESFile struct {
     Mapper uint32
     Submapper byte
     Nes2 bool
+    Region Region
     HorizontalMirror bool
     VerticalMirror bool
     FourScreenMirror bool
@@ -250,6 +248,7 @@ func ParseNes(reader io.Reader, debug bool, name string) (NESFile, error) {
         Mapper: mapper,
         Submapper: submapper,
         Nes2: nes2,
+        Region: detectRegion(header[:], programRom, characterRom, name),
         HorizontalMirror: horizontalMirror,
         VerticalMirror: verticalMirror,
         FourScreenMirror: fourScreenMirror,

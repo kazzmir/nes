@@ -65,6 +65,8 @@ type PPUState struct {
     /* counts in the x direction during rendering, from 0-340 */
     ScanlineCycle int `json:"scanlinecycle"`
     DotClock uint64 `json:"dotclock"`
+    Region Region `json:"region,omitempty"`
+    CPUClockRemainder uint64 `json:"cpuclockremainder,omitempty"`
     NMIPending bool `json:"nmipending"`
     NMIEdgeDot uint64 `json:"nmiedgedot"`
     TemporaryVideoAddress uint16 `json:"t_register"` /* the t register */
@@ -143,6 +145,8 @@ func (ppu *PPUState) Copy() PPUState {
         Scanline: ppu.Scanline,
         ScanlineCycle: ppu.ScanlineCycle,
         DotClock: ppu.DotClock,
+        Region: ppu.Region,
+        CPUClockRemainder: ppu.CPUClockRemainder,
         NMIPending: ppu.NMIPending,
         NMIEdgeDot: ppu.NMIEdgeDot,
         TemporaryVideoAddress: ppu.TemporaryVideoAddress,
@@ -254,7 +258,10 @@ func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
     /* writes to certain ppu register are ignored before this cycle
      * http://wiki.nesdev.org/w/index.php/PPU_power_up_state
      */
-    const ignore_ppu_write_cycle = 29658
+    ignore_ppu_write_cycle := uint64(29658)
+    if ppu.Region == RegionPAL {
+        ignore_ppu_write_cycle = 33132
+    }
 
     /* every 8 bytes is mirrored, so only consider the last 3-bits of the address */
     ppu.UpdateDatabus(value)
@@ -306,7 +313,7 @@ func (ppu *PPUState) WriteMemory(address uint16, value byte, cycle uint64) {
 func (ppu *PPUState) UpdateDatabus(value byte) {
     ppu.Databus = value
     // decay to 0 after 1 second of cpu time
-    ppu.Decay = uint64(CPUSpeed)
+    ppu.Decay = uint64(CPUSpeedNTSC)
 }
 
 func (ppu *PPUState) ReadMemory(address uint16) byte {
@@ -1551,6 +1558,11 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
     /* http://wiki.nesdev.org/w/index.php/PPU_rendering */
     oldNMI := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
     didDraw := false
+    frameLines := ppu.Region.timing().scanlines
+    clearLine, clearDot := 260, 0 // Preserve existing NTSC timing.
+    if ppu.Region == RegionPAL {
+        clearLine, clearDot = frameLines - 1, 1
+    }
     for range cycles {
         ppu.DotClock += 1
         if ppu.MaskWriteDots > 0 {
@@ -1611,8 +1623,11 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
             ppu.SetVerticalBlankFlag(true)
         }
 
-        if ppu.Scanline == 260 && ppu.ScanlineCycle == 0 {
+        if ppu.Scanline == clearLine && ppu.ScanlineCycle == clearDot {
             ppu.SetVerticalBlankFlag(false)
+            if ppu.Region == RegionPAL {
+                ppu.SetSpriteZeroHit(false)
+            }
         }
 
         ppu.ScanlineCycle += 1
@@ -1653,8 +1668,10 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
                 ppu.fetchSpritePatterns()
             }
 
-            if ppu.Scanline == 261 {
-                ppu.SetSpriteZeroHit(false)
+            if ppu.Scanline == frameLines - 1 {
+                if ppu.Region != RegionPAL {
+                    ppu.SetSpriteZeroHit(false)
+                }
 
                 if ppu.IsSpriteEnabled() || ppu.IsBackgroundEnabled() {
                     ppu.updateMapperScanline()
@@ -1662,7 +1679,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
             }
 
             /* Prerender line */
-            if ppu.Scanline == 262 {
+            if ppu.Scanline == frameLines {
                 ppu.Scanline = 0
 
                 ppu.HasSetSprite0 = false

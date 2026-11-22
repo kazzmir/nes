@@ -45,7 +45,7 @@ func doDummyReadTest() (bool, error) {
 
     cpu.Reset()
 
-    err = commonNes.SimpleRun(&cpu, uint64(nes.CPUSpeed * 2))
+    err = commonNes.SimpleRun(&cpu, uint64(nes.CPUSpeedNTSC * 2))
 
     if err != commonNes.MaxCyclesReached {
         return false, err
@@ -75,7 +75,7 @@ func doDummyWritePPUTest() (bool, error) {
 
     cpu.Reset()
 
-    err = commonNes.SimpleRun(&cpu, uint64(nes.CPUSpeed * 4))
+    err = commonNes.SimpleRun(&cpu, uint64(nes.CPUSpeedNTSC * 4))
 
     if err != commonNes.MaxCyclesReached {
         return false, err
@@ -117,7 +117,7 @@ func doDummyOAMWriteTest() (bool, error) {
 
     cpu.Reset()
 
-    err = commonNes.SimpleRun(&cpu, uint64(nes.CPUSpeed * 6))
+    err = commonNes.SimpleRun(&cpu, uint64(nes.CPUSpeedNTSC * 6))
 
     if err != commonNes.MaxCyclesReached {
         return false, err

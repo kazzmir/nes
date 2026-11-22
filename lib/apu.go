@@ -63,7 +63,8 @@ func (timer *Timer) Run(cycles float64) int {
 
 func (timer *Timer) Reset(){
     value := (timer.High << 8) | timer.Low
-    timer.Divider.ClockPeriod = value + 1
+    // The divider already clocks after period+1 ticks.
+    timer.Divider.ClockPeriod = value
     timer.Divider.Reset()
 }
 
@@ -478,6 +479,7 @@ func (stream *AudioStream) Read(out []byte) (int, error) {
 }
 
 type APUState struct {
+    Region Region `json:"region,omitempty"`
     /* APU cycles, 1 apu cycle for every 2 cpu cycles */
     Cycles float64 `json:"cycles"`
     /* frame sequencer clock, ticks at 240hz */
@@ -516,6 +518,7 @@ func (apu *APUState) Copy() APUState {
         Cycles: apu.Cycles,
         Clock: apu.Clock,
         FrameClockCooldown: apu.FrameClockCooldown,
+        Region: apu.Region,
         FrameMode: apu.FrameMode,
         UpdatedFrameCounter: apu.UpdatedFrameCounter,
         PendingFrameMode: apu.PendingFrameMode,
@@ -659,13 +662,22 @@ func (apu *APUState) runFrameCounter(apuCycles float64, includeEnd bool) {
     if apu.FrameMode {
         intervals = intervals[:4]
     }
+    wrapDot := 0.5 // One CPU cycle between the last clock and wrap.
+    if apu.Region == RegionPAL {
+        intervals = []float64{8313, 8314, 8312, 8314, 8312}
+        if apu.FrameMode {
+            // IRQ asserts across three CPU cycles; the middle one clocks length.
+            intervals = []float64{8313, 8314, 8312, 8313, 1, 1}
+            wrapDot = 0 // Last IRQ slot already accounts for the wrap cycle.
+        }
+    }
     // A reset at the exact event boundary takes precedence over the old
     // sequencer's event; all clocks strictly before it must still occur.
     for {
         slot := apu.Clock % uint64(len(intervals))
         apuCounter := intervals[slot] / 2
         if slot == 0 && apu.Clock != 0 {
-            apuCounter += 0.5 // The wrap is one CPU cycle after the last event.
+            apuCounter += wrapDot
         }
         // Old save states used a uniform interval, so a restored event may
         // already be due. Process it without running the clock backwards.
@@ -685,7 +697,17 @@ func (apu *APUState) runFrameCounter(apuCycles float64, includeEnd bool) {
         }
 
         /* mode 0 - 4 step */
-        if apu.FrameMode {
+        if apu.FrameMode && apu.Region == RegionPAL {
+            if slot >= 3 && !apu.InterruptInhibit {
+                apu.FrameIRQAsserted = true
+            }
+            switch slot {
+                case 0, 2:
+                    apu.clockFrameUnits(false)
+                case 1, 4:
+                    apu.clockFrameUnits(true)
+            }
+        } else if apu.FrameMode {
             // Frame IRQ currently modeled at the final half-frame event.
             if apu.Clock % 4 == 0 {
                 if !apu.InterruptInhibit {
@@ -768,6 +790,10 @@ func dmcNTSCRate(value byte) uint16 {
     return 428
 }
 
+func dmcPALRate(value byte) uint16 {
+    return [...]uint16{398, 354, 316, 298, 276, 236, 210, 198, 176, 148, 132, 118, 98, 78, 66, 50}[value & 0xf]
+}
+
 func (apu *APUState) WriteDMCEnable(value byte) {
     irq_enable := (value >> 7) & 0x1
     loop := (value >> 6) & 0x1
@@ -782,7 +808,11 @@ func (apu *APUState) WriteDMCEnable(value byte) {
     /* these periods are all even numbers because there are 2 CPU cycles in an APU cycle.
      * A rate of 428 means the output level changes every 214 APU cycles.
      */
-    apu.DMC.Frequency = float64(dmcNTSCRate(frequency)) / 2.0
+    rate := dmcNTSCRate(frequency)
+    if apu.Region == RegionPAL {
+        rate = dmcPALRate(frequency)
+    }
+    apu.DMC.Frequency = float64(rate) / 2.0
     apu.DMC.Counter = 0
 }
 
@@ -1068,8 +1098,7 @@ func (apu *APUState) WriteTriangleTimerHigh(value byte){
 }
 
 /* http://wiki.nesdev.org/w/index.php/APU_Noise */
-func noisePeriod(period byte) uint16 {
-    /* NTSC */
+func noiseNTSCPeriod(period byte) uint16 {
     switch period & 0xf {
         case 0: return 4
         case 1: return 8
@@ -1093,6 +1122,10 @@ func noisePeriod(period byte) uint16 {
     return 4
 }
 
+func noisePALPeriod(period byte) uint16 {
+    return [...]uint16{4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708, 944, 1890, 3778}[period & 0xf]
+}
+
 func (apu *APUState) WriteNoiseMode(value byte){
     mode := (value >> 7) & 0x1
     period := value & 0xf
@@ -1101,7 +1134,11 @@ func (apu *APUState) WriteNoiseMode(value byte){
     }
 
     apu.Noise.Mode = mode
-    apu.Noise.Timer.SetPeriod(noisePeriod(period))
+    rate := noiseNTSCPeriod(period)
+    if apu.Region == RegionPAL {
+        rate = noisePALPeriod(period) - 1 // Divider clocks after period+1 CPU cycles.
+    }
+    apu.Noise.Timer.SetPeriod(rate)
 }
 
 func (apu *APUState) WriteNoiseEnvelope(value byte){

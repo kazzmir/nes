@@ -34,6 +34,7 @@ func Run(rom string, maxCycles int64) (nes.VirtualScreen, error) {
     }
 
     cpu := nes.StartupState()
+    cpu.SetRegion(nesFile.Region)
 
     nesFile.ConfigureMirroring(&cpu.PPU)
 

@@ -24,7 +24,10 @@ const BRKVector uint16 = 0xfffe
  * NTSC 2c0c clock speed is 21.47~ MHz ÷ 12 = 1.789773 MHz
  * Every second we should run this many cycles
  */
-const CPUSpeed float64 = 1.789773e6
+const (
+    CPUSpeedNTSC float64 = 1.789773e6
+    CPUSpeedPAL  float64 = 1662607.125
+)
 
 type InstructionReader struct {
     data io.Reader
@@ -1109,6 +1112,16 @@ const (
     JOYPAD2 = 0x4017
 )
 
+// CPUFrequency is the emulated clock rate, not the host update rate.
+func (cpu *CPUState) CPUFrequency() float64 { return cpu.PPU.Region.timing().cpuHz }
+
+// SetRegion configures hardware timing before running a cartridge.
+func (cpu *CPUState) SetRegion(region Region) {
+    cpu.PPU.Region = region
+    cpu.PPU.CPUClockRemainder = 0
+    cpu.APU.Region = region
+}
+
 func (cpu *CPUState) SetMapper(mapper Mapper){
     cpu.Mapper.Set(mapper)
     cpu.PPU.setMapper(mapper)
@@ -1377,7 +1390,10 @@ func (cpu *CPUState) clockPPUBus(address uint16) {
 func (cpu *CPUState) advancePPU(cycles uint64) {
     step := &cpu.ppuStep
     if cycles > step.clocked {
-        _, drawn := cpu.PPU.Run((cycles-step.clocked)*3, step.screen)
+        timing := cpu.PPU.Region.timing()
+        dots := (cycles-step.clocked)*timing.ppuNumerator + cpu.PPU.CPUClockRemainder
+        cpu.PPU.CPUClockRemainder = dots % timing.ppuDenominator
+        _, drawn := cpu.PPU.Run(dots/timing.ppuDenominator, step.screen)
         step.drawn = step.drawn || drawn
         step.clocked = cycles
     }
@@ -1427,10 +1443,13 @@ func (cpu *CPUState) Step(table InstructionTable, screen VirtualScreen) (bool, e
     }
     cpu.advancePPU(elapsed)
 
-    // One CPU cycle is three PPU dots. The edge must have arrived by the
-    // penultimate cycle's poll. Do not discard a latched edge merely because
+    // Recover the number of dots in the final CPU cycle from its end phase.
+    // The edge must have arrived by the penultimate cycle's poll. Do not
+    // discard a latched edge merely because
     // a subsequent $2002 read or $2000 write deasserted the NMI output.
-    if !interrupt && cpu.PPU.NMIPending && cpu.PPU.DotClock-cpu.PPU.NMIEdgeDot >= 3 {
+    timing := cpu.PPU.Region.timing()
+    lastCycleDots := (timing.ppuNumerator + timing.ppuDenominator - 1 - cpu.PPU.CPUClockRemainder) / timing.ppuDenominator
+    if !interrupt && cpu.PPU.NMIPending && cpu.PPU.DotClock-cpu.PPU.NMIEdgeDot >= lastCycleDots {
         cpu.NMIReady = true
         cpu.PPU.NMIPending = false
     }

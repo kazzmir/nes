@@ -403,7 +403,7 @@ func generateThumbnails(loaderQuit context.Context, cpu nes.CPUState, romId RomI
     }
 
     /* don't load more than 30s worth */
-    const maxCycles = uint64(30 * nes.CPUSpeed)
+    const maxCycles = uint64(30 * nes.CPUSpeedNTSC)
 
     log.Printf("Start loading %v", path)
     err = common.RunNES(path, &cpu, maxCycles, quit, bufferReady, buffer, emulatorActionsInput, &screenListeners, &IgnoreMessages{}, AudioSampleRate, 0, nil, handleDraw)

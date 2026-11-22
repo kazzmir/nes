@@ -427,7 +427,7 @@ func saveScreenshot(romName string, buffer nes.VirtualScreen) {
     log.Printf("Saved screenshot to %v", screenshotPath)
 }
 
-func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string) error {
+func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxCycles uint64, windowSizeMultiple int, recordOnStart bool, desiredFps int, recordInput bool, replayKeys string, regionOverride *nes.Region) error {
     nesChannel := make(chan NesAction, 10)
     doMenu := make(chan bool, 5)
 
@@ -619,6 +619,10 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
     console := MakeConsole(mainCancel, mainQuit, emulatorActionsOutput, nesChannel)
 
     startNES := func(nesFile nes.NESFile, quit context.Context, yield coroutine.YieldFunc){
+        if regionOverride != nil {
+            nesFile.Region = *regionOverride
+        }
+        log.Printf("Region: %v", nesFile.Region)
         cpu, err := common.SetupCPU(nesFile, debugCpu, debugPpu)
 
         debugger := debug.MakeDebugger(&cpu, debugWindow)
@@ -1182,6 +1186,7 @@ func RunNES(path string, patchFiles []string, debugCpu bool, debugPpu bool, maxC
 
 type Arguments struct {
     NESPath string
+    RegionOverride *nes.Region
     Debug bool
     DebugCpu bool
     DebugPpu bool
@@ -1223,6 +1228,7 @@ Options:
   -profile: Write profile.cpu and profile.memory, which are the pprof cpu and memory profiles
   -cycles, --cycles #: limit the emulator to only run for some number of cycles
   -record-input: record key presses
+  -region <auto|ntsc|pal>: select cartridge timing (default auto)
   -replay-input <input file>: replay key presses. A rom must also be specified
   If patch files are specified then they will be applied to the rom before it is run.
 `)
@@ -1237,6 +1243,16 @@ Options:
                 arguments.MemoryProfile = true
             case "-record-input":
                 arguments.RecordKeys = true
+            case "-region", "--region":
+                argIndex += 1
+                if argIndex >= len(os.Args) {
+                    return arguments, fmt.Errorf("Expected auto, ntsc, or pal for -region")
+                }
+                region, err := nes.ParseRegionOverride(os.Args[argIndex])
+                if err != nil {
+                    return arguments, err
+                }
+                arguments.RegionOverride = region
             case "-replay-input":
                 argIndex += 1
                 if argIndex >= len(os.Args) {
@@ -1337,7 +1353,7 @@ func main(){
     }
 
     if nes.IsNESFile(arguments.NESPath) {
-        err := RunNES(arguments.NESPath, arguments.PatchFiles, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
+        err := RunNES(arguments.NESPath, arguments.PatchFiles, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys, arguments.RegionOverride)
         if err != nil {
             log.Printf("Error: %v\n", err)
         }
@@ -1348,7 +1364,7 @@ func main(){
         }
     } else {
         /* Open up the loading menu immediately */
-        err := RunNES(arguments.NESPath, arguments.PatchFiles, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys)
+        err := RunNES(arguments.NESPath, arguments.PatchFiles, arguments.Debug || arguments.DebugCpu, arguments.Debug || arguments.DebugPpu, arguments.MaxCycles, arguments.WindowSizeMultiple, arguments.Record, arguments.DesiredFps, arguments.RecordKeys, arguments.ReplayKeys, arguments.RegionOverride)
         if err != nil {
             log.Printf("Error: %v\n", err)
         }

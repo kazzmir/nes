@@ -335,10 +335,10 @@ func PlayNSF(nsf NSFFile, track byte, audioStream *AudioStream, sampleRate float
      * anything higher than 1 seems ok, with 10 probably being an upper limit
      */
     hostTickSpeed := 5
-    cycleDiff := CPUSpeed / (1000.0 / float64(hostTickSpeed))
+    cycleDiff := CPUSpeedNTSC / (1000.0 / float64(hostTickSpeed))
 
     /* about 20.292 */
-    baseCyclesPerSample := CPUSpeed / 2 / float64(sampleRate)
+    baseCyclesPerSample := CPUSpeedNTSC / 2 / float64(sampleRate)
 
     // nes.ApuDebug = 1
 

@@ -20,6 +20,18 @@ Usage:
 $ ./nes somerom.nes
 ```
 
+Cartridge timing defaults to `-region auto`. Override it with `-region ntsc`
+(for example, for an older input replay) or `-region pal`:
+
+```
+$ ./nes -region pal 'roms/Super Mario Bros (E).nes'
+```
+
+Auto detection uses NES 2.0 timing metadata, known cartridge checksums,
+the legacy iNES PAL bit, and filename hints such as `(E)` or `(PAL)`, in that
+order. Unidentified or dual-region ROMs without a PAL hint use NTSC.
+Dendy timing and PAL NSF playback are not implemented.
+
 Keys:
 ```
 up arrow = up

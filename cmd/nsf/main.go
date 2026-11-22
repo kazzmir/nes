@@ -440,7 +440,7 @@ func saveMp3(nsfPath string, mp3out string, track int, renderTime uint64) error 
     waiter.Add(1)
     go func(){
         defer waiter.Done()
-        err = nes.PlayNSF(nsf, byte(track), audioStream, sampleRate, actions, quit, uint64(float64(renderTime) * nes.CPUSpeed))
+        err = nes.PlayNSF(nsf, byte(track), audioStream, sampleRate, actions, quit, uint64(float64(renderTime) * nes.CPUSpeedNTSC))
         cancel()
     }()
 
