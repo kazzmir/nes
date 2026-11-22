@@ -90,6 +90,32 @@ type ScanlineMapper interface {
     Scanline()
 }
 
+// ExpansionMapper identifies CPU registers below the usual cartridge window.
+type ExpansionMapper interface {
+    MapsExpansion(address uint16) bool
+}
+
+// NametableMapper owns routing of PPU nametable accesses, including CPU PPUDATA.
+type NametableMapper interface {
+    ReadNametable(ppu *PPUState, address uint16) byte
+    WriteNametable(ppu *PPUState, address uint16, value byte)
+}
+
+// BackgroundTileMapper can supply attributes and pattern bytes per tile.
+type BackgroundTileMapper interface {
+    ReadBackgroundTile(ppu *PPUState, address, patternBase uint16, row byte) (low, high, palette byte)
+}
+
+// SpriteCharacterMapper distinguishes sprite fetches from CPU pattern reads.
+type SpriteCharacterMapper interface {
+    ReadSpriteCharacter(ppu *PPUState, address uint16) byte
+}
+
+// RenderingScanlineMapper sees visible scanlines and the end of rendering.
+type RenderingScanlineMapper interface {
+    RenderingScanline(line int, rendering bool)
+}
+
 var _ OpenBusMapper = (*Mapper1)(nil)
 var _ CharacterMapper = (*Mapper1)(nil)
 var _ WritableCharacterMapper = (*Mapper1)(nil)
@@ -202,6 +228,13 @@ func (state *MapperState) UnmarshalJSON(data []byte) error {
             }
             state.Mapper = mapper4
             return nil
+        case 5:
+            mapper5, err := unmarshalMapper[*Mapper5](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper5
+            return nil
         case 7:
             mapper7, err := unmarshalMapper[*Mapper7](data)
             if err != nil {
@@ -252,6 +285,7 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
         case 2: return MakeMapper2(programRom), nil
         case 3: return MakeMapper3(programRom, chrMemory), nil
         case 4: return MakeMapper4(programRom, chrMemory), nil
+        case 5: return MakeMapper5(programRom, chrMemory), nil
         case 7: return MakeMapper7(programRom, chrMemory), nil
         case 9: return MakeMapper9(programRom, chrMemory), nil
         default: return nil, fmt.Errorf("Unimplemented mapper %v", mapper)

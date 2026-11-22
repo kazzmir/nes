@@ -1044,7 +1044,7 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
         return cpu.Databus
     }
 
-    if page >= 0x60 {
+    if page >= 0x60 || cpu.mapsCartridgeExpansion(address) {
         if cpu.Mapper.Mapper == nil {
             log.Printf("No mapper set, cannot read from mapper memory: 0x%x", address)
             return 0
@@ -1181,6 +1181,11 @@ func (cpu *CPUState) GetMemoryPage(address uint16) []byte {
     // return nil
 }
 
+func (cpu *CPUState) mapsCartridgeExpansion(address uint16) bool {
+    mapper, ok := cpu.Mapper.Mapper.(ExpansionMapper)
+    return ok && mapper.MapsExpansion(address)
+}
+
 func (cpu *CPUState) StoreMemory(address uint16, value byte) {
     cpu.clockPPUBus(address)
     // large := uint64(address)
@@ -1296,7 +1301,7 @@ func (cpu *CPUState) StoreMemory(address uint16, value byte) {
             return
     }
 
-    if address >= 0x6000 || (cpu.Mapper.Mapper != nil && cpu.Mapper.Mapper.IsNSF() && address >= 0x5ff6 && address < 0x6000) {
+    if address >= 0x6000 || cpu.mapsCartridgeExpansion(address) || (cpu.Mapper.Mapper != nil && cpu.Mapper.Mapper.IsNSF() && address >= 0x5ff6 && address < 0x6000) {
         err := cpu.Mapper.Mapper.Write(cpu, address, value)
         if err != nil {
             log.Printf("Warning: writing to mapper memory: %v", err)

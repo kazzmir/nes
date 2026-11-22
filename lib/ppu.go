@@ -52,6 +52,10 @@ type PPUState struct {
     characterMapper CharacterMapper
     writableCharacterMapper WritableCharacterMapper
     scanlineMapper ScanlineMapper
+    nametableMapper NametableMapper
+    backgroundTileMapper BackgroundTileMapper
+    spriteCharacterMapper SpriteCharacterMapper
+    renderingScanlineMapper RenderingScanlineMapper
 
     Flags byte `json:"flags"`
     Mask byte `json:"mask"`
@@ -628,6 +632,10 @@ func (ppu *PPUState) setMapper(mapper Mapper) {
     ppu.characterMapper, _ = mapper.(CharacterMapper)
     ppu.writableCharacterMapper, _ = mapper.(WritableCharacterMapper)
     ppu.scanlineMapper, _ = mapper.(ScanlineMapper)
+    ppu.nametableMapper, _ = mapper.(NametableMapper)
+    ppu.backgroundTileMapper, _ = mapper.(BackgroundTileMapper)
+    ppu.spriteCharacterMapper, _ = mapper.(SpriteCharacterMapper)
+    ppu.renderingScanlineMapper, _ = mapper.(RenderingScanlineMapper)
 }
 
 // All pattern fetches share this path so cartridges see CPU and rendering reads.
@@ -739,7 +747,7 @@ type Sprite struct {
 }
 
 func (ppu *PPUState) spritePatternBytes(sprite *Sprite, address uint16) ([]byte, []byte) {
-    if ppu.characterMapper != nil {
+    if ppu.characterMapper != nil || ppu.spriteCharacterMapper != nil {
         return sprite.Pattern[:8], sprite.Pattern[8:]
     }
     return ppu.VideoMemory[address:address+8], ppu.VideoMemory[address+8:address+16]
@@ -749,7 +757,7 @@ func (ppu *PPUState) spritePatternBytes(sprite *Sprite, address uint16) ([]byte,
 // just once in OAM order, including transparent/offscreen sprites, so a latch
 // trigger doesn't cause later pixels of the same row to use a different bank.
 func (ppu *PPUState) fetchSpritePatterns() {
-    if ppu.characterMapper == nil {
+    if ppu.characterMapper == nil && ppu.spriteCharacterMapper == nil {
         return
     }
     for i := range ppu.CurrentSprites {
@@ -769,8 +777,14 @@ func (ppu *PPUState) fetchSpritePatterns() {
         }
         address += uint16(row / 8) * 16
         row %= 8
-        sprite.Pattern[row] = ppu.readPatternMemory(address + uint16(row))
-        sprite.Pattern[row+8] = ppu.readPatternMemory(address + uint16(row) + 8)
+        address += uint16(row)
+        if ppu.spriteCharacterMapper != nil {
+            sprite.Pattern[row] = ppu.spriteCharacterMapper.ReadSpriteCharacter(ppu, address)
+            sprite.Pattern[row+8] = ppu.spriteCharacterMapper.ReadSpriteCharacter(ppu, address + 8)
+        } else {
+            sprite.Pattern[row] = ppu.readPatternMemory(address)
+            sprite.Pattern[row+8] = ppu.readPatternMemory(address + 8)
+        }
     }
 }
 
@@ -1454,10 +1468,17 @@ func (ppu *PPUState) nametableMirrorAddress(address uint16) uint16 {
 }
 
 func (ppu *PPUState) LoadNametableMemory(address uint16) byte {
+    if ppu.nametableMapper != nil {
+        return ppu.nametableMapper.ReadNametable(ppu, address)
+    }
     return ppu.NametableMemory[ppu.nametableMirrorAddress(address)]
 }
 
 func (ppu *PPUState) StoreNametableMemory(address uint16, value byte) {
+    if ppu.nametableMapper != nil {
+        ppu.nametableMapper.WriteNametable(ppu, address, value)
+        return
+    }
     ppu.NametableMemory[ppu.nametableMirrorAddress(address)] = value
 }
 
@@ -1473,31 +1494,19 @@ func (ppu *PPUState) LoadBackgroundTile() {
 
     patternTable := ppu.GetBackgroundPatternTableBase()
 
-    _ = coarseY
-    _ = coarseX
-    _ = nametable
-
-    // tileIndex := ppu.VideoMemory[tileAddress]
-    tileIndex := ppu.LoadNametableMemory(tileAddress)
-    patternTileAddress := patternTable + uint16(tileIndex) * 16
-    /* Within the tile, pull out row at an offset of fineY */
-    left := ppu.readPatternMemory(patternTileAddress + uint16(fineY))
-    right := ppu.readPatternMemory(patternTileAddress + 8 + uint16(fineY))
-
-    // log.Printf("Left 0x%x right 0x%x", leftAddr, rightAddr)
-
-    pattern_x := (coarseX/2) & 0x1
-    pattern_y := (coarseY/2) & 0x1
-
-    /* x to x+4
-     * top left = x:x+1, y:y+1
-     * top right = x+2:x+3, y:y+1
-     * bottom left = x:x+1, y+2:y+3
-     * bottom right = x+2:x+3, y+2:y+3
-     */
-    shifter := pattern_x * 2 + pattern_y * 4
-    patternAttributeValue := ppu.LoadNametableMemory(attributeAddress)
-    color_set := (patternAttributeValue >> shifter) & 0x3
+    var left, right, color_set, tileIndex, patternAttributeValue byte
+    var patternTileAddress uint16
+    if ppu.backgroundTileMapper != nil {
+        left, right, color_set = ppu.backgroundTileMapper.ReadBackgroundTile(ppu, tileAddress, patternTable, fineY)
+    } else {
+        tileIndex = ppu.LoadNametableMemory(tileAddress)
+        patternTileAddress = patternTable + uint16(tileIndex) * 16
+        left = ppu.readPatternMemory(patternTileAddress + uint16(fineY))
+        right = ppu.readPatternMemory(patternTileAddress + 8 + uint16(fineY))
+        patternAttributeValue = ppu.LoadNametableMemory(attributeAddress)
+        shifter := ((coarseX / 2) & 1) * 2 + ((coarseY / 2) & 1) * 4
+        color_set = (patternAttributeValue >> shifter) & 3
+    }
     /* the actual palette to use */
     palette_base := uint16(color_set) * 4
 
@@ -1607,6 +1616,10 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
 
                 ppu.PreloadTiles()
             }
+        }
+
+        if ppu.renderingScanlineMapper != nil && ppu.ScanlineCycle == 1 {
+            ppu.renderingScanlineMapper.RenderingScanline(ppu.Scanline, ppu.IsBackgroundEnabled() || ppu.IsSpriteEnabled())
         }
 
         /* Finished drawing the scene */
