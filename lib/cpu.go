@@ -1035,7 +1035,7 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
             value := (cpu.Databus & 0b11100000) | (input & 0b11111)
             return value
         case APUStatus:
-            return (cpu.Databus & 0b11100000) | (cpu.APU.ReadStatus() & 0b11111)
+            return (cpu.Databus & 0x20) | cpu.APU.ReadStatus() // Only bit 5 is open bus.
     }
 
     // NSF bank selectors are write-only. Indexed stores still perform a
