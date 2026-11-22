@@ -5,6 +5,62 @@ import (
 	"testing"
 )
 
+func TestDMCReaderPrefetchAndRestart(t *testing.T) {
+	cpu := StartupState()
+	program := make([]byte, 0x8000)
+	program[0x4000], program[0x4001], program[0x4040] = 0x81, 0x42, 0xff
+	cpu.SetMapper(MakeMapper0(program))
+	apu := &cpu.APU
+	dmc := &apu.DMC
+	cpu.StoreMemory(0x4010, 0x8f)
+	cpu.StoreMemory(0x4012, 0)
+	cpu.StoreMemory(0x4013, 1)
+	if apu.ReadStatus()&0x10 != 0 {
+		t.Fatal("configuring a sample started the reader")
+	}
+	cpu.StoreMemory(0x4015, 0x10)
+	dmc.Run(0.5, &cpu)
+	if !dmc.SampleBufferFull || dmc.SampleBuffer != 0x81 || !dmc.Silence || dmc.BytesRemaining != 16 {
+		t.Fatal("first byte wasn't prefetched independently of the output timer")
+	}
+	cpu.StoreMemory(0x4012, 1)
+	cpu.StoreMemory(0x4013, 0)
+	dmc.Run(dmc.TimerRemaining+7*dmc.Frequency, &cpu)
+	if dmc.Silence || dmc.ShiftRegister != 0x81 || dmc.SampleBuffer != 0x42 || dmc.BytesRemaining != 15 {
+		t.Fatal("playback didn't consume the prefetched byte or used the new address/length early")
+	}
+	cpu.StoreMemory(0x4015, 0)
+	cpu.StoreMemory(0x4015, 0x10)
+	dmc.Run(0, &cpu)
+	if dmc.SampleBuffer != 0x42 || !dmc.SampleBufferFull || dmc.Address != 0xc040 || dmc.BytesRemaining != 1 {
+		t.Fatal("restarting did not preserve the prefetched byte")
+	}
+	dmc.Run(8*dmc.Frequency, &cpu)
+	if dmc.ShiftRegister != 0x42 || dmc.SampleBuffer != 0xff || !dmc.IRQAsserted || dmc.BytesRemaining != 0 {
+		t.Fatal("next sample did not fetch from the new address and assert IRQ on its last fetch")
+	}
+	cpu.StoreMemory(0x4010, 0x0f)
+	if dmc.IRQAsserted {
+		t.Fatal("disabling DMC IRQ did not clear it")
+	}
+}
+
+func TestDMCRateWritePreservesTimerCountdown(t *testing.T) {
+	cpu := StartupState()
+	apu := &cpu.APU
+	dmc := &apu.DMC
+	dmc.Run(100, &cpu)
+	cpu.StoreMemory(0x4010, 0x0f)
+	dmc.Run(113.5, &cpu)
+	if dmc.BitsRemaining != 8 || dmc.TimerRemaining != 0.5 {
+		t.Fatal("rate change interrupted the previous countdown")
+	}
+	dmc.Run(0.5, &cpu)
+	if dmc.BitsRemaining != 7 || dmc.TimerRemaining != 27 {
+		t.Fatal("timer did not reload at the new rate")
+	}
+}
+
 func TestAPULengthCounterEnableAndHalt(t *testing.T) {
 	for channel, name := range []string{"pulse1", "pulse2", "triangle", "noise"} {
 		t.Run(name, func(t *testing.T) {
