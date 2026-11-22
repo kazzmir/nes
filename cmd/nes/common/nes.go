@@ -540,7 +540,7 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
                 break
             }
 
-            err := cpu.Run(instructionTable)
+            drawn, err := cpu.Step(instructionTable, screen)
             if err != nil {
                 return err
             }
@@ -549,9 +549,6 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             cycleCounter -= float64(usedCycles - lastCpuCycle)
 
             cpu.APU.Run((float64(usedCycles) - float64(lastCpuCycle)) / 2.0, turboMultiplier * baseCyclesPerSample, cpu)
-
-            /* ppu runs 3 times faster than cpu */
-            nmi, drawn := cpu.PPU.Run((usedCycles - lastCpuCycle) * 3, screen)
 
             if drawn {
                 screenListeners.ObserveVideo(screen)
@@ -565,13 +562,6 @@ func RunNES(romPath string, cpu *nes.CPUState, maxCycles uint64, quit context.Co
             }
 
             lastCpuCycle = usedCycles
-
-            if nmi {
-                if cpu.Debug > 0 && verbose > 0 {
-                    log.Printf("Cycle %v Do NMI\n", cpu.Cycle)
-                }
-                cpu.NMI()
-            }
         }
 
         if yield() != nil {

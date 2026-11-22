@@ -62,6 +62,9 @@ type PPUState struct {
     Scanline int `json:"scanline"`
     /* counts in the x direction during rendering, from 0-340 */
     ScanlineCycle int `json:"scanlinecycle"`
+    DotClock uint64 `json:"dotclock"`
+    NMIPending bool `json:"nmipending"`
+    NMIEdgeDot uint64 `json:"nmiedgedot"`
     TemporaryVideoAddress uint16 `json:"t_register"` /* the t register */
     VideoAddress uint16 `json:"videoaddress"` /* the v register */
     WriteState byte `json:"writestate"` /* for writing to the video address or the t register */
@@ -135,6 +138,9 @@ func (ppu *PPUState) Copy() PPUState {
         Status: ppu.Status,
         Scanline: ppu.Scanline,
         ScanlineCycle: ppu.ScanlineCycle,
+        DotClock: ppu.DotClock,
+        NMIPending: ppu.NMIPending,
+        NMIEdgeDot: ppu.NMIEdgeDot,
         TemporaryVideoAddress: ppu.TemporaryVideoAddress,
         VideoAddress: ppu.VideoAddress,
         WriteState: ppu.WriteState,
@@ -369,6 +375,7 @@ func (ppu *PPUState) WriteScroll(value byte){
 }
 
 func (ppu *PPUState) SetControllerFlags(value byte) {
+    oldNMI := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
     if ppu.Debug > 0 {
         log.Printf("PPU set controller flags to 0x%x. VBlank is %v. Scanline %v cycle %v", value, ppu.IsVerticalBlankFlagSet(), ppu.Scanline, ppu.ScanlineCycle)
     }
@@ -383,6 +390,7 @@ func (ppu *PPUState) SetControllerFlags(value byte) {
     }
 
     ppu.Flags = value
+    ppu.latchNMIEdge(oldNMI)
 }
 
 func (ppu *PPUState) GetNameTableIndex() byte {
@@ -670,11 +678,20 @@ func (ppu *PPUState) SetSpriteZeroHit(on bool){
 }
 
 func (ppu *PPUState) SetVerticalBlankFlag(on bool){
+    oldNMI := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
     bit := byte(1<<7)
     if on {
         ppu.Status = ppu.Status | bit
     } else {
         ppu.Status = ppu.Status & (^bit)
+    }
+    ppu.latchNMIEdge(oldNMI)
+}
+
+func (ppu *PPUState) latchNMIEdge(oldNMI bool) {
+    if !oldNMI && ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput() && !ppu.NMIPending {
+        ppu.NMIPending = true
+        ppu.NMIEdgeDot = ppu.DotClock
     }
 }
 
@@ -1526,6 +1543,7 @@ func (ppu *PPUState) Run(cycles uint64, screen VirtualScreen) (bool, bool) {
     oldNMI := ppu.IsVerticalBlankFlagSet() && ppu.GetNMIOutput()
     didDraw := false
     for range cycles {
+        ppu.DotClock += 1
         if ppu.IsBackgroundEnabled() || ppu.IsSpriteEnabled() {
             if ppu.Scanline < 240 && ppu.ScanlineCycle <= 256 {
                 sprite0 := ppu.RenderPixel(ppu.Scanline, ppu.ScanlineCycle, ppu.CurrentSprites, &screen)

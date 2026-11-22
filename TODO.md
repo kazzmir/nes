@@ -207,17 +207,42 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   also need board-specific mapping; current fallback bounds-checks bank holes
   instead of guessing modulo wiring.
 
+## CPU/PPU integration
+
+- [x] **Bad Dudes stalls on a grey screen waiting for vblank.** Its main
+  loop polls `$2002` at `$F697`, while its NMI handler acknowledges `$2002`.
+  Reading PPU registers before advancing the PPU for the instruction, then
+  dispatching NMI immediately, starved the foreground poll.
+  - `CPUState.Step` synchronizes PPU register accesses with implemented CPU
+    bus cycles, latches NMI edges, and polls before the instruction's final
+    cycle. Late edges wait for the next poll; early edges are not delayed
+    unconditionally. Interrupt entry and DMA stalls also advance the PPU.
+  - Tests: `lib/cpu_ppu_test.go` has synthetic timing, polling-loop,
+    indirect-access, DMA/priority, and copy/save-state regressions.
+    `test/screenshot/screenshot_test.go` optionally checks the local ROM.
+  - Verified the local ROM reaches its logo, title, and first-stage gameplay
+    with scripted Start input; this does not establish complete compatibility.
+  - Core fix: `719cb32`. The external `ppu_vbl_nmi/04-nmi_control.nes`
+    reports Passed; `05-nmi_timing.nes` still fails its exact-dot timing check.
+- [ ] **Complete CPU/PPU cycle accuracy.** The instruction interpreter still
+  omits some internal/dummy cycles; interrupt hijacking, branch-specific
+  interrupt polling, and dot-level vblank/NMI suppression windows need
+  dedicated work. The Bad Dudes fix does not resolve MMC3 A12 IRQ accuracy.
+
 ## Validation
 
 From the repository root:
 
 ```sh
-go test ./lib/... ./test/mappers
+go test ./lib/... ./test/... ./cmd/nes/common
+go test ./test/screenshot -run TestBadDudes -v
 go run ./test/mappers
 ```
 
 The standalone checker requires the local mapper-9 ROM (or `-rom path/to/rom`).
 The Go unit tests use synthetic cartridge data and do not require ROM files.
+The optional Bad Dudes regression requires `roms/Bad Dudes (U).nes` and skips
+when that local ROM is absent. It checks startup graphics, not full gameplay.
 The checker isolates latch banking; it is not proof of cycle-accurate rendering
 or complete MMC2 gameplay compatibility.
 
