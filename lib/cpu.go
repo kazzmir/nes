@@ -1038,6 +1038,12 @@ func (cpu *CPUState) loadMemory(address uint16) byte {
             return (cpu.Databus & 0b11100000) | (cpu.APU.ReadStatus() & 0b11111)
     }
 
+    // NSF bank selectors are write-only. Indexed stores still perform a
+    // dummy read here, but the hardware leaves the data bus undriven.
+    if address >= 0x5ff8 && address <= 0x5fff && cpu.Mapper.Mapper != nil && cpu.Mapper.Mapper.IsNSF() {
+        return cpu.Databus
+    }
+
     if page >= 0x60 {
         if cpu.Mapper.Mapper == nil {
             log.Printf("No mapper set, cannot read from mapper memory: 0x%x", address)
