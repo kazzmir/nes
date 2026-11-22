@@ -264,6 +264,12 @@ Refactor: `179265c`. This does **not** fix MMC3 IRQ accuracy.
   behavior). PPU and CPU/APU bus timing are still approximate. Dendy timing
   and PAL NSF playback are outside the cartridge timing implementation.
 
+## NSF playback
+
+- [x] **Akumajou Densetsu logs unmapped reads while switching banks.** The
+  indexed stores at `$E01B` dummy-read the write-only NSF bank selectors.
+  Reads at `$5FF8–$5FFF` now return open bus without warnings; writes are unchanged.
+
 ## Validation
 
 From the repository root:
