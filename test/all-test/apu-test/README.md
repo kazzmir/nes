@@ -45,8 +45,16 @@ with no clock at 29829. A delayed `$4017` reset also cannot clock the frame
 units again just one CPU cycle after a sequencer tick. The old code could
 exhaust the pulse length counter before these ROMs read `$4015`.
 
-Tests 1–8 now pass; 9 and 10 still fail. Four-step timing remains approximate,
-and CPU/APU register accesses are still instruction-batched.
+This brought the suite to 8/10.
+
+## Tests 9 and 10 fix
+
+The four-step sequencer now clocks length at CPU cycles 14913 and 29829,
+with the sequence wrapping at 29830. Previously, the uniform interval placed
+its final length clock at 29830, where a delayed `$4017` reset could discard it.
+
+All ten ROMs now pass. This is not a complete cycle-accurate APU: frame IRQ
+assertion is still simplified, and CPU/APU accesses are instruction-batched.
 
 `doTest` now has a two-second emulated-cycle limit rather than hanging on an
 unexpected execution path. `Run` returns false if any ROM fails, instead of

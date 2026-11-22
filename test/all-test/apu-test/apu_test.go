@@ -20,8 +20,7 @@ func localAPUROM(t *testing.T, path string) string {
 }
 
 func TestAPUFrameCounterROMs(t *testing.T) {
-	// Tests 9/10 remain known failures.
-	for number := 1; number <= 8; number++ {
+	for number := 1; number <= len(apuTests); number++ {
 		t.Run(fmt.Sprintf("test_%d", number), func(t *testing.T) {
 			test := apuTests[number-1]
 			rom := localAPUROM(t, test.Rom)
