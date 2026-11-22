@@ -653,19 +653,15 @@ func (apu *APUState) clockFrameUnits(half bool) {
 
 func (apu *APUState) runFrameCounter(apuCycles float64, includeEnd bool) {
     elapsed := apuCycles
-    // Four-step NTSC events at 7457, 14913, 22371, 29829 CPU cycles.
-    // The last half-frame clock precedes the wrap at 29830 by one cycle.
-    fourStepIntervals := [...]float64{7457, 7456, 7458, 7458}
-    // Five-step NTSC event positions, in CPU cycles from reset:
-    // 7457, 14913, 22371, 29829 (idle), 37281. It wraps at 37282.
-    fiveStepIntervals := [...]float64{7457, 7456, 7458, 7458, 7452}
+    // NTSC events at 7457, 14913, 22371, and 29829 CPU cycles from reset.
+    // In five-step mode, 29829 is idle and the final clock is at 37281.
+    intervals := []float64{7457, 7456, 7458, 7458, 7452}
+    if apu.FrameMode {
+        intervals = intervals[:4]
+    }
     // A reset at the exact event boundary takes precedence over the old
     // sequencer's event; all clocks strictly before it must still occur.
     for {
-        intervals := fiveStepIntervals[:]
-        if apu.FrameMode {
-            intervals = fourStepIntervals[:]
-        }
         slot := apu.Clock % uint64(len(intervals))
         apuCounter := intervals[slot] / 2
         if slot == 0 && apu.Clock != 0 {
