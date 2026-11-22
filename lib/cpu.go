@@ -1453,6 +1453,9 @@ func (cpu *CPUState) Step(table InstructionTable, screen VirtualScreen) (bool, e
         return cpu.ppuStep.drawn, fmt.Errorf("PPU register access exceeds CPU instruction cycles at $%04x", cpu.PC)
     }
     cpu.advancePPU(elapsed)
+    if mapper, ok := cpu.Mapper.Mapper.(CPUClockMapper); ok {
+        mapper.ClockCPU(elapsed)
+    }
 
     // Recover the number of dots in the final CPU cycle from its end phase.
     // The edge must have arrived by the penultimate cycle's poll. Do not

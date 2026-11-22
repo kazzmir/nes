@@ -2,9 +2,7 @@ package lib
 
 // https://www.nesdev.org/wiki/VRC6_audio
 
-import (
-    // "log"
-)
+import "math"
 
 // memory addresses to control the VRC6 audio chip
 const VRC6FrequencyControl = 0x9003
@@ -157,7 +155,7 @@ type VRC6Audio struct {
     Saw VRC6Saw
     SampleCycles float64
 
-    AudioStream *AudioStream
+    AudioStream *AudioStream `json:"-"`
 
     Halt bool
     X16 bool
@@ -213,12 +211,8 @@ func (vrc6 *VRC6Audio) Run(cycles float64, cyclesPerSample float64) {
 
     vrc6.SampleCycles += cycles
 
-    for cycles > 0 {
-        cycles -= 1
-
-        vrc6.Pulse1.Run(vrc6.X16, vrc6.X256)
-        vrc6.Pulse2.Run(vrc6.X16, vrc6.X256)
-        vrc6.Saw.Run(vrc6.X16, vrc6.X256)
+    if cycles > 0 {
+        vrc6.clockCPU(uint64(math.Ceil(cycles)))
     }
 
     if vrc6.SampleCycles >= cyclesPerSample {
@@ -227,6 +221,17 @@ func (vrc6 *VRC6Audio) Run(cycles float64, cyclesPerSample float64) {
             vrc6.SampleCycles -= cyclesPerSample
             vrc6.AudioStream.AddSample2(sample)
         }
+    }
+}
+
+func (vrc6 *VRC6Audio) clockCPU(cycles uint64) {
+    if vrc6.Halt {
+        return
+    }
+    for range cycles {
+        vrc6.Pulse1.Run(vrc6.X16, vrc6.X256)
+        vrc6.Pulse2.Run(vrc6.X16, vrc6.X256)
+        vrc6.Saw.Run(vrc6.X16, vrc6.X256)
     }
 }
 

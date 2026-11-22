@@ -91,6 +91,16 @@ type ScanlineMapper interface {
     Scanline()
 }
 
+// CPUClockMapper advances cartridge hardware using elapsed CPU cycles.
+type CPUClockMapper interface {
+    ClockCPU(cycles uint64)
+}
+
+// ExpansionAudioMapper supplies audio mixed with the internal APU.
+type ExpansionAudioMapper interface {
+    ExpansionSample() float32
+}
+
 // ExpansionMapper identifies CPU registers below the usual cartridge window.
 type ExpansionMapper interface {
     MapsExpansion(address uint16) bool
@@ -257,6 +267,13 @@ func (state *MapperState) UnmarshalJSON(data []byte) error {
             }
             state.Mapper = mapper11
             return nil
+        case 24:
+            mapper24, err := unmarshalMapper[*Mapper24](data)
+            if err != nil {
+                return err
+            }
+            state.Mapper = mapper24
+            return nil
     }
 
     return fmt.Errorf("could not deserialize mapper. unknown mapper type %v", state.Kind)
@@ -297,6 +314,7 @@ func MakeMapper(mapper uint32, programRom []byte, chrMemory []byte) (Mapper, err
         case 7: return MakeMapper7(programRom, chrMemory), nil
         case 9: return MakeMapper9(programRom, chrMemory), nil
         case 11: return MakeMapper11(programRom, chrMemory), nil
+        case 24: return MakeMapper24(programRom, chrMemory), nil
         default: return nil, fmt.Errorf("Unimplemented mapper %v", mapper)
     }
 }
@@ -1730,4 +1748,236 @@ func (mapper *Mapper11) ReadCharacter(_ *PPUState, address uint16) byte {
         return 0
     }
     return mapper.CharacterROM[offset]
+}
+
+// Mapper24 implements Konami VRC6a, whose register select pins use CPU A0/A1
+// in order (unlike VRC6b / mapper 26).
+type Mapper24 struct {
+    ProgramROM, CharacterMemory, WorkRAM []byte
+    CharacterRAM bool
+    ProgramBank16, ProgramBank8 byte
+    CharacterBanks [8]byte
+    BankingMode byte
+    IRQReload, IRQCounter, IRQControl byte
+    IRQPrescaler uint64
+    IRQPending bool
+    Audio VRC6Audio
+}
+
+func MakeMapper24(programROM, characterROM []byte) *Mapper24 {
+    characterRAM := len(characterROM) == 0
+    if characterRAM {
+        characterROM = make([]byte, 0x2000)
+    }
+    audio := MakeVRC6Audio(nil)
+    audio.Pulse1.SetEnable(false)
+    audio.Pulse2.SetEnable(false)
+    audio.Saw.SetEnable(false)
+    return &Mapper24{
+        ProgramROM: programROM, CharacterMemory: characterROM, CharacterRAM: characterRAM,
+        WorkRAM: make([]byte, 0x2000), Audio: *audio,
+    }
+}
+
+func (*Mapper24) Kind() int { return 24 }
+func (*Mapper24) IsNSF() bool { return false }
+func (mapper *Mapper24) IsIRQAsserted() bool { return mapper.IRQPending }
+func (mapper *Mapper24) ExpansionSample() float32 { return mapper.Audio.GenerateSample() }
+
+func (mapper *Mapper24) Copy() Mapper {
+    copied := *mapper
+    copied.ProgramROM = copySlice(mapper.ProgramROM)
+    copied.CharacterMemory = copySlice(mapper.CharacterMemory)
+    copied.WorkRAM = copySlice(mapper.WorkRAM)
+    return &copied
+}
+
+func (mapper *Mapper24) Compare(other Mapper) error {
+    if !reflect.DeepEqual(mapper, other) {
+        return fmt.Errorf("VRC6a mapper state differs")
+    }
+    return nil
+}
+
+func (mapper *Mapper24) Read(address uint16) byte {
+    return mapper.ReadWithOpenBus(address, 0)
+}
+
+func (mapper *Mapper24) ReadWithOpenBus(address uint16, openBus byte) byte {
+    var bank, bankSize int
+    switch {
+    case address >= 0xe000:
+        bankSize = 0x2000
+        bank = len(mapper.ProgramROM)/bankSize - 1
+    case address >= 0xc000:
+        bankSize, bank = 0x2000, int(mapper.ProgramBank8)
+    case address >= 0x8000:
+        bankSize, bank = 0x4000, int(mapper.ProgramBank16)
+    case address >= 0x6000 && mapper.BankingMode&0x80 != 0:
+        offset := int(address - 0x6000)
+        if offset < len(mapper.WorkRAM) {
+            return mapper.WorkRAM[offset]
+        }
+        return openBus
+    default:
+        return openBus
+    }
+    offset := mirrorBank(bank, len(mapper.ProgramROM)/bankSize)*bankSize + int(address)%bankSize
+    if offset < 0 || offset >= len(mapper.ProgramROM) {
+        return openBus
+    }
+    return mapper.ProgramROM[offset]
+}
+
+func (mapper *Mapper24) Write(_ *CPUState, address uint16, value byte) error {
+    if address < 0x8000 {
+        if address >= 0x6000 && mapper.BankingMode&0x80 != 0 {
+            offset := int(address - 0x6000)
+            if offset < len(mapper.WorkRAM) {
+                mapper.WorkRAM[offset] = value
+            }
+        }
+        return nil
+    }
+    register := address & 0xf003
+    if mapper.Audio.HandleWrite(register, value) {
+        return nil
+    }
+    switch register & 0xf000 {
+    case 0x8000:
+        mapper.ProgramBank16 = value & 0x0f
+    case 0xc000:
+        mapper.ProgramBank8 = value & 0x1f
+    case 0xd000:
+        mapper.CharacterBanks[register&3] = value
+    case 0xe000:
+        mapper.CharacterBanks[4+(register&3)] = value
+    default:
+        switch register {
+        case 0xb003:
+            mapper.BankingMode = value
+        case 0xf000:
+            mapper.IRQReload = value
+        case 0xf001:
+            mapper.IRQControl = value & 7
+            mapper.IRQPending = false
+            if value&2 != 0 {
+                mapper.IRQCounter = mapper.IRQReload
+                mapper.IRQPrescaler = 0
+            }
+        case 0xf002:
+            mapper.IRQControl = (mapper.IRQControl &^ 2) | (mapper.IRQControl&1)<<1
+            mapper.IRQPending = false
+        }
+    }
+    return nil
+}
+
+func (mapper *Mapper24) ClockCPU(cycles uint64) {
+    mapper.Audio.clockCPU(cycles)
+    if mapper.IRQControl&2 == 0 {
+        return
+    }
+    ticks := cycles
+    if mapper.IRQControl&4 == 0 {
+        // The internal prescaler counts 341 units at three units per CPU
+        // cycle, independently of PPU rendering and video region.
+        elapsed := mapper.IRQPrescaler + cycles*3
+        ticks, mapper.IRQPrescaler = elapsed/341, elapsed%341
+    }
+    for range ticks {
+        if mapper.IRQCounter == 0xff {
+            mapper.IRQCounter = mapper.IRQReload
+            mapper.IRQPending = true
+        } else {
+            mapper.IRQCounter++
+        }
+    }
+}
+
+func (mapper *Mapper24) patternBank(address uint16) byte {
+    page := address >> 10 & 7
+    register := page
+    paired := false
+    switch mapper.BankingMode & 3 {
+    case 1:
+        register, paired = page/2, true
+    case 2, 3:
+        if page >= 4 {
+            register, paired = 4+(page-4)/2, true
+        }
+    }
+    bank := mapper.CharacterBanks[register]
+    if paired && mapper.BankingMode&0x20 != 0 {
+        bank = bank & 0xfe | byte(page&1)
+    }
+    return bank
+}
+
+func (mapper *Mapper24) characterOffset(bank byte, address uint16) int {
+    return mirrorBank(int(bank), len(mapper.CharacterMemory)/0x400)*0x400 + int(address&0x3ff)
+}
+
+func (mapper *Mapper24) readCharacterBank(bank byte, address uint16) byte {
+    offset := mapper.characterOffset(bank, address)
+    if offset < len(mapper.CharacterMemory) {
+        return mapper.CharacterMemory[offset]
+    }
+    return 0
+}
+
+func (mapper *Mapper24) writeCharacterBank(bank byte, address uint16, value byte) {
+    if mapper.CharacterRAM {
+        offset := mapper.characterOffset(bank, address)
+        if offset < len(mapper.CharacterMemory) {
+            mapper.CharacterMemory[offset] = value
+        }
+    }
+}
+
+func (mapper *Mapper24) ReadCharacter(_ *PPUState, address uint16) byte {
+    return mapper.readCharacterBank(mapper.patternBank(address), address)
+}
+
+func (mapper *Mapper24) WriteCharacter(_ *PPUState, address uint16, value byte) {
+    mapper.writeCharacterBank(mapper.patternBank(address), address, value)
+}
+
+func (mapper *Mapper24) nametableBank(address uint16) byte {
+    page := byte(address >> 10 & 3)
+    switch mapper.BankingMode & 0x2f {
+    case 0x20, 0x27:
+        return mapper.CharacterBanks[6+page/2]&0xfe | page&1
+    case 0x23, 0x24:
+        return mapper.CharacterBanks[6+page%2]&0xfe | page>>1
+    case 0x28, 0x2f:
+        return mapper.CharacterBanks[6+page/2] & 0xfe
+    case 0x2b, 0x2c:
+        return mapper.CharacterBanks[6+page%2] | 1
+    }
+    switch mapper.BankingMode & 7 {
+    case 0, 6, 7:
+        return mapper.CharacterBanks[6+page/2]
+    case 1, 5:
+        return mapper.CharacterBanks[4+page]
+    default:
+        return mapper.CharacterBanks[6+page%2]
+    }
+}
+
+func (mapper *Mapper24) ReadNametable(ppu *PPUState, address uint16) byte {
+    bank := mapper.nametableBank(address)
+    if mapper.BankingMode&0x10 != 0 {
+        return mapper.readCharacterBank(bank, address)
+    }
+    return ppu.NametableMemory[uint16(bank&1)*0x400+(address&0x3ff)]
+}
+
+func (mapper *Mapper24) WriteNametable(ppu *PPUState, address uint16, value byte) {
+    bank := mapper.nametableBank(address)
+    if mapper.BankingMode&0x10 != 0 {
+        mapper.writeCharacterBank(bank, address, value)
+    } else {
+        ppu.NametableMemory[uint16(bank&1)*0x400+(address&0x3ff)] = value
+    }
 }
